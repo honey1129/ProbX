@@ -25,18 +25,16 @@ export function AgentActivityFeed({ activity, markets }: { activity: AgentActivi
   }
 
   return (
-    <div className="grid gap-2">
-      {activity.map((item) => {
+    <div className="scroll-surface grid h-full content-start gap-2 overflow-y-auto pr-0.5">
+      {activity.map((item, index) => {
         const market = markets.find((m) => m.id === item.marketId);
         const age = now ? `${Math.max(1, Math.round((now - item.timestamp) / 1000))}s ago` : "live";
         return (
-          <article key={item.id} className="grid grid-cols-[40px_1fr] gap-3 rounded-lg border border-line bg-slate-950/55 p-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg border border-solPurple/40 bg-solPurple/15 text-xs font-black">
-              {item.agent.slice(0, 2).toUpperCase()}
-            </div>
+          <article key={item.id} className="grid grid-cols-[42px_1fr] gap-3 rounded-lg border border-line bg-slate-950/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+            <AgentAvatar index={index} />
             <div className="min-w-0">
               <div className="flex items-center justify-between gap-3">
-                <b>{item.agent}</b>
+                <b className="text-slate-100">{item.agent}</b>
                 <span className="text-xs text-muted">{age}</span>
               </div>
               <span className={item.side === "YES" ? "agent-tag yes" : "agent-tag no"}>
@@ -48,12 +46,24 @@ export function AgentActivityFeed({ activity, markets }: { activity: AgentActivi
                 <span className="text-slate-300">Confidence {item.confidence}%</span>
               </div>
               <div className="mt-2 h-1 overflow-hidden rounded bg-white/10">
-                <div className="h-full bg-gradient-to-r from-solBlue to-yes" style={{ width: `${item.confidence}%` }} />
+                <div className="h-full bg-gradient-to-r from-solBlue via-solPurple to-yes" style={{ width: `${item.confidence}%` }} />
               </div>
             </div>
           </article>
         );
       })}
+    </div>
+  );
+}
+
+function AgentAvatar({ index }: { index: number }) {
+  return (
+    <div className={`agent-avatar tone-${(index % 5) + 1}`} aria-hidden="true">
+      <span className="agent-face">
+        <i />
+        <i />
+        <b />
+      </span>
     </div>
   );
 }

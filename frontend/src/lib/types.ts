@@ -6,7 +6,7 @@ export type Market = {
   creator: string;
   endTime: number;
   question: string;
-  category: "Crypto" | "Politics" | "Sports" | "On-chain";
+  category: "Crypto" | "Politics" | "Sports" | "On-chain" | "Tech" | "Macro";
   yesPool: number;
   noPool: number;
   totalLiquidity: number;

@@ -25,15 +25,19 @@ export function ProbabilityChart({
   const secondarySeries = side === "NO" ? yesSeries : noSeries;
   const points = toPoints(primarySeries);
   const secondaryPoints = toPoints(secondarySeries);
-  const primaryColor = side === "NO" ? "#ff4e5c" : "#19f58c";
-  const secondaryColor = side === "NO" ? "#19f58c" : "#ff4e5c";
-  const gradientColor = side === "NO" ? "#ff4e5c" : "#19f58c";
+  const primaryColor = side === "BOTH" ? "#b169ff" : side === "NO" ? "#ff4e5c" : "#19f58c";
+  const secondaryColor = side === "BOTH" ? "#19f58c" : side === "NO" ? "#19f58c" : "#ff4e5c";
+  const gradientColor = side === "BOTH" ? "#9b5cff" : side === "NO" ? "#ff4e5c" : "#19f58c";
   const hoverIndex = hoverX === null ? null : Math.min(primarySeries.length - 1, Math.max(0, Math.round((hoverX / 1000) * (primarySeries.length - 1))));
   const hoverValue = hoverIndex === null ? null : primarySeries[hoverIndex];
   const hoverY = hoverValue === null ? null : (1 - clamp(hoverValue)) * 260 + 25;
+  const yesLatest = yesSeries[yesSeries.length - 1] ?? 0;
+  const noLatest = 1 - yesLatest;
+  const yesY = (1 - clamp(yesLatest)) * 260 + 25;
+  const noY = (1 - clamp(noLatest)) * 260 + 25;
 
   return (
-    <div className={compact ? "chart-card h-56" : "chart-card h-[420px]"}>
+    <div className={compact ? "chart-card h-full min-h-[250px]" : "chart-card h-[420px]"}>
       <svg
         className="h-full w-full cursor-crosshair"
         viewBox="0 0 1000 320"
@@ -76,7 +80,7 @@ export function ProbabilityChart({
               y={310 - height}
               width="5"
               height={height}
-              fill={i % 3 === 0 ? "rgba(155,92,255,.48)" : "rgba(25,245,140,.28)"}
+              fill={i % 3 === 0 ? "rgba(155,92,255,.52)" : "rgba(25,245,140,.30)"}
             />
           );
         })}
@@ -96,6 +100,16 @@ export function ProbabilityChart({
           <div className="mt-1 text-muted">{timeframe} sample #{(hoverIndex ?? 0) + 1}</div>
         </div>
       ) : null}
+      {side === "BOTH" ? (
+        <div className="pointer-events-none absolute left-3 top-3 flex gap-2 text-xs">
+          <span className="inline-flex items-center gap-1 rounded border border-solPurple/45 bg-solPurple/15 px-2 py-1 font-black text-violet-200">
+            <i className="h-2 w-2 rounded-full bg-solPurple" /> YES {formatPrice(yesLatest)}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded border border-yes/35 bg-yes/10 px-2 py-1 font-black text-yes">
+            <i className="h-2 w-2 rounded-full bg-yes" /> NO {formatPrice(noLatest)}
+          </span>
+        </div>
+      ) : null}
       <div className="pointer-events-none absolute right-3 top-3 grid gap-10 text-right text-xs text-muted">
         <span>100¢</span>
         <span>75¢</span>
@@ -103,6 +117,32 @@ export function ProbabilityChart({
         <span>25¢</span>
         <span>0¢</span>
       </div>
+      <div className="pointer-events-none absolute bottom-3 left-4 right-16 flex justify-between text-xs text-muted">
+        <span>00:00</span>
+        <span>03:00</span>
+        <span>06:00</span>
+        <span>09:00</span>
+        <span>12:00</span>
+        <span>15:00</span>
+        <span>18:00</span>
+        <span>21:00</span>
+      </div>
+      {side === "BOTH" ? (
+        <>
+          <span
+            className="pointer-events-none absolute right-3 rounded border border-solPurple/60 bg-solPurple/80 px-2 py-1 text-xs font-black text-white shadow-glow"
+            style={{ top: `calc(${(yesY / 320) * 100}% - 12px)` }}
+          >
+            {formatPrice(yesLatest)}
+          </span>
+          <span
+            className="pointer-events-none absolute right-3 rounded border border-yes/60 bg-yes/20 px-2 py-1 text-xs font-black text-yes shadow-yes"
+            style={{ top: `calc(${(noY / 320) * 100}% - 12px)` }}
+          >
+            {formatPrice(noLatest)}
+          </span>
+        </>
+      ) : null}
     </div>
   );
 }

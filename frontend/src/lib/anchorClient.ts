@@ -200,6 +200,26 @@ export async function sellShares(params: {
     .rpc();
 }
 
+export async function redeemWinnings(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+}) {
+  const program = getProgram(params.connection, params.wallet);
+  const owner = params.wallet.publicKey;
+  const market = new PublicKey(params.market.publicKey);
+  const position = getPositionPda(market, owner);
+
+  return program.methods
+    .redeemWinnings()
+    .accounts({
+      market,
+      position,
+      owner
+    })
+    .rpc();
+}
+
 export function quoteBuyShares(market: Market, side: Side, amountSol: number) {
   const yesPool = solToLamportsBigInt(market.yesPool);
   const noPool = solToLamportsBigInt(market.noPool);

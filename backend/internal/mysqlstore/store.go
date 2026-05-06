@@ -238,6 +238,10 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 	req.MarketID = strings.TrimSpace(req.MarketID)
 	req.Owner = normalizeText(req.Owner, "local")
 	req.Side = strings.ToUpper(strings.TrimSpace(req.Side))
+	req.Action = strings.ToUpper(strings.TrimSpace(req.Action))
+	if req.Action == "" {
+		req.Action = "BUY"
+	}
 	req.Status = normalizeText(req.Status, "indexed")
 	req.Signature = normalizeText(req.Signature, "simulated")
 	if req.MarketID == "" {
@@ -245,6 +249,9 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 	}
 	if req.Side != "YES" && req.Side != "NO" {
 		return models.TradeResponse{}, fmt.Errorf("%w: side must be YES or NO", ErrInvalid)
+	}
+	if req.Action != "BUY" && req.Action != "SELL" {
+		return models.TradeResponse{}, fmt.Errorf("%w: action must be BUY or SELL", ErrInvalid)
 	}
 	if req.AmountSOL <= 0 || math.IsNaN(req.AmountSOL) || math.IsInf(req.AmountSOL, 0) {
 		return models.TradeResponse{}, fmt.Errorf("%w: amountSol must be positive", ErrInvalid)
@@ -280,22 +287,48 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 		entryProbability = 1 - entryProbability
 	}
 
-	sharesOut, nextYesPool, nextNoPool, err := quoteBuy(market.YesPool, market.NoPool, req.AmountSOL, req.Side)
-	if err != nil {
-		return models.TradeResponse{}, err
+	var (
+		nextYesPool       float64
+		nextNoPool        float64
+		volumeDelta       float64
+		participantsDelta int
+	)
+	now := nowMillis()
+
+	if req.Action == "BUY" {
+		var sharesOut float64
+		sharesOut, nextYesPool, nextNoPool, err = quoteBuy(market.YesPool, market.NoPool, req.AmountSOL, req.Side)
+		if err != nil {
+			return models.TradeResponse{}, err
+		}
+		participantsDelta, err = upsertPosition(ctx, tx, req, sharesOut, entryProbability, now)
+		if err != nil {
+			return models.TradeResponse{}, err
+		}
+		market.TotalLiquidity += req.AmountSOL
+		volumeDelta = req.AmountSOL
+	} else {
+		var lamportsOut float64
+		lamportsOut, nextYesPool, nextNoPool, err = quoteSell(market.YesPool, market.NoPool, req.AmountSOL, req.Side)
+		if err != nil {
+			return models.TradeResponse{}, err
+		}
+		if market.TotalLiquidity < lamportsOut {
+			return models.TradeResponse{}, fmt.Errorf("%w: insufficient market liquidity", ErrInvalid)
+		}
+		if err := reducePosition(ctx, tx, req, req.AmountSOL, now); err != nil {
+			return models.TradeResponse{}, err
+		}
+		market.TotalLiquidity -= lamportsOut
+		volumeDelta = lamportsOut
 	}
+
 	market.YesPool = nextYesPool
 	market.NoPool = nextNoPool
-	market.TotalLiquidity += req.AmountSOL
-	market.Volume24h += req.AmountSOL * 1000
+	market.Volume24h += volumeDelta * 1000
 	nextProbability := probability(market.YesPool, market.NoPool)
 	market.Change24h = nextProbability - previousProbability
 
-	now := nowMillis()
-	participantsDelta, err := upsertPosition(ctx, tx, req, sharesOut, entryProbability, now)
-	if err != nil {
-		return models.TradeResponse{}, err
-	}
 	market.Participants += participantsDelta
 
 	_, err = tx.ExecContext(ctx, `
@@ -325,8 +358,8 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 		Agent:      shortAgentName(req.Owner),
 		MarketID:   req.MarketID,
 		Side:       req.Side,
-		Action:     "BUY",
-		Size:       req.AmountSOL * 1000,
+		Action:     req.Action,
+		Size:       volumeDelta * 1000,
 		Confidence: 99,
 		Timestamp:  now,
 	}
@@ -521,6 +554,38 @@ func upsertPosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, sh
 	return 0, err
 }
 
+func reducePosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, sharesSold float64, now int64) error {
+	var existingSize float64
+	row := tx.QueryRowContext(ctx, `
+		SELECT size
+		FROM positions
+		WHERE owner = ? AND market_id = ? AND side = ?
+		FOR UPDATE`, req.Owner, req.MarketID, req.Side)
+	err := row.Scan(&existingSize)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: position not found", ErrInvalid)
+	}
+	if err != nil {
+		return err
+	}
+	if existingSize+1e-9 < sharesSold {
+		return fmt.Errorf("%w: insufficient position shares", ErrInvalid)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE positions
+		SET size = GREATEST(size - ?, 0),
+		    updated_at = ?
+		WHERE owner = ? AND market_id = ? AND side = ?`,
+		sharesSold,
+		now,
+		req.Owner,
+		req.MarketID,
+		req.Side,
+	)
+	return err
+}
+
 func insertActivity(ctx context.Context, tx *sql.Tx, item models.AgentActivity) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO agent_activity (id, agent, market_id, side, action, size, confidence, timestamp_ms)
@@ -568,12 +633,39 @@ func quoteBuy(yesPool float64, noPool float64, amount float64, side string) (flo
 	return sharesOut, nextYesPool, nextNoPool, nil
 }
 
+func quoteSell(yesPool float64, noPool float64, shares float64, side string) (float64, float64, float64, error) {
+	if yesPool <= 0 || noPool <= 0 {
+		return 0, 0, 0, fmt.Errorf("%w: market has no AMM liquidity", ErrInvalid)
+	}
+	invariant := yesPool * noPool
+	if side == "YES" {
+		nextNoPool := noPool + shares
+		nextYesPool := invariant / nextNoPool
+		lamportsOut := yesPool - nextYesPool
+		if lamportsOut <= 0 {
+			return 0, 0, 0, fmt.Errorf("%w: amount is too small for AMM liquidity", ErrInvalid)
+		}
+		return lamportsOut, nextYesPool, nextNoPool, nil
+	}
+	nextYesPool := yesPool + shares
+	nextNoPool := invariant / nextYesPool
+	lamportsOut := noPool - nextNoPool
+	if lamportsOut <= 0 {
+		return 0, 0, 0, fmt.Errorf("%w: amount is too small for AMM liquidity", ErrInvalid)
+	}
+	return lamportsOut, nextYesPool, nextNoPool, nil
+}
+
 func normalizeCategory(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "politics":
 		return "Politics"
 	case "sports":
 		return "Sports"
+	case "tech":
+		return "Tech"
+	case "macro":
+		return "Macro"
 	case "on-chain", "onchain":
 		return "On-chain"
 	default:

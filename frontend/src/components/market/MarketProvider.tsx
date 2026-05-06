@@ -3,7 +3,16 @@
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { buyShares as buySharesIx, createMarket as createMarketIx, getMarketPda, quoteBuyShares, type AnchorWalletLike } from "@/lib/anchorClient";
+import {
+  buyShares as buySharesIx,
+  createMarket as createMarketIx,
+  getMarketPda,
+  quoteBuyShares,
+  quoteSellShares,
+  redeemWinnings as redeemWinningsIx,
+  sellShares as sellSharesIx,
+  type AnchorWalletLike
+} from "@/lib/anchorClient";
 import { createBackendMarket, fetchBootstrap, isBackendApiConfigured, recordBackendTrade } from "@/lib/backendApi";
 import { clamp, mockActivity, mockMarkets, mockPositions } from "@/lib/mockData";
 import { probability } from "@/lib/format";
@@ -15,6 +24,8 @@ type MarketContextValue = {
   activity: AgentActivity[];
   selectedMarket: (id: string) => Market | undefined;
   buy: (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => Promise<string>;
+  sell: (marketId: string, side: Side, sharesSol: number, options?: TradeOptions) => Promise<string>;
+  redeem: (positionId: string) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
   addMockMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
 };
@@ -94,7 +105,6 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             ...market,
             yesPool,
             noPool,
-            totalLiquidity: yesPool + noPool,
             change24h: clamp(market.change24h * 0.92 + (nextP - p) * 2.2, -0.18, 0.18),
             volume24h: Math.max(100_000, market.volume24h + (Math.random() - 0.35) * 90_000),
             probabilityHistory: [...market.probabilityHistory.slice(-95), nextP]
@@ -110,7 +120,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         return [
           {
             id: `live-${Date.now()}`,
-            agent: ["OmegaAgent", "AlphaBot", "QuantMind", "StatArb", "MacroSense"][Math.floor(Math.random() * 5)],
+            agent: ["OmegaAgent", "AlphaBot", "QuantMind", "StatArb", "MacroSense", "EventHorizon"][Math.floor(Math.random() * 6)],
             marketId: market.id,
             side,
             action,
@@ -152,6 +162,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             owner: ownerId,
             side,
             amountSol,
+            action: "BUY",
             signature: signature === "simulated" ? "indexed" : signature,
             status: signature === "simulated" ? "indexed" : "sent"
           });
@@ -185,18 +196,17 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       const entryProbability = side === "YES" ? probability(market) : 1 - probability(market);
       const shares = bnToSol(quoteBuyShares(market, side, amountSol).sharesOut);
-      setPositions((current) => [
-        {
-          id: `local-${Date.now()}`,
+      setPositions((current) =>
+        upsertLocalPosition(current, {
+          id: localPositionId(marketId, side),
           marketId,
           side,
           size: shares,
           entryProbability,
           currentProbability: entryProbability,
           pnl: 0
-        },
-        ...current
-      ]);
+        })
+      );
 
       setActivity((current) => [
         {
@@ -215,6 +225,138 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       return signature;
     },
     [backendReady, connection, markets, onchainEnabled, ownerId, wallet]
+  );
+
+  const sell = useCallback(
+    async (marketId: string, side: Side, sharesSol: number, options?: TradeOptions) => {
+      const market = markets.find((item) => item.id === marketId);
+      if (!market) throw new Error("Market not found");
+      if (market.resolved) throw new Error("Market is resolved");
+
+      const availableShares = positions
+        .filter((position) => position.marketId === marketId && position.side === side && !position.resolved)
+        .reduce((total, position) => total + position.size, 0);
+      if (sharesSol > availableShares + 1e-9) {
+        throw new Error("Not enough shares to sell.");
+      }
+
+      let signature = "simulated";
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        signature = await sellSharesIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          market,
+          side,
+          sharesSol,
+          slippageBps: options?.slippageBps
+        });
+      }
+
+      if (backendReady) {
+        try {
+          const result = await recordBackendTrade({
+            marketId,
+            owner: ownerId,
+            side,
+            amountSol: sharesSol,
+            action: "SELL",
+            signature: signature === "simulated" ? "indexed" : signature,
+            status: signature === "simulated" ? "indexed" : "sent"
+          });
+
+          setMarkets((current) => upsertById(current, result.market));
+          setPositions((current) => upsertById(current, result.position));
+          setActivity((current) => [result.activity, ...current.filter((item) => item.id !== result.activity.id)].slice(0, 40));
+          return result.signature;
+        } catch (error) {
+          setBackendReady(false);
+          console.warn("ProbX API sell indexing failed, using local simulation.", error);
+        }
+      }
+
+      const quote = quoteSellShares(market, side, sharesSol);
+      const lamportsOut = bnToSol(quote.lamportsOut);
+      setMarkets((current) =>
+        current.map((item) => {
+          if (item.id !== marketId) return item;
+          const yesPool = quote.nextYesPool;
+          const noPool = quote.nextNoPool;
+          return {
+            ...item,
+            yesPool,
+            noPool,
+            totalLiquidity: Math.max(0, item.totalLiquidity - lamportsOut),
+            volume24h: item.volume24h + lamportsOut * 1000,
+            probabilityHistory: [...item.probabilityHistory.slice(-95), yesPool / (yesPool + noPool)]
+          };
+        })
+      );
+      setPositions((current) => reduceLocalPositions(current, marketId, side, sharesSol));
+      setActivity((current) => [
+        {
+          id: `you-${Date.now()}`,
+          agent: wallet.publicKey?.toBase58().slice(0, 6) ?? "You",
+          marketId,
+          side,
+          action: "SELL",
+          size: lamportsOut * 1000,
+          confidence: 99,
+          timestamp: Date.now()
+        },
+        ...current
+      ]);
+
+      return signature;
+    },
+    [backendReady, connection, markets, onchainEnabled, ownerId, positions, wallet]
+  );
+
+  const redeem = useCallback(
+    async (positionId: string) => {
+      const position = positions.find((item) => item.id === positionId);
+      if (!position) throw new Error("Position not found");
+      const market = markets.find((item) => item.id === position.marketId);
+      if (!market) throw new Error("Market not found");
+
+      const winningSide = market.outcome === 1 ? "YES" : market.outcome === 0 ? "NO" : position.side;
+      if (market.resolved && position.side !== winningSide) {
+        throw new Error("This position is not on the winning side.");
+      }
+
+      let signature = "simulated";
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        signature = await redeemWinningsIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          market
+        });
+      }
+
+      setMarkets((current) =>
+        current.map((item) => {
+          if (item.id !== market.id) return item;
+          return {
+            ...item,
+            totalLiquidity: Math.max(0, item.totalLiquidity - position.size)
+          };
+        })
+      );
+      setPositions((current) =>
+        current.map((item) =>
+          item.id === positionId
+            ? {
+                ...item,
+                size: 0,
+                pnl: 0,
+                resolved: true
+              }
+            : item
+        )
+      );
+
+      return signature;
+    },
+    [connection, markets, onchainEnabled, positions, wallet]
   );
 
   const addMockMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
@@ -287,8 +429,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ markets, positions, activity, selectedMarket, buy, createMarket, addMockMarket }),
-    [markets, positions, activity, selectedMarket, buy, createMarket, addMockMarket]
+    () => ({ markets, positions, activity, selectedMarket, buy, sell, redeem, createMarket, addMockMarket }),
+    [markets, positions, activity, selectedMarket, buy, sell, redeem, createMarket, addMockMarket]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;
@@ -308,4 +450,48 @@ function upsertById<T extends { id: string }>(items: T[], next: T) {
 
 function bnToSol(value: { toString: () => string }) {
   return Number(value.toString()) / LAMPORTS_PER_SOL;
+}
+
+function localPositionId(marketId: string, side: Side) {
+  return `local-${marketId}-${side.toLowerCase()}`;
+}
+
+function upsertLocalPosition(items: Position[], next: Position) {
+  const existing = items.find((item) => item.marketId === next.marketId && item.side === next.side && !item.resolved);
+  if (!existing) return [next, ...items];
+
+  const totalSize = existing.size + next.size;
+  const entryProbability =
+    totalSize > 0
+      ? (existing.entryProbability * existing.size + next.entryProbability * next.size) / totalSize
+      : next.entryProbability;
+
+  return items.map((item) =>
+    item.id === existing.id
+      ? {
+          ...item,
+          size: totalSize,
+          entryProbability,
+          currentProbability: next.currentProbability,
+          pnl: (next.currentProbability - entryProbability) * totalSize * 100
+        }
+      : item
+  );
+}
+
+function reduceLocalPositions(items: Position[], marketId: string, side: Side, sharesSol: number) {
+  let remaining = sharesSol;
+  return items
+    .map((position) => {
+      if (remaining <= 0 || position.marketId !== marketId || position.side !== side || position.resolved) {
+        return position;
+      }
+      const sold = Math.min(position.size, remaining);
+      remaining -= sold;
+      return {
+        ...position,
+        size: Math.max(0, position.size - sold)
+      };
+    })
+    .filter((position) => position.size > 1e-9 || position.resolved);
 }

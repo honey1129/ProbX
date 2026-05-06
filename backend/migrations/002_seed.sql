@@ -7,8 +7,8 @@ INSERT IGNORE INTO markets (
     'fed-rates',
     '6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Fed111',
     '7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqFedCreator111',
-    'Will the Fed cut rates at the next meeting?',
-    'Politics',
+    'Will the Fed cut rates in June 2025?',
+    'Macro',
     1320, 805, 2125, 8240000, 1428, 0.043,
     UNIX_TIMESTAMP(DATE_ADD(NOW(), INTERVAL 23 DAY)),
     FALSE, NULL,
@@ -16,10 +16,10 @@ INSERT IGNORE INTO markets (
     UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000
   ),
   (
-    'btc-120k',
+    'btc-100k',
     '6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Btc111',
     '7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqBtcCreator111',
-    'Will Bitcoin trade above $120k before quarter end?',
+    'Bitcoin above $100k by May 31?',
     'Crypto',
     1670, 1360, 3030, 12470000, 2910, -0.021,
     UNIX_TIMESTAMP(DATE_ADD(NOW(), INTERVAL 45 DAY)),
@@ -28,10 +28,22 @@ INSERT IGNORE INTO markets (
     UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000
   ),
   (
+    'trump-approval',
+    '6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Pol111',
+    '7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqPolCreator111',
+    'Trump approval rating above 50% by June?',
+    'Politics',
+    690, 960, 1650, 6310000, 1804, -0.017,
+    UNIX_TIMESTAMP(DATE_ADD(NOW(), INTERVAL 18 DAY)),
+    FALSE, NULL,
+    UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000,
+    UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000
+  ),
+  (
     'sol-etf',
     '6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Sol111',
     '7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqSolCreator111',
-    'Will a Solana ETF be approved before 2030?',
+    'Solana ETF approved in 2025?',
     'Crypto',
     322, 798, 1120, 4920000, 936, 0.068,
     UNIX_TIMESTAMP(DATE_ADD(NOW(), INTERVAL 80 DAY)),
@@ -52,13 +64,13 @@ INSERT IGNORE INTO markets (
     UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000
   ),
   (
-    'sol-validators',
-    '6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Val111',
-    '7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqValCreator111',
-    'Will Solana daily active validators stay above 2,200 next week?',
-    'On-chain',
-    845, 524, 1369, 5780000, 1221, 0.029,
-    UNIX_TIMESTAMP(DATE_ADD(NOW(), INTERVAL 12 DAY)),
+    'nvidia-earnings',
+    '6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Nvda111',
+    '7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNvdaCreator111',
+    'NVIDIA earnings beat in May?',
+    'Tech',
+    982, 388, 1370, 5780000, 1221, 0.029,
+    UNIX_TIMESTAMP(DATE_ADD(NOW(), INTERVAL 19 DAY)),
     FALSE, NULL,
     UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000,
     UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000
@@ -80,7 +92,8 @@ INSERT IGNORE INTO agent_activity (
   id, agent, market_id, side, action, size, confidence, timestamp_ms
 ) VALUES
   ('seed-omega-fed', 'OmegaAgent', 'fed-rates', 'NO', 'SELL', 18000, 72, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
-  ('seed-alpha-btc', 'AlphaBot', 'btc-120k', 'YES', 'BUY', 26500, 76, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
-  ('seed-quant-sol', 'QuantMind', 'sol-etf', 'YES', 'BUY', 35000, 80, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
-  ('seed-stat-nba', 'StatArb', 'nba-finals', 'NO', 'SELL', 43500, 84, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
-  ('seed-macro-val', 'MacroSense', 'sol-validators', 'YES', 'BUY', 52000, 88, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000);
+  ('seed-alpha-btc', 'AlphaBot', 'btc-100k', 'YES', 'BUY', 26500, 76, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
+  ('seed-quant-trump', 'QuantMind', 'trump-approval', 'NO', 'SELL', 35000, 80, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
+  ('seed-stat-sol', 'StatArb', 'sol-etf', 'YES', 'BUY', 43500, 84, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
+  ('seed-macro-nba', 'MacroSense', 'nba-finals', 'NO', 'SELL', 52000, 88, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000),
+  ('seed-event-nvda', 'EventHorizon', 'nvidia-earnings', 'YES', 'BUY', 60500, 76, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000);

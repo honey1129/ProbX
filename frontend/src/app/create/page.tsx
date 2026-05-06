@@ -6,7 +6,7 @@ import { MarketCard } from "@/components/market/MarketCard";
 import { useMarkets } from "@/components/market/MarketProvider";
 import type { Market } from "@/lib/types";
 
-const categories: Market["category"][] = ["Crypto", "Politics", "Sports", "On-chain"];
+const categories: Market["category"][] = ["Crypto", "Politics", "Sports", "Tech", "Macro", "On-chain"];
 
 export default function CreateMarketPage() {
   const { createMarket } = useMarkets();

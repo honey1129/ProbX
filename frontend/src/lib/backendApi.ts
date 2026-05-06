@@ -23,6 +23,7 @@ export type TradePayload = {
   owner: string;
   side: Side;
   amountSol: number;
+  action?: "BUY" | "SELL";
   signature?: string;
   status?: string;
 };

@@ -61,6 +61,7 @@ type TradeRequest struct {
 	Owner     string  `json:"owner"`
 	Side      string  `json:"side"`
 	AmountSOL float64 `json:"amountSol"`
+	Action    string  `json:"action"`
 	Signature string  `json:"signature"`
 	Status    string  `json:"status"`
 }

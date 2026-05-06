@@ -25,7 +25,7 @@ export const mockMarkets: Market[] = [
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqFedCreator111",
     endTime: now + 3600 * 24 * 23,
     question: "Will the Fed cut rates in June 2025?",
-    category: "Politics",
+    category: "Macro",
     yesPool: 1_320,
     noPool: 805,
     totalLiquidity: 2_125,
@@ -50,21 +50,6 @@ export const mockMarkets: Market[] = [
     probabilityHistory: series(0.551)
   },
   {
-    id: "sol-etf",
-    publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Sol111",
-    creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqSolCreator111",
-    endTime: now + 3600 * 24 * 71,
-    question: "Solana ETF approved in 2025?",
-    category: "Crypto",
-    yesPool: 322,
-    noPool: 798,
-    totalLiquidity: 1_120,
-    volume24h: 4_920_000,
-    participants: 936,
-    change24h: 0.068,
-    probabilityHistory: series(0.287, 72, 0.026)
-  },
-  {
     id: "trump-approval",
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Pol111",
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqPolCreator111",
@@ -78,6 +63,21 @@ export const mockMarkets: Market[] = [
     participants: 1804,
     change24h: -0.017,
     probabilityHistory: series(0.418)
+  },
+  {
+    id: "sol-etf",
+    publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Sol111",
+    creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqSolCreator111",
+    endTime: now + 3600 * 24 * 71,
+    question: "Solana ETF approved in 2025?",
+    category: "Crypto",
+    yesPool: 322,
+    noPool: 798,
+    totalLiquidity: 1_120,
+    volume24h: 4_920_000,
+    participants: 936,
+    change24h: 0.068,
+    probabilityHistory: series(0.287, 72, 0.026)
   },
   {
     id: "nba-finals",
@@ -95,15 +95,15 @@ export const mockMarkets: Market[] = [
     probabilityHistory: series(0.332)
   },
   {
-    id: "sol-validators",
-    publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Val111",
-    creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqValCreator111",
-    endTime: now + 3600 * 24 * 12,
-    question: "Solana daily active validators above 2,200 next week?",
-    category: "On-chain",
-    yesPool: 845,
-    noPool: 524,
-    totalLiquidity: 1_369,
+    id: "nvidia-earnings",
+    publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Nvda111",
+    creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNvdaCreator111",
+    endTime: now + 3600 * 24 * 19,
+    question: "NVIDIA earnings beat in May?",
+    category: "Tech",
+    yesPool: 982,
+    noPool: 388,
+    totalLiquidity: 1_370,
     volume24h: 5_780_000,
     participants: 1221,
     change24h: 0.029,
@@ -116,7 +116,7 @@ export const mockPositions: Position[] = [
   { id: "p2", marketId: "btc-100k", side: "YES", size: 12.0, entryProbability: 0.48, currentProbability: 0.551, pnl: 85.2 },
   { id: "p3", marketId: "trump-approval", side: "NO", size: 9.0, entryProbability: 0.52, currentProbability: 0.582, pnl: -55.8 },
   { id: "p4", marketId: "sol-etf", side: "YES", size: 20.0, entryProbability: 0.25, currentProbability: 0.287, pnl: 74.0 },
-  { id: "p5", marketId: "sol-validators", side: "YES", size: 11.0, entryProbability: 0.63, currentProbability: 0.617, pnl: -14.3, resolved: true }
+  { id: "p5", marketId: "nvidia-earnings", side: "YES", size: 11.0, entryProbability: 0.63, currentProbability: 0.716, pnl: 94.6 }
 ];
 
 export const mockAgents: AgentStats[] = [
@@ -124,7 +124,8 @@ export const mockAgents: AgentStats[] = [
   { name: "AlphaBot", strategy: "Mean Reversion", pnl: 944, winRate: 63.2, trades: 377 },
   { name: "QuantMind", strategy: "Hybrid", pnl: 2188, winRate: 71.1, trades: 529 },
   { name: "StatArb", strategy: "Arbitrage", pnl: -184, winRate: 54.6, trades: 298 },
-  { name: "MacroSense", strategy: "External Signal", pnl: 738, winRate: 61.8, trades: 244 }
+  { name: "MacroSense", strategy: "External Signal", pnl: 738, winRate: 61.8, trades: 244 },
+  { name: "EventHorizon", strategy: "News Flow", pnl: 1094, winRate: 66.7, trades: 331 }
 ];
 
 export const mockActivity: AgentActivity[] = mockAgents.flatMap((agent, index) => {

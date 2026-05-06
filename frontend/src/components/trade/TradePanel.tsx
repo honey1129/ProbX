@@ -3,16 +3,21 @@
 import { useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { ChevronDown } from "lucide-react";
-import { formatPrice, formatSol, probability } from "@/lib/format";
-import { quoteBuyShares } from "@/lib/anchorClient";
+import { ChevronDown, Wallet2 } from "lucide-react";
+import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
+import { quoteBuyShares, quoteSellShares } from "@/lib/anchorClient";
 import type { Market, Side } from "@/lib/types";
 import { useMarkets } from "@/components/market/MarketProvider";
 
+type TradeMode = "BUY" | "SELL";
+type TradeTab = "TRADE" | "INFO";
+
 export function TradePanel({ market }: { market: Market }) {
   const { connected } = useWallet();
-  const { buy } = useMarkets();
+  const { buy, sell, positions } = useMarkets();
   const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
+  const [tab, setTab] = useState<TradeTab>("TRADE");
+  const [mode, setMode] = useState<TradeMode>("BUY");
   const [side, setSide] = useState<Side>("YES");
   const [amount, setAmount] = useState("1.0");
   const [orderType, setOrderType] = useState("Market");
@@ -20,20 +25,27 @@ export function TradePanel({ market }: { market: Market }) {
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const mockBalance = 24.25;
+  const availableShares = positions
+    .filter((position) => position.marketId === market.id && position.side === side && !position.resolved)
+    .reduce((total, position) => total + position.size, 0);
+  const mockBalance = mode === "BUY" ? 24.25 : availableShares;
   const p = side === "YES" ? probability(market) : 1 - probability(market);
   const amountNumber = Number(amount || 0);
-  const quote = useMemo(() => quoteBuyShares(market, side, amountNumber), [amountNumber, market, side]);
-  const shares = Number(quote.sharesOut.toString()) / LAMPORTS_PER_SOL;
+  const buyQuote = useMemo(() => quoteBuyShares(market, side, amountNumber), [amountNumber, market, side]);
+  const sellQuote = useMemo(() => quoteSellShares(market, side, amountNumber), [amountNumber, market, side]);
+  const nextYesPool = mode === "BUY" ? buyQuote.nextYesPool : sellQuote.nextYesPool;
+  const nextNoPool = mode === "BUY" ? buyQuote.nextNoPool : sellQuote.nextNoPool;
+  const shares = mode === "BUY" ? Number(buyQuote.sharesOut.toString()) / LAMPORTS_PER_SOL : amountNumber;
+  const proceeds = mode === "SELL" ? Number(sellQuote.lamportsOut.toString()) / LAMPORTS_PER_SOL : 0;
   const fee = 0;
-  const expectedTotal = amountNumber + fee;
+  const expectedTotal = mode === "BUY" ? amountNumber + fee : proceeds;
   const impact = useMemo(() => {
-    const nextTotal = quote.nextYesPool + quote.nextNoPool;
+    const nextTotal = nextYesPool + nextNoPool;
     if (!amountNumber || nextTotal <= 0) return 0;
-    const nextYesProbability = quote.nextYesPool / nextTotal;
+    const nextYesProbability = nextYesPool / nextTotal;
     const nextProbability = side === "YES" ? nextYesProbability : 1 - nextYesProbability;
     return Math.abs(nextProbability - p) * 100;
-  }, [amountNumber, p, quote.nextNoPool, quote.nextYesPool, side]);
+  }, [amountNumber, nextNoPool, nextYesPool, p, side]);
 
   function setPercent(percent: number) {
     const clampedPercent = Math.max(0, Math.min(1, percent));
@@ -47,14 +59,16 @@ export function TradePanel({ market }: { market: Market }) {
       return;
     }
     if (amountNumber > mockBalance) {
-      setStatus("Amount exceeds simulated wallet balance.");
+      setStatus(mode === "BUY" ? "Amount exceeds simulated wallet balance." : "Amount exceeds available shares.");
       return;
     }
     setIsSubmitting(true);
     try {
-      const signature = await buy(market.id, side, amountNumber, {
-        slippageBps: Math.round(Number(slippage) * 100)
-      });
+      const slippageBps = Math.round(Number(slippage) * 100);
+      const signature =
+        mode === "BUY"
+          ? await buy(market.id, side, amountNumber, { slippageBps })
+          : await sell(market.id, side, amountNumber, { slippageBps });
       setStatus(
         signature === "simulated"
           ? "Simulated AMM trade executed"
@@ -70,119 +84,171 @@ export function TradePanel({ market }: { market: Market }) {
   }
 
   return (
-    <aside className="rounded-lg border border-line bg-panel p-4 shadow-2xl backdrop-blur-xl">
-      <div className="mb-4 grid grid-cols-2 gap-2">
+    <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-3">
+      <div className="mb-3 flex items-center border-b border-line pb-2 text-sm">
         <button
-          onClick={() => setSide("YES")}
-          className={`trade-side yes ${side === "YES" ? "active" : ""}`}
+          onClick={() => setTab("TRADE")}
+          className={`flex-1 border-b-2 pb-2 font-black transition ${
+            tab === "TRADE" ? "border-solPurple text-violet-200" : "border-transparent text-muted hover:text-white"
+          }`}
         >
-          Buy YES
-          <span>{formatPrice(probability(market))}</span>
+          Trade
         </button>
         <button
-          onClick={() => setSide("NO")}
-          className={`trade-side no ${side === "NO" ? "active" : ""}`}
+          onClick={() => setTab("INFO")}
+          className={`flex-1 border-b-2 pb-2 font-bold transition ${
+            tab === "INFO" ? "border-solPurple text-violet-200" : "border-transparent text-muted hover:text-white"
+          }`}
         >
-          Buy NO
-          <span>{formatPrice(1 - probability(market))}</span>
+          Market Info
         </button>
       </div>
 
-      <label className="mb-2 block text-xs font-semibold text-slate-300">Amount</label>
-      <div className="mb-3 flex h-12 items-center rounded-lg border border-line bg-black/35 px-3">
-        <span className="text-sm font-bold text-slate-300">SOL</span>
-        <input
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          className="h-full flex-1 bg-transparent text-right text-xl font-bold outline-none"
-          inputMode="decimal"
-        />
-      </div>
+      {tab === "TRADE" ? (
+        <>
+          <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-line bg-black/25 p-1">
+            {(["BUY", "SELL"] as const).map((item) => (
+              <button
+                key={item}
+                onClick={() => setMode(item)}
+                className={`rounded-md py-2 text-xs font-black transition ${
+                  mode === item ? "bg-solBlue/20 text-white" : "text-muted hover:text-white"
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
 
-      <div className="mb-4 grid grid-cols-4 gap-2">
-        {[
-          ["25%", 0.25],
-          ["50%", 0.5],
-          ["75%", 0.75],
-          ["MAX", 1]
-        ].map(([label, percent]) => (
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setSide("YES")}
+              className={`trade-side yes ${side === "YES" ? "active" : ""}`}
+            >
+              {mode === "BUY" ? "Buy" : "Sell"} YES
+              <span>{formatPrice(probability(market))}</span>
+            </button>
+            <button
+              onClick={() => setSide("NO")}
+              className={`trade-side no ${side === "NO" ? "active" : ""}`}
+            >
+              {mode === "BUY" ? "Buy" : "Sell"} NO
+              <span>{formatPrice(1 - probability(market))}</span>
+            </button>
+          </div>
+
+          <label className="mb-2 block text-xs font-semibold text-slate-300">
+            {mode === "BUY" ? "Amount" : "Shares"}
+          </label>
+          <div className="mb-1.5 flex h-11 items-center rounded-lg border border-line bg-black/35 px-3">
+            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-300">
+              {mode === "BUY" ? <Wallet2 size={15} className="text-solPurple" /> : null}
+              {mode === "BUY" ? "SOL" : side}
+              <ChevronDown size={13} className="text-muted" />
+            </span>
+            <input
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              className="h-full flex-1 bg-transparent text-right text-xl font-bold outline-none"
+              inputMode="decimal"
+            />
+          </div>
+          <div className="mb-3 flex items-center justify-between text-xs text-muted">
+            <span>{mode === "BUY" ? `Balance: ${formatSol(mockBalance, 3)}` : `Available: ${mockBalance.toFixed(3)} shares`}</span>
+            <button onClick={() => setPercent(1)} className="rounded border border-line bg-black/25 px-2 py-0.5 text-slate-300 transition hover:border-solBlue/40 hover:text-white">
+              MAX
+            </button>
+          </div>
+
+          <div className="mb-3 grid grid-cols-4 gap-1.5">
+            {[
+              ["25%", 0.25],
+              ["50%", 0.5],
+              ["75%", 0.75],
+              ["MAX", 1]
+            ].map(([label, percent]) => (
+              <button
+                key={label}
+                onClick={() => setPercent(Number(percent))}
+                className="rounded border border-line bg-slate-950/70 py-1.5 text-xs text-slate-300 transition hover:border-solBlue/50 hover:text-white"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <input
+            value={Math.max(0, Math.min(100, (amountNumber / mockBalance) * 100 || 0))}
+            onChange={(event) => setPercent(Number(event.target.value) / 100)}
+            type="range"
+            min="0"
+            max="100"
+            className="mb-4 w-full accent-emerald-400"
+          />
+
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <label className="grid gap-1 text-xs text-muted">
+              Order Type
+              <span className="relative">
+                <select
+                  value={orderType}
+                  onChange={(event) => setOrderType(event.target.value)}
+                  className="h-9 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
+                >
+                  <option>Market</option>
+                </select>
+                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted" />
+              </span>
+            </label>
+            <label className="grid gap-1 text-xs text-muted">
+              Slippage
+              <span className="relative">
+                <select
+                  value={slippage}
+                  onChange={(event) => setSlippage(event.target.value)}
+                  className="h-9 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
+                >
+                  <option value="0.1">0.1%</option>
+                  <option value="0.5">0.5%</option>
+                  <option value="1.0">1.0%</option>
+                </select>
+                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted" />
+              </span>
+            </label>
+          </div>
+
+          <div className="mb-3 grid gap-2 rounded-lg border border-white/10 bg-black/25 p-3 text-sm">
+            <Row label={mode === "BUY" ? "Balance" : "Available Shares"} value={mode === "BUY" ? formatSol(mockBalance, 3) : `${mockBalance.toFixed(3)} ${side}`} />
+            <Row label="Order Type" value={orderType} />
+            <Row label="Max Slippage" value={`${slippage}%`} />
+            <Row label="Est. Fill Price" value={formatPrice(p)} />
+            <Row label={mode === "BUY" ? "Shares Received" : "Shares Sold"} value={shares.toFixed(3)} />
+            <Row label={mode === "BUY" ? "Potential Return" : "Est. Proceeds"} value={formatSol(mode === "BUY" ? shares : proceeds)} />
+            <Row label="Price Impact" value={`${impact.toFixed(2)}%`} />
+            <Row label="Protocol Fee" value={formatSol(fee, 4)} />
+            <Row label={mode === "BUY" ? "Est. Total" : "SOL Out"} value={formatSol(expectedTotal, 4)} />
+          </div>
+
           <button
-            key={label}
-            onClick={() => setPercent(Number(percent))}
-            className="rounded border border-line bg-slate-950/70 py-1.5 text-xs text-slate-300 transition hover:border-solBlue/50 hover:text-white"
+            disabled={isSubmitting || amountNumber <= 0}
+            onClick={submit}
+            className={side === "YES" ? "primary-action yes" : "primary-action no"}
           >
-            {label}
+            {isSubmitting ? "Signing..." : connected && onchainEnabled ? `${mode} ${side}` : `Simulate ${mode} ${side}`}
           </button>
-        ))}
-      </div>
-
-      <input
-        value={Math.max(0, Math.min(100, (amountNumber / mockBalance) * 100 || 0))}
-        onChange={(event) => setPercent(Number(event.target.value) / 100)}
-        type="range"
-        min="0"
-        max="100"
-        className="mb-4 w-full accent-emerald-400"
-      />
-
-      <div className="mb-4 grid grid-cols-2 gap-2">
-        <label className="grid gap-1 text-xs text-muted">
-          Order Type
-          <span className="relative">
-            <select
-              value={orderType}
-              onChange={(event) => setOrderType(event.target.value)}
-              className="h-10 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
-            >
-              <option>Market</option>
-            </select>
-            <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted" />
-          </span>
-        </label>
-        <label className="grid gap-1 text-xs text-muted">
-          Slippage
-          <span className="relative">
-            <select
-              value={slippage}
-              onChange={(event) => setSlippage(event.target.value)}
-              className="h-10 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
-            >
-              <option value="0.1">0.1%</option>
-              <option value="0.5">0.5%</option>
-              <option value="1.0">1.0%</option>
-            </select>
-            <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted" />
-          </span>
-        </label>
-      </div>
-
-      <div className="mb-4 grid gap-2 rounded-lg border border-white/10 bg-black/25 p-3 text-sm">
-        <Row label="Balance" value={formatSol(mockBalance, 2)} />
-        <Row label="Order Type" value={orderType} />
-        <Row label="Max Slippage" value={`${slippage}%`} />
-        <Row label="Est. Fill Price" value={formatPrice(p)} />
-        <Row label="Shares Received" value={shares.toFixed(3)} />
-        <Row label="Potential Return" value={formatSol(shares)} />
-        <Row label="Price Impact" value={`${impact.toFixed(2)}%`} />
-        <Row label="Protocol Fee" value={formatSol(fee, 4)} />
-        <Row label="Est. Total" value={formatSol(expectedTotal, 4)} />
-      </div>
-
-      <button
-        disabled={isSubmitting || amountNumber <= 0}
-        onClick={submit}
-        className={side === "YES" ? "primary-action yes" : "primary-action no"}
-      >
-        {isSubmitting ? "Signing..." : connected && onchainEnabled ? `Buy ${side}` : `Simulate ${side}`}
-      </button>
-      {status ? (
-        <p className={`mt-3 rounded-md border px-3 py-2 text-xs ${status.includes("executed") || status.includes("Tx") ? "border-yes/30 bg-yes/10 text-yes" : "border-no/30 bg-no/10 text-no"}`}>
-          {status}
-        </p>
-      ) : null}
-      <p className="mt-3 text-xs text-muted">
-        Set <code>NEXT_PUBLIC_ENABLE_ONCHAIN=true</code> to sign Anchor <code>buy_shares</code> transactions. Otherwise the terminal runs in simulation mode.
-      </p>
+          {status ? (
+            <p className={`mt-3 rounded-md border px-3 py-2 text-xs ${status.includes("executed") || status.includes("Tx") ? "border-yes/30 bg-yes/10 text-yes" : "border-no/30 bg-no/10 text-no"}`}>
+              {status}
+            </p>
+          ) : null}
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted">
+            <span>Market is on Solana</span>
+            <span className="flex items-center gap-1 text-yes"><span className="h-1.5 w-1.5 rounded-full bg-yes" /> Live</span>
+          </div>
+        </>
+      ) : (
+        <MarketInfo market={market} />
+      )}
     </aside>
   );
 }
@@ -194,4 +260,65 @@ function Row({ label, value }: { label: string; value: string }) {
       <b className="text-slate-100">{value}</b>
     </div>
   );
+}
+
+function MarketInfo({ market }: { market: Market }) {
+  const yesProbability = probability(market);
+  const liquidity = market.totalLiquidity;
+  const imbalance = Math.abs(market.yesPool - market.noPool) / Math.max(1, market.yesPool + market.noPool);
+
+  return (
+    <div className="grid min-h-0 flex-1 content-start gap-3 overflow-hidden">
+      <div className="rounded-lg border border-line bg-black/25 p-3">
+        <div className="mb-2 text-xs uppercase text-muted">Current Odds</div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg border border-yes/25 bg-yes/10 p-3">
+            <div className="text-xs text-yes">YES</div>
+            <div className="mt-1 text-2xl font-black text-yes">{formatPrice(yesProbability)}</div>
+          </div>
+          <div className="rounded-lg border border-no/25 bg-no/10 p-3">
+            <div className="text-xs text-no">NO</div>
+            <div className="mt-1 text-2xl font-black text-no">{formatPrice(1 - yesProbability)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-2 rounded-lg border border-line bg-black/25 p-3 text-sm">
+        <Row label="Category" value={market.category} />
+        <Row label="Chance" value={formatPercent(yesProbability, 0)} />
+        <Row label="24h Volume" value={`$${(market.volume24h / 1_000_000).toFixed(2)}M`} />
+        <Row label="Liquidity" value={formatSol(liquidity)} />
+        <Row label="Participants" value={market.participants.toLocaleString()} />
+        <Row label="Pool Imbalance" value={formatPercent(imbalance, 1)} />
+        <Row label="Closes In" value={timeRemaining(market.endTime)} />
+      </div>
+
+      <div className="rounded-lg border border-line bg-black/25 p-3">
+        <div className="mb-2 text-xs uppercase text-muted">Contract</div>
+        <div className="grid gap-2 text-xs">
+          <CodeRow label="Market" value={market.publicKey} />
+          <CodeRow label="Creator" value={market.creator} />
+        </div>
+      </div>
+
+      <div className="mt-auto flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted">
+        <span>AMM market</span>
+        <span className="flex items-center gap-1 text-yes"><span className="h-1.5 w-1.5 rounded-full bg-yes" /> Synced</span>
+      </div>
+    </div>
+  );
+}
+
+function CodeRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1">
+      <span className="text-muted">{label}</span>
+      <code className="truncate rounded border border-line bg-slate-950/70 px-2 py-1 text-[11px] text-slate-200">{shortAddress(value)}</code>
+    </div>
+  );
+}
+
+function shortAddress(value: string) {
+  if (value.length <= 18) return value;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }

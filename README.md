@@ -1,10 +1,10 @@
 # ProbX Prediction Market
 
-ProbX 是一个基于 Solana Anchor 的二元预测市场项目，包含链上合约、Next.js 交易前端、Go API 后端、MySQL 索引库和 Python 自动交易 agent。市场以 YES/NO 两侧资金池表达概率，支持创建市场、下注、查询 YES 概率、到期结算和赢家领取奖励。
+ProbX 是一个基于 Solana Anchor 的二元预测市场项目，包含链上合约、Next.js 交易前端、Go API 后端、MySQL 索引库和 Python 自动交易 agent。市场使用 YES/NO 恒定乘积 AMM 表达概率，支持创建市场、买卖 outcome shares、查询 YES 概率、到期结算和赢家领取奖励。
 
 ## 功能概览
 
-- Anchor 合约：创建预测市场、下注、价格查询、结算市场、领取奖励。
+- Anchor 合约：创建预测市场、AMM 买卖份额、价格查询、结算市场、领取奖励。
 - Go 后端：提供 REST API，使用 MySQL 存市场索引、持仓、交易记录和 agent 活动。
 - Next.js 前端：市场列表、交易面板、持仓、概率图表、agent 活动流。
 - Python agent：从链上或 API 拉取市场，基于动量、均值回归和外部信号做 dry-run/实盘下注，也支持多 agent 模拟。
@@ -196,19 +196,21 @@ python3 agent.py --config config.yaml --loop
 
 ### Market
 
-保存市场问题、创建者、结算者、YES/NO 资金池、总流动性、结束时间和结算结果。
+保存市场问题、创建者、结算者、YES/NO AMM 价格权重、SOL 抵押流动性、已发行份额、结束时间和结算结果。
 
 ### Position
 
-保存用户在指定市场中的 YES/NO 仓位，用于结算后按胜出池份额领取奖励。
+保存用户在指定市场中的 YES/NO outcome shares，用于结算后按 `1 share = 1 lamport` 领取胜出份额。
 
 ### 指令
 
-- `create_market(question, end_time)`：创建一个未来到期的预测市场。
-- `place_bet(amount, side)`：下注到 YES 或 NO，`side = 1` 表示 YES，`side = 0` 表示 NO。
+- `create_market(question, end_time, initial_liquidity)`：创建一个未来到期的 AMM 市场，并注入初始 SOL 流动性。
+- `buy_shares(amount, side, min_shares_out)`：按恒定乘积曲线买入 YES 或 NO 份额，`side = 1` 表示 YES，`side = 0` 表示 NO。
+- `sell_shares(shares, side, min_lamports_out)`：在市场结束前把持仓份额卖回 AMM。
 - `get_price()`：返回 YES 概率，按 `1_000_000_000` 定点数缩放。
 - `resolve_market(outcome)`：市场到期后由 resolver 结算结果。
-- `claim_reward()`：胜出方按份额领取奖励。
+- `redeem_winnings()`：胜出方按持有份额领取奖励。
+- `place_bet(amount, side)` 和 `claim_reward()`：兼容旧客户端的别名，建议新代码使用 `buy_shares` 和 `redeem_winnings`。
 
 ## 常用命令
 
@@ -238,6 +240,6 @@ go run ./cmd/server
 
 - `end_time` 必须是未来 Unix 时间戳。
 - 问题文本最长为 280 bytes。
-- 市场未到期不能结算，已结算市场不能继续下注。
-- `claim_reward` 会保留 Market 账户租金豁免余额，只支付可用 lamports。
+- 市场未到期不能结算，已结算市场不能继续交易。
+- `sell_shares` 和 `redeem_winnings` 会保留 Market 账户租金豁免余额，只支付可用 lamports。
 - 如果使用 `anchor test` 时本机缺少 `yarn`，请安装 yarn，或将 `Anchor.toml` 的测试脚本改为等价的 npm 命令。

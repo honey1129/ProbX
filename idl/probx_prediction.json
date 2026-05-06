@@ -8,7 +8,106 @@
   },
   "instructions": [
     {
+      "name": "buy_shares",
+      "discriminator": [
+        40,
+        239,
+        138,
+        154,
+        8,
+        37,
+        106,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": "u8"
+        },
+        {
+          "name": "min_shares_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "claim_reward",
+      "docs": [
+        "Backwards-compatible name for older clients. Prefer redeem_winnings."
+      ],
       "discriminator": [
         149,
         95,
@@ -150,6 +249,10 @@
         {
           "name": "end_time",
           "type": "i64"
+        },
+        {
+          "name": "initial_liquidity",
+          "type": "u64"
         }
       ]
     },
@@ -204,6 +307,9 @@
     },
     {
       "name": "place_bet",
+      "docs": [
+        "Backwards-compatible name for older clients. Prefer buy_shares."
+      ],
       "discriminator": [
         222,
         62,
@@ -295,6 +401,91 @@
       ]
     },
     {
+      "name": "redeem_winnings",
+      "discriminator": [
+        209,
+        5,
+        204,
+        87,
+        134,
+        122,
+        239,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          },
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "resolve_market",
       "discriminator": [
         155,
@@ -348,6 +539,104 @@
         {
           "name": "outcome",
           "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "sell_shares",
+      "discriminator": [
+        184,
+        164,
+        169,
+        16,
+        231,
+        158,
+        199,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          },
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "shares",
+          "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": "u8"
+        },
+        {
+          "name": "min_lamports_out",
+          "type": "u64"
         }
       ]
     }
@@ -419,6 +708,45 @@
         199,
         202
       ]
+    },
+    {
+      "name": "SharesBought",
+      "discriminator": [
+        240,
+        98,
+        69,
+        10,
+        253,
+        234,
+        226,
+        65
+      ]
+    },
+    {
+      "name": "SharesSold",
+      "discriminator": [
+        35,
+        231,
+        5,
+        53,
+        228,
+        158,
+        113,
+        251
+      ]
+    },
+    {
+      "name": "WinningsRedeemed",
+      "discriminator": [
+        165,
+        63,
+        125,
+        179,
+        230,
+        236,
+        63,
+        99
+      ]
     }
   ],
   "errors": [
@@ -440,7 +768,7 @@
     {
       "code": 6003,
       "name": "InvalidAmount",
-      "msg": "Bet amount must be greater than zero."
+      "msg": "Amount must be greater than zero."
     },
     {
       "code": 6004,
@@ -474,8 +802,8 @@
     },
     {
       "code": 6010,
-      "name": "EmptyWinningPool",
-      "msg": "No liquidity exists on the winning side."
+      "name": "InvalidInitialLiquidity",
+      "msg": "Initial liquidity must be greater than zero."
     },
     {
       "code": 6011,
@@ -501,6 +829,26 @@
       "code": 6015,
       "name": "InvalidPositionMarket",
       "msg": "Invalid position market."
+    },
+    {
+      "code": 6016,
+      "name": "SlippageExceeded",
+      "msg": "Trade output is below the requested slippage limit."
+    },
+    {
+      "code": 6017,
+      "name": "InsufficientShares",
+      "msg": "Position does not have enough shares."
+    },
+    {
+      "code": 6018,
+      "name": "InsufficientLiquidity",
+      "msg": "AMM pool has insufficient liquidity."
+    },
+    {
+      "code": 6019,
+      "name": "AmountTooSmall",
+      "msg": "Amount is too small for the AMM pool."
     }
   ],
   "types": [
@@ -563,14 +911,31 @@
           },
           {
             "name": "yes_pool",
+            "docs": [
+              "YES-side AMM price weight. Higher value means a higher YES probability."
+            ],
             "type": "u64"
           },
           {
             "name": "no_pool",
+            "docs": [
+              "NO-side AMM price weight. Higher value means a higher NO probability."
+            ],
             "type": "u64"
           },
           {
             "name": "total_liquidity",
+            "docs": [
+              "Native SOL collateral held by the market, excluding account rent."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "yes_shares",
+            "type": "u64"
+          },
+          {
+            "name": "no_shares",
             "type": "u64"
           },
           {
@@ -616,6 +981,18 @@
           {
             "name": "end_time",
             "type": "i64"
+          },
+          {
+            "name": "initial_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "yes_pool",
+            "type": "u64"
+          },
+          {
+            "name": "no_pool",
+            "type": "u64"
           }
         ]
       }
@@ -648,6 +1025,14 @@
           {
             "name": "total_liquidity",
             "type": "u64"
+          },
+          {
+            "name": "yes_shares",
+            "type": "u64"
+          },
+          {
+            "name": "no_shares",
+            "type": "u64"
           }
         ]
       }
@@ -671,6 +1056,122 @@
           },
           {
             "name": "no_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SharesBought",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "shares_out",
+            "type": "u64"
+          },
+          {
+            "name": "yes_pool",
+            "type": "u64"
+          },
+          {
+            "name": "no_pool",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "price_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SharesSold",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "lamports_out",
+            "type": "u64"
+          },
+          {
+            "name": "yes_pool",
+            "type": "u64"
+          },
+          {
+            "name": "no_pool",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "price_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WinningsRedeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
             "type": "u64"
           }
         ]

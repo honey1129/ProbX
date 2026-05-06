@@ -13,12 +13,12 @@ export default function CreateMarketPage() {
   const [question, setQuestion] = useState("Will SOL close above $200 this month?");
   const [category, setCategory] = useState<Market["category"]>("Crypto");
   const [endTime, setEndTime] = useState(defaultDateTimeLocal());
-  const [initialLiquidity, setInitialLiquidity] = useState("1000");
+  const [initialLiquidity, setInitialLiquidity] = useState("1");
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const preview = useMemo<Market>(() => {
-    const liquidity = Math.max(100, Number(initialLiquidity) || 1000);
+    const liquidity = Math.max(0.01, Number(initialLiquidity) || 1);
     return {
       id: "preview",
       publicKey: "11111111111111111111111111111111",
@@ -26,8 +26,8 @@ export default function CreateMarketPage() {
       endTime: Math.floor(new Date(endTime).getTime() / 1000),
       question: question.trim() || "Market question preview",
       category,
-      yesPool: liquidity / 2,
-      noPool: liquidity / 2,
+      yesPool: liquidity,
+      noPool: liquidity,
       totalLiquidity: liquidity,
       volume24h: 0,
       participants: 1,
@@ -168,7 +168,7 @@ export default function CreateMarketPage() {
           </div>
           <MarketCard market={preview} />
           <div className="mt-4 rounded-lg border border-line bg-slate-950/45 p-3 text-sm text-muted">
-            The current on-chain program accepts <code>question</code> and <code>end_time</code>. Category and initial liquidity enrich the UI simulation layer.
+            The on-chain AMM uses <code>initial_liquidity</code> to seed balanced YES/NO price weights.
           </div>
         </section>
       </aside>

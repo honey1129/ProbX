@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { ChevronDown } from "lucide-react";
 import { formatPrice, formatSol, probability } from "@/lib/format";
+import { quoteBuyShares } from "@/lib/anchorClient";
 import type { Market, Side } from "@/lib/types";
 import { useMarkets } from "@/components/market/MarketProvider";
 
@@ -21,14 +23,17 @@ export function TradePanel({ market }: { market: Market }) {
   const mockBalance = 24.25;
   const p = side === "YES" ? probability(market) : 1 - probability(market);
   const amountNumber = Number(amount || 0);
-  const shares = p > 0 ? amountNumber / p : 0;
-  const fee = amountNumber * 0.001;
+  const quote = useMemo(() => quoteBuyShares(market, side, amountNumber), [amountNumber, market, side]);
+  const shares = Number(quote.sharesOut.toString()) / LAMPORTS_PER_SOL;
+  const fee = 0;
   const expectedTotal = amountNumber + fee;
   const impact = useMemo(() => {
-    const sidePool = side === "YES" ? market.yesPool : market.noPool;
-    if (!amountNumber || sidePool <= 0) return 0;
-    return Math.min(12, (amountNumber / sidePool) * 100);
-  }, [amountNumber, market.noPool, market.yesPool, side]);
+    const nextTotal = quote.nextYesPool + quote.nextNoPool;
+    if (!amountNumber || nextTotal <= 0) return 0;
+    const nextYesProbability = quote.nextYesPool / nextTotal;
+    const nextProbability = side === "YES" ? nextYesProbability : 1 - nextYesProbability;
+    return Math.abs(nextProbability - p) * 100;
+  }, [amountNumber, p, quote.nextNoPool, quote.nextYesPool, side]);
 
   function setPercent(percent: number) {
     const clampedPercent = Math.max(0, Math.min(1, percent));
@@ -47,10 +52,12 @@ export function TradePanel({ market }: { market: Market }) {
     }
     setIsSubmitting(true);
     try {
-      const signature = await buy(market.id, side, amountNumber);
+      const signature = await buy(market.id, side, amountNumber, {
+        slippageBps: Math.round(Number(slippage) * 100)
+      });
       setStatus(
         signature === "simulated"
-          ? "Simulated trade executed"
+          ? "Simulated AMM trade executed"
           : signature === "indexed"
             ? "Trade saved to backend"
             : `Tx sent: ${signature.slice(0, 12)}...`
@@ -128,7 +135,6 @@ export function TradePanel({ market }: { market: Market }) {
               className="h-10 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
             >
               <option>Market</option>
-              <option>Limit</option>
             </select>
             <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted" />
           </span>
@@ -158,7 +164,7 @@ export function TradePanel({ market }: { market: Market }) {
         <Row label="Shares Received" value={shares.toFixed(3)} />
         <Row label="Potential Return" value={formatSol(shares)} />
         <Row label="Price Impact" value={`${impact.toFixed(2)}%`} />
-        <Row label="Fee" value={formatSol(fee, 4)} />
+        <Row label="Protocol Fee" value={formatSol(fee, 4)} />
         <Row label="Est. Total" value={formatSol(expectedTotal, 4)} />
       </div>
 
@@ -175,7 +181,7 @@ export function TradePanel({ market }: { market: Market }) {
         </p>
       ) : null}
       <p className="mt-3 text-xs text-muted">
-        Set <code>NEXT_PUBLIC_ENABLE_ONCHAIN=true</code> to sign Anchor <code>place_bet</code> transactions. Otherwise the terminal runs in simulation mode.
+        Set <code>NEXT_PUBLIC_ENABLE_ONCHAIN=true</code> to sign Anchor <code>buy_shares</code> transactions. Otherwise the terminal runs in simulation mode.
       </p>
     </aside>
   );

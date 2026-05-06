@@ -133,8 +133,8 @@ export default function MarketListPage() {
               <ProbabilityChart market={selected} compact />
             </div>
             <div className="mt-4 grid grid-cols-4 gap-3">
-              <Metric label="YES Pool" value={formatSol(selected.yesPool)} />
-              <Metric label="NO Pool" value={formatSol(selected.noPool)} />
+              <Metric label="YES Weight" value={formatSol(selected.yesPool)} />
+              <Metric label="NO Weight" value={formatSol(selected.noPool)} />
               <Metric label="Liquidity" value={formatSol(selected.totalLiquidity)} />
               <Metric label="24h Volume" value={`$${(selected.volume24h / 1_000_000).toFixed(2)}M`} />
             </div>

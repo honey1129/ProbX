@@ -123,7 +123,7 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 		return models.Market{}, fmt.Errorf("%w: endTime must be in the future", ErrInvalid)
 	}
 	if req.InitialLiquidity <= 0 {
-		req.InitialLiquidity = 1000
+		req.InitialLiquidity = 1
 	}
 	if req.ID == "" {
 		req.ID = newID("market")
@@ -133,8 +133,8 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 	}
 
 	now := nowMillis()
-	yesPool := req.InitialLiquidity / 2
-	noPool := req.InitialLiquidity / 2
+	yesPool := req.InitialLiquidity
+	noPool := req.InitialLiquidity
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -149,7 +149,7 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 			resolved, outcome, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
 		req.ID, req.PublicKey, req.Creator, req.Question, req.Category,
-		yesPool, noPool, yesPool+noPool, req.EndTime, now, now,
+		yesPool, noPool, req.InitialLiquidity, req.EndTime, now, now,
 	)
 	if err != nil {
 		return models.Market{}, err
@@ -274,23 +274,25 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 		return models.TradeResponse{}, fmt.Errorf("%w: market is resolved", ErrInvalid)
 	}
 
-	entryProbability := probability(market.YesPool, market.NoPool)
+	previousProbability := probability(market.YesPool, market.NoPool)
+	entryProbability := previousProbability
 	if req.Side == "NO" {
 		entryProbability = 1 - entryProbability
 	}
 
-	if req.Side == "YES" {
-		market.YesPool += req.AmountSOL
-	} else {
-		market.NoPool += req.AmountSOL
+	sharesOut, nextYesPool, nextNoPool, err := quoteBuy(market.YesPool, market.NoPool, req.AmountSOL, req.Side)
+	if err != nil {
+		return models.TradeResponse{}, err
 	}
-	market.TotalLiquidity = market.YesPool + market.NoPool
+	market.YesPool = nextYesPool
+	market.NoPool = nextNoPool
+	market.TotalLiquidity += req.AmountSOL
 	market.Volume24h += req.AmountSOL * 1000
 	nextProbability := probability(market.YesPool, market.NoPool)
-	market.Change24h = nextProbability - probability(market.YesPool-marketDelta(req.Side, req.AmountSOL, "YES"), market.NoPool-marketDelta(req.Side, req.AmountSOL, "NO"))
+	market.Change24h = nextProbability - previousProbability
 
 	now := nowMillis()
-	participantsDelta, err := upsertPosition(ctx, tx, req, entryProbability, now)
+	participantsDelta, err := upsertPosition(ctx, tx, req, sharesOut, entryProbability, now)
 	if err != nil {
 		return models.TradeResponse{}, err
 	}
@@ -476,7 +478,7 @@ func scanActivity(row scanner) (models.AgentActivity, error) {
 	return item, err
 }
 
-func upsertPosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, entryProbability float64, now int64) (int, error) {
+func upsertPosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, sharesOut float64, entryProbability float64, now int64) (int, error) {
 	id := positionID(req.Owner, req.MarketID, req.Side)
 	var existingSize float64
 	row := tx.QueryRowContext(ctx, `
@@ -491,7 +493,7 @@ func upsertPosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, en
 				id, owner, market_id, side, size, entry_probability,
 				current_probability, pnl, resolved, created_at, updated_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, 0, FALSE, ?, ?)`,
-			id, req.Owner, req.MarketID, req.Side, req.AmountSOL, entryProbability, entryProbability, now, now,
+			id, req.Owner, req.MarketID, req.Side, sharesOut, entryProbability, entryProbability, now, now,
 		)
 		return 1, err
 	}
@@ -505,12 +507,12 @@ func upsertPosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, en
 		    entry_probability = ((entry_probability * ?) + (? * ?)) / (? + ?),
 		    updated_at = ?
 		WHERE owner = ? AND market_id = ? AND side = ?`,
-		req.AmountSOL,
+		sharesOut,
 		existingSize,
 		entryProbability,
-		req.AmountSOL,
+		sharesOut,
 		existingSize,
-		req.AmountSOL,
+		sharesOut,
 		now,
 		req.Owner,
 		req.MarketID,
@@ -543,11 +545,27 @@ func probability(yesPool float64, noPool float64) float64 {
 	return yesPool / total
 }
 
-func marketDelta(side string, amount float64, target string) float64 {
-	if side == target {
-		return amount
+func quoteBuy(yesPool float64, noPool float64, amount float64, side string) (float64, float64, float64, error) {
+	if yesPool <= 0 || noPool <= 0 {
+		return 0, 0, 0, fmt.Errorf("%w: market has no AMM liquidity", ErrInvalid)
 	}
-	return 0
+	invariant := yesPool * noPool
+	if side == "YES" {
+		nextYesPool := yesPool + amount
+		nextNoPool := invariant / nextYesPool
+		sharesOut := noPool - nextNoPool
+		if sharesOut <= 0 {
+			return 0, 0, 0, fmt.Errorf("%w: amount is too small for AMM liquidity", ErrInvalid)
+		}
+		return sharesOut, nextYesPool, nextNoPool, nil
+	}
+	nextNoPool := noPool + amount
+	nextYesPool := invariant / nextNoPool
+	sharesOut := yesPool - nextYesPool
+	if sharesOut <= 0 {
+		return 0, 0, 0, fmt.Errorf("%w: amount is too small for AMM liquidity", ErrInvalid)
+	}
+	return sharesOut, nextYesPool, nextNoPool, nil
 }
 
 func normalizeCategory(value string) string {

@@ -16,6 +16,42 @@ const legacyIdl = {
   name: "probx_prediction",
   instructions: [
     {
+      name: "buy_shares",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "position", isMut: true, isSigner: false },
+        { name: "owner", isMut: true, isSigner: true },
+        { name: "systemProgram", isMut: false, isSigner: false }
+      ],
+      args: [
+        { name: "amount", type: "u64" },
+        { name: "side", type: "u8" },
+        { name: "minSharesOut", type: "u64" }
+      ]
+    },
+    {
+      name: "sell_shares",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "position", isMut: true, isSigner: false },
+        { name: "owner", isMut: true, isSigner: true }
+      ],
+      args: [
+        { name: "shares", type: "u64" },
+        { name: "side", type: "u8" },
+        { name: "minLamportsOut", type: "u64" }
+      ]
+    },
+    {
+      name: "redeem_winnings",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "position", isMut: true, isSigner: false },
+        { name: "owner", isMut: true, isSigner: true }
+      ],
+      args: []
+    },
+    {
       name: "place_bet",
       accounts: [
         { name: "market", isMut: true, isSigner: false },
@@ -37,7 +73,8 @@ const legacyIdl = {
       ],
       args: [
         { name: "question", type: "string" },
-        { name: "endTime", type: "i64" }
+        { name: "endTime", type: "i64" },
+        { name: "initialLiquidity", type: "u64" }
       ]
     }
   ]
@@ -76,15 +113,31 @@ export async function placeBet(params: {
   side: Side;
   amountSol: number;
 }) {
+  return buyShares(params);
+}
+
+export async function buyShares(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+  side: Side;
+  amountSol: number;
+  slippageBps?: number;
+}) {
   const program = getProgram(params.connection, params.wallet);
   const owner = params.wallet.publicKey;
   const market = new PublicKey(params.market.publicKey);
   const position = getPositionPda(market, owner);
   const side = params.side === "YES" ? 1 : 0;
   const lamports = new BN(Math.round(params.amountSol * web3.LAMPORTS_PER_SOL));
+  const quote = quoteBuyShares(params.market, params.side, params.amountSol);
+  const slippageBps = Math.max(0, Math.min(10_000, params.slippageBps ?? 50));
+  const minSharesOut = quote.sharesOut
+    .mul(new BN(10_000 - slippageBps))
+    .div(new BN(10_000));
 
   return program.methods
-    .placeBet(lamports, side)
+    .buyShares(lamports, side, minSharesOut)
     .accounts({
       market,
       position,
@@ -99,18 +152,122 @@ export async function createMarket(params: {
   wallet: AnchorWalletLike;
   question: string;
   endTime: number;
+  initialLiquiditySol?: number;
 }) {
   const program = getProgram(params.connection, params.wallet);
   const market = getMarketPda(params.wallet.publicKey, params.endTime);
+  const initialLiquidity = new BN(
+    Math.round((params.initialLiquiditySol ?? 1) * web3.LAMPORTS_PER_SOL)
+  );
 
   return program.methods
-    .createMarket(params.question, new BN(params.endTime))
+    .createMarket(params.question, new BN(params.endTime), initialLiquidity)
     .accounts({
       market,
       creator: params.wallet.publicKey,
       systemProgram: SystemProgram.programId
     })
     .rpc();
+}
+
+export async function sellShares(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+  side: Side;
+  sharesSol: number;
+  slippageBps?: number;
+}) {
+  const program = getProgram(params.connection, params.wallet);
+  const owner = params.wallet.publicKey;
+  const market = new PublicKey(params.market.publicKey);
+  const position = getPositionPda(market, owner);
+  const side = params.side === "YES" ? 1 : 0;
+  const shares = new BN(Math.round(params.sharesSol * web3.LAMPORTS_PER_SOL));
+  const quote = quoteSellShares(params.market, params.side, params.sharesSol);
+  const slippageBps = Math.max(0, Math.min(10_000, params.slippageBps ?? 50));
+  const minLamportsOut = quote.lamportsOut
+    .mul(new BN(10_000 - slippageBps))
+    .div(new BN(10_000));
+
+  return program.methods
+    .sellShares(shares, side, minLamportsOut)
+    .accounts({
+      market,
+      position,
+      owner
+    })
+    .rpc();
+}
+
+export function quoteBuyShares(market: Market, side: Side, amountSol: number) {
+  const yesPool = solToLamportsBigInt(market.yesPool);
+  const noPool = solToLamportsBigInt(market.noPool);
+  const amount = solToLamportsBigInt(amountSol);
+  const invariant = yesPool * noPool;
+
+  if (side === "YES") {
+    const nextYesPool = yesPool + amount;
+    const nextNoPool = ceilDiv(invariant, nextYesPool);
+    return {
+      sharesOut: bnFromBigInt(noPool - nextNoPool),
+      nextYesPool: lamportsBigIntToSol(nextYesPool),
+      nextNoPool: lamportsBigIntToSol(nextNoPool)
+    };
+  }
+
+  const nextNoPool = noPool + amount;
+  const nextYesPool = ceilDiv(invariant, nextNoPool);
+  return {
+    sharesOut: bnFromBigInt(yesPool - nextYesPool),
+    nextYesPool: lamportsBigIntToSol(nextYesPool),
+    nextNoPool: lamportsBigIntToSol(nextNoPool)
+  };
+}
+
+export function quoteSellShares(market: Market, side: Side, sharesSol: number) {
+  const yesPool = solToLamportsBigInt(market.yesPool);
+  const noPool = solToLamportsBigInt(market.noPool);
+  const shares = solToLamportsBigInt(sharesSol);
+  const invariant = yesPool * noPool;
+
+  if (side === "YES") {
+    const nextNoPool = noPool + shares;
+    const nextYesPool = ceilDiv(invariant, nextNoPool);
+    return {
+      lamportsOut: bnFromBigInt(yesPool - nextYesPool),
+      nextYesPool: lamportsBigIntToSol(nextYesPool),
+      nextNoPool: lamportsBigIntToSol(nextNoPool)
+    };
+  }
+
+  const nextYesPool = yesPool + shares;
+  const nextNoPool = ceilDiv(invariant, nextYesPool);
+  return {
+    lamportsOut: bnFromBigInt(noPool - nextNoPool),
+    nextYesPool: lamportsBigIntToSol(nextYesPool),
+    nextNoPool: lamportsBigIntToSol(nextNoPool)
+  };
+}
+
+function solToLamportsBigInt(value: number) {
+  const lamports = Number.isFinite(value) ? Math.max(0, Math.round(value * web3.LAMPORTS_PER_SOL)) : 0;
+  return BigInt(lamports);
+}
+
+function lamportsBigIntToSol(value: bigint) {
+  return Number(value) / web3.LAMPORTS_PER_SOL;
+}
+
+function ceilDiv(numerator: bigint, denominator: bigint) {
+  const zero = BigInt(0);
+  const one = BigInt(1);
+  if (denominator <= zero) return zero;
+  return (numerator + denominator - one) / denominator;
+}
+
+function bnFromBigInt(value: bigint) {
+  return new BN(value.toString());
 }
 
 declare global {

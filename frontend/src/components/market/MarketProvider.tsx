@@ -1,8 +1,9 @@
 "use client";
 
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { placeBet, createMarket as createMarketIx, getMarketPda, type AnchorWalletLike } from "@/lib/anchorClient";
+import { buyShares as buySharesIx, createMarket as createMarketIx, getMarketPda, quoteBuyShares, type AnchorWalletLike } from "@/lib/anchorClient";
 import { createBackendMarket, fetchBootstrap, isBackendApiConfigured, recordBackendTrade } from "@/lib/backendApi";
 import { clamp, mockActivity, mockMarkets, mockPositions } from "@/lib/mockData";
 import { probability } from "@/lib/format";
@@ -13,7 +14,7 @@ type MarketContextValue = {
   positions: Position[];
   activity: AgentActivity[];
   selectedMarket: (id: string) => Market | undefined;
-  buy: (marketId: string, side: Side, amountSol: number) => Promise<string>;
+  buy: (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
   addMockMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
 };
@@ -25,6 +26,10 @@ type CreateMarketOptions = {
   initialLiquidity?: number;
   publicKey?: string;
   creator?: string;
+};
+
+type TradeOptions = {
+  slippageBps?: number;
 };
 
 export function MarketProvider({ children }: { children: ReactNode }) {
@@ -124,18 +129,19 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const selectedMarket = useCallback((id: string) => markets.find((market) => market.id === id), [markets]);
 
   const buy = useCallback(
-    async (marketId: string, side: Side, amountSol: number) => {
+    async (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => {
       const market = markets.find((item) => item.id === marketId);
       if (!market) throw new Error("Market not found");
 
       let signature = "simulated";
       if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
-        signature = await placeBet({
+        signature = await buySharesIx({
           connection,
           wallet: wallet as AnchorWalletLike,
           market,
           side,
-          amountSol
+          amountSol,
+          slippageBps: options?.slippageBps
         });
       }
 
@@ -163,14 +169,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       setMarkets((current) =>
         current.map((item) => {
           if (item.id !== marketId) return item;
-          const delta = amountSol;
-          const yesPool = side === "YES" ? item.yesPool + delta : item.yesPool;
-          const noPool = side === "NO" ? item.noPool + delta : item.noPool;
+          const quote = quoteBuyShares(item, side, amountSol);
+          const yesPool = quote.nextYesPool;
+          const noPool = quote.nextNoPool;
           return {
             ...item,
             yesPool,
             noPool,
-            totalLiquidity: yesPool + noPool,
+            totalLiquidity: item.totalLiquidity + amountSol,
             volume24h: item.volume24h + amountSol * 1000,
             probabilityHistory: [...item.probabilityHistory.slice(-95), yesPool / (yesPool + noPool)]
           };
@@ -178,12 +184,13 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       );
 
       const entryProbability = side === "YES" ? probability(market) : 1 - probability(market);
+      const shares = bnToSol(quoteBuyShares(market, side, amountSol).sharesOut);
       setPositions((current) => [
         {
           id: `local-${Date.now()}`,
           marketId,
           side,
-          size: amountSol,
+          size: shares,
           entryProbability,
           currentProbability: entryProbability,
           pnl: 0
@@ -211,7 +218,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   );
 
   const addMockMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
-    const initialLiquidity = Math.max(100, options?.initialLiquidity ?? 1000);
+    const initialLiquidity = Math.max(0.01, options?.initialLiquidity ?? 1);
     setMarkets((current) => [
       {
         id: `created-${Date.now()}`,
@@ -220,8 +227,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         endTime,
         question,
         category: options?.category ?? "Crypto",
-        yesPool: initialLiquidity / 2,
-        noPool: initialLiquidity / 2,
+        yesPool: initialLiquidity,
+        noPool: initialLiquidity,
         totalLiquidity: initialLiquidity,
         volume24h: 0,
         participants: 1,
@@ -244,7 +251,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           connection,
           wallet: wallet as AnchorWalletLike,
           question,
-          endTime
+          endTime,
+          initialLiquiditySol: options?.initialLiquidity
         });
         creator = creatorKey.toBase58();
         publicKey = getMarketPda(creatorKey, endTime).toBase58();
@@ -296,4 +304,8 @@ function upsertById<T extends { id: string }>(items: T[], next: T) {
   const exists = items.some((item) => item.id === next.id);
   if (!exists) return [next, ...items];
   return items.map((item) => (item.id === next.id ? next : item));
+}
+
+function bnToSol(value: { toString: () => string }) {
+  return Number(value.toString()) / LAMPORTS_PER_SOL;
 }

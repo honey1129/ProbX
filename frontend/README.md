@@ -21,4 +21,4 @@ NEXT_PUBLIC_ENABLE_ONCHAIN=false
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
-The UI runs against simulated market data by default. Set `NEXT_PUBLIC_API_URL` to use the Go backend and MySQL index, and set `NEXT_PUBLIC_ENABLE_ONCHAIN=true` to route connected wallet trades through the Anchor `place_bet` and `create_market` calls.
+The UI runs against simulated market data by default. Set `NEXT_PUBLIC_API_URL` to use the Go backend and MySQL index, and set `NEXT_PUBLIC_ENABLE_ONCHAIN=true` to route connected wallet trades through the Anchor `buy_shares` and `create_market` calls.

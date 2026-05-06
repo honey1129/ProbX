@@ -4,7 +4,7 @@
 Live mode:
   - Fetches Market accounts from the Solana program.
   - Computes weighted signals.
-  - Sends the Anchor `place_bet(amount, side)` instruction.
+  - Sends the Anchor `buy_shares(amount, side, min_shares_out)` instruction.
 
 Simulation mode:
   - Runs multiple agents against synthetic YES/NO pools.
@@ -74,7 +74,7 @@ SIDE_LABELS = {SIDE_NO: "NO", SIDE_YES: "YES"}
 LAMPORTS_PER_SOL = 1_000_000_000
 PRICE_SCALE = 1_000_000_000
 MARKET_DISCRIMINATOR = hashlib.sha256(b"account:Market").digest()[:8]
-PLACE_BET_DISCRIMINATOR = hashlib.sha256(b"global:place_bet").digest()[:8]
+BUY_SHARES_DISCRIMINATOR = hashlib.sha256(b"global:buy_shares").digest()[:8]
 
 
 @dataclass
@@ -93,7 +93,7 @@ class MarketSnapshot:
 
     @property
     def implied_probability(self) -> float:
-        total = self.total_liquidity or self.yes_pool + self.no_pool
+        total = self.yes_pool + self.no_pool
         if total <= 0:
             return 0.0
         return max(0.0, min(1.0, self.yes_pool / total))
@@ -241,8 +241,8 @@ class MarketFetcher:
         no_pool = int(_pick(row, "no_pool", "noPool", default=0))
         total = int(_pick(row, "total_liquidity", "totalLiquidity", default=yes_pool + no_pool))
         return MarketSnapshot(
-            market=str(_pick(row, "market", "pubkey", "address")),
-            market_id=int(_pick(row, "id", "market_id", "marketId", default=0)),
+            market=str(_pick(row, "market", "pubkey", "public_key", "publicKey", "address", default="")),
+            market_id=_coerce_int(_pick(row, "market_id", "marketId", "id", default=0)),
             question=str(_pick(row, "question", default="")),
             creator=str(_pick(row, "creator", default="")),
             resolver=str(_pick(row, "resolver", default="")),
@@ -551,9 +551,10 @@ class ExecutionEngine:
         )
 
         data = (
-            PLACE_BET_DISCRIMINATOR
+            BUY_SHARES_DISCRIMINATOR
             + struct.pack("<Q", decision.size_lamports)
             + struct.pack("<B", decision.side)
+            + struct.pack("<Q", 0)
         )
         ix = Instruction(
             self.program_id,
@@ -673,11 +674,6 @@ class SimulationAgent:
             return decision
         decision.size_lamports = size
         self.cash -= size
-        pos = self.positions.setdefault(market.market, SimPosition())
-        if decision.side == SIDE_YES:
-            pos.yes_amount += size
-        else:
-            pos.no_amount += size
         self.trades += 1
         return decision
 
@@ -701,7 +697,7 @@ def run_simulation(cfg: Config, agent_count: int, steps: int) -> None:
             resolver="sim",
             yes_pool=initial_pool,
             no_pool=initial_pool,
-            total_liquidity=2 * initial_pool,
+            total_liquidity=initial_pool,
             end_time=int(time.time()) + steps + 60,
         )
         for i in range(market_count)
@@ -715,11 +711,20 @@ def run_simulation(cfg: Config, agent_count: int, steps: int) -> None:
             agent.engine.update_history(markets)
             for market in markets:
                 decision = agent.trade(cfg, market)
-                if decision.side == SIDE_YES:
-                    market.yes_pool += decision.size_lamports
-                    market.total_liquidity += decision.size_lamports
-                elif decision.side == SIDE_NO:
-                    market.no_pool += decision.size_lamports
+                if decision.side is not None and decision.size_lamports > 0:
+                    shares_out, next_yes_pool, next_no_pool = quote_buy_shares(
+                        market.yes_pool,
+                        market.no_pool,
+                        decision.size_lamports,
+                        decision.side,
+                    )
+                    pos = agent.positions.setdefault(market.market, SimPosition())
+                    if decision.side == SIDE_YES:
+                        pos.yes_amount += shares_out
+                    else:
+                        pos.no_amount += shares_out
+                    market.yes_pool = next_yes_pool
+                    market.no_pool = next_no_pool
                     market.total_liquidity += decision.size_lamports
 
         if step % max(1, steps // 10) == 0:
@@ -739,10 +744,9 @@ def run_simulation(cfg: Config, agent_count: int, steps: int) -> None:
         for m in markets:
             pos = agent.positions.get(m.market, SimPosition())
             user_amount = pos.yes_amount if outcomes[m.market] == SIDE_YES else pos.no_amount
-            winning_pool = m.yes_pool if outcomes[m.market] == SIDE_YES else m.no_pool
             staked += pos.yes_amount + pos.no_amount
-            if winning_pool > 0 and user_amount > 0:
-                payout += int(user_amount * m.total_liquidity / winning_pool)
+            if user_amount > 0:
+                payout += user_amount
         final_equity = agent.cash + payout
         initial_cash = int(cfg.simulation.get("initial_cash_lamports", 5 * LAMPORTS_PER_SOL))
         rows.append(
@@ -769,6 +773,8 @@ def decode_market_account(pubkey: str, raw: bytes) -> MarketSnapshot:
     yes_pool, offset = _read_u64(raw, offset)
     no_pool, offset = _read_u64(raw, offset)
     total_liquidity, offset = _read_u64(raw, offset)
+    _, offset = _read_u64(raw, offset)
+    _, offset = _read_u64(raw, offset)
     end_time, offset = _read_i64(raw, offset)
     resolved = bool(raw[offset])
     offset += 1
@@ -866,6 +872,31 @@ def _pick(row: dict[str, Any], *keys: str, default: Any = None) -> Any:
         if key in row:
             return row[key]
     return default
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        digest = hashlib.sha256(str(value).encode("utf-8")).digest()
+        return int.from_bytes(digest[:8], "little") if value is not None else default
+
+
+def quote_buy_shares(yes_pool: int, no_pool: int, amount: int, side: int) -> tuple[int, int, int]:
+    if yes_pool <= 0 or no_pool <= 0 or amount <= 0:
+        return 0, yes_pool, no_pool
+    invariant = yes_pool * no_pool
+    if side == SIDE_YES:
+        next_yes_pool = yes_pool + amount
+        next_no_pool = _ceil_div(invariant, next_yes_pool)
+        return max(0, no_pool - next_no_pool), next_yes_pool, next_no_pool
+    next_no_pool = no_pool + amount
+    next_yes_pool = _ceil_div(invariant, next_no_pool)
+    return max(0, yes_pool - next_yes_pool), next_yes_pool, next_no_pool
+
+
+def _ceil_div(numerator: int, denominator: int) -> int:
+    return (numerator + denominator - 1) // denominator
 
 
 def _clip(value: float, low: float, high: float) -> float:

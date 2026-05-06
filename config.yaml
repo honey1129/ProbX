@@ -1,0 +1,40 @@
+rpc_url: "http://127.0.0.1:8899"
+program_id: "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"
+wallet_path: "~/.config/solana/id.json"
+idl_path: "idl/probx_prediction.json"
+api_endpoint: null
+dry_run: true
+polling_interval_sec: 10
+max_markets_per_cycle: 50
+random_seed: 42
+
+trading:
+  min_signal: 0.15
+  min_bet_lamports: 10000000
+  max_bet_lamports: 100000000
+
+signals:
+  momentum_lookback: 3
+  momentum_threshold: 0.01
+  mean_reversion_threshold: 0.12
+  weights:
+    momentum: 0.4
+    mean_reversion: 0.35
+    external: 0.25
+
+risk:
+  max_bet_per_market_lamports: 250000000
+  max_total_exposure_lamports: 1000000000
+  stop_loss_probability_move: 0.08
+  stop_loss_action: "halt"
+  stop_loss_hedge_lamports: 50000000
+
+logging:
+  trade_log: "data/trades.csv"
+
+simulation:
+  agents: 5
+  steps: 100
+  market_count: 3
+  initial_cash_lamports: 5000000000
+  initial_pool_lamports: 2000000000

@@ -1,0 +1,26 @@
+[package]
+name = "probx_prediction"
+version = "0.1.0"
+description = "Anchor binary prediction market for SOL-denominated YES/NO markets"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "probx_prediction"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+custom-heap = []
+custom-panic = []
+anchor-debug = []
+idl-build = ["anchor-lang/idl-build"]
+default = []
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+blake3 = "=1.5.5"
+proc-macro-crate = "=3.1.0"
+unicode-segmentation = "=1.12.0"

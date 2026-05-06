@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { Clock3, Droplets, TrendingDown, TrendingUp } from "lucide-react";
 import { formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import type { Market } from "@/lib/types";
@@ -7,6 +10,16 @@ import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 export function MarketCard({ market }: { market: Market }) {
   const p = probability(market);
   const positive = market.change24h >= 0;
+  const previous = useRef(p);
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    if (Math.abs(previous.current - p) < 0.0001) return;
+    previous.current = p;
+    setFlash(true);
+    const id = window.setTimeout(() => setFlash(false), 540);
+    return () => window.clearTimeout(id);
+  }, [p]);
 
   return (
     <Link
@@ -24,7 +37,7 @@ export function MarketCard({ market }: { market: Market }) {
           <h3 className="line-clamp-2 text-base font-bold leading-snug text-white">{market.question}</h3>
         </div>
         <div className="text-right">
-          <div className="text-3xl font-black text-yes">{formatPrice(p)}</div>
+          <div className={`text-3xl font-black text-yes ${flash ? "number-flash" : ""}`}>{formatPrice(p)}</div>
           <div className={`mt-1 flex items-center justify-end gap-1 text-xs ${positive ? "text-yes" : "text-no"}`}>
             {positive ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
             {Math.abs(market.change24h * 100).toFixed(1)}%

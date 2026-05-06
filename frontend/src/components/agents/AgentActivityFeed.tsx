@@ -13,6 +13,17 @@ export function AgentActivityFeed({ activity, markets }: { activity: AgentActivi
     return () => window.clearInterval(id);
   }, []);
 
+  if (!activity.length) {
+    return (
+      <div className="grid h-40 place-items-center rounded-lg border border-line bg-black/25 p-5 text-center">
+        <div>
+          <p className="font-bold text-slate-200">No matching activity</p>
+          <p className="mt-1 text-sm text-muted">Live trades will appear here as agents update.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-2">
       {activity.map((item) => {

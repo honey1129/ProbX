@@ -57,7 +57,13 @@ export default function CreateMarketPage() {
         category,
         initialLiquidity: Number(initialLiquidity) || 1000
       });
-      setStatus(signature === "simulated" ? "Market created in local simulation." : `Create transaction sent: ${signature.slice(0, 12)}...`);
+      setStatus(
+        signature === "simulated"
+          ? "Market created in local simulation."
+          : signature === "indexed"
+            ? "Market saved to backend."
+            : `Create transaction sent: ${signature.slice(0, 12)}...`
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Create market failed.");
     } finally {
@@ -66,8 +72,8 @@ export default function CreateMarketPage() {
   }
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_430px] gap-3 pb-16">
-      <main className="terminal-panel p-5">
+    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_430px] gap-3 overflow-hidden">
+      <main className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-5">
         <div className="mb-6 flex items-center justify-between border-b border-line pb-4">
           <div>
             <h1 className="text-3xl font-black">Create Market</h1>
@@ -78,7 +84,7 @@ export default function CreateMarketPage() {
           </span>
         </div>
 
-        <form onSubmit={submit} className="grid gap-5">
+        <form onSubmit={submit} className="grid min-h-0 flex-1 content-start gap-5 overflow-hidden">
           <label className="grid gap-2">
             <span className="flex items-center gap-2 text-sm font-bold text-slate-200">
               <FileQuestion size={16} className="text-solBlue" /> Question
@@ -154,8 +160,8 @@ export default function CreateMarketPage() {
         </form>
       </main>
 
-      <aside className="sticky top-20 h-max">
-        <section className="terminal-panel p-4">
+      <aside className="h-full min-h-0">
+        <section className="terminal-panel h-full overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-black">Live Preview</h2>
             <span className="rounded border border-yes/25 bg-yes/10 px-2 py-1 text-xs text-yes">50/50</span>

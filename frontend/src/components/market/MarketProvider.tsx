@@ -3,6 +3,7 @@
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { placeBet, createMarket as createMarketIx, getMarketPda, type AnchorWalletLike } from "@/lib/anchorClient";
+import { createBackendMarket, fetchBootstrap, isBackendApiConfigured, recordBackendTrade } from "@/lib/backendApi";
 import { clamp, mockActivity, mockMarkets, mockPositions } from "@/lib/mockData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
@@ -30,6 +31,9 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const { connection } = useConnection();
   const wallet = useWallet();
   const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
+  const backendEnabled = isBackendApiConfigured();
+  const ownerId = wallet.publicKey?.toBase58() ?? "local";
+  const [backendReady, setBackendReady] = useState(backendEnabled);
   const [markets, setMarkets] = useState<Market[]>(mockMarkets);
   const [positions, setPositions] = useState<Position[]>(mockPositions);
   const [activity, setActivity] = useState<AgentActivity[]>(mockActivity);
@@ -40,6 +44,39 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   }, [markets]);
 
   useEffect(() => {
+    if (!backendEnabled) return;
+
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const load = () => {
+      fetchBootstrap(ownerId)
+        .then((payload) => {
+          if (cancelled) return;
+          setMarkets(payload.markets);
+          setPositions(payload.positions);
+          setActivity(payload.activity);
+          setBackendReady(true);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setBackendReady(false);
+          console.warn("ProbX API bootstrap failed, using local mock data.", error);
+          timer = window.setTimeout(load, 5000);
+        });
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [backendEnabled, ownerId]);
+
+  useEffect(() => {
+    if (backendReady) return;
+
     const id = window.setInterval(() => {
       setMarkets((current) =>
         current.map((market) => {
@@ -64,13 +101,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         const liveMarkets = marketsRef.current;
         const market = liveMarkets[Math.floor(Math.random() * liveMarkets.length)] ?? mockMarkets[0];
         const side: Side = Math.random() > probability(market) ? "NO" : "YES";
+        const action: AgentActivity["action"] = side === "YES" ? "BUY" : "SELL";
         return [
           {
             id: `live-${Date.now()}`,
             agent: ["OmegaAgent", "AlphaBot", "QuantMind", "StatArb", "MacroSense"][Math.floor(Math.random() * 5)],
             marketId: market.id,
             side,
-            action: side === "YES" ? "BUY" : "SELL",
+            action,
             size: 10_000 + Math.random() * 80_000,
             confidence: 62 + Math.round(Math.random() * 34),
             timestamp: Date.now()
@@ -81,7 +119,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     }, 2500);
 
     return () => window.clearInterval(id);
-  }, []);
+  }, [backendReady]);
 
   const selectedMarket = useCallback((id: string) => markets.find((market) => market.id === id), [markets]);
 
@@ -99,6 +137,27 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           side,
           amountSol
         });
+      }
+
+      if (backendReady) {
+        try {
+          const result = await recordBackendTrade({
+            marketId,
+            owner: ownerId,
+            side,
+            amountSol,
+            signature: signature === "simulated" ? "indexed" : signature,
+            status: signature === "simulated" ? "indexed" : "sent"
+          });
+
+          setMarkets((current) => upsertById(current, result.market));
+          setPositions((current) => upsertById(current, result.position));
+          setActivity((current) => [result.activity, ...current.filter((item) => item.id !== result.activity.id)].slice(0, 40));
+          return result.signature;
+        } catch (error) {
+          setBackendReady(false);
+          console.warn("ProbX API trade indexing failed, using local simulation.", error);
+        }
       }
 
       setMarkets((current) =>
@@ -148,7 +207,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [connection, markets, onchainEnabled, wallet]
+    [backendReady, connection, markets, onchainEnabled, ownerId, wallet]
   );
 
   const addMockMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
@@ -175,26 +234,48 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
   const createMarket = useCallback(
     async (question: string, endTime: number, options?: CreateMarketOptions) => {
-      if (!onchainEnabled || !wallet.connected || !wallet.publicKey || !wallet.signTransaction || !wallet.signAllTransactions) {
-        addMockMarket(question, endTime, options);
-        return "simulated";
+      let signature = "simulated";
+      let publicKey = options?.publicKey;
+      let creator = options?.creator ?? ownerId;
+
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        const creatorKey = wallet.publicKey;
+        signature = await createMarketIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          question,
+          endTime
+        });
+        creator = creatorKey.toBase58();
+        publicKey = getMarketPda(creatorKey, endTime).toBase58();
       }
 
-      const creator = wallet.publicKey;
-      const signature = await createMarketIx({
-        connection,
-        wallet: wallet as AnchorWalletLike,
-        question,
-        endTime
-      });
+      if (backendReady) {
+        try {
+          const market = await createBackendMarket({
+            question,
+            endTime,
+            category: options?.category,
+            initialLiquidity: options?.initialLiquidity,
+            creator,
+            publicKey
+          });
+          setMarkets((current) => upsertById(current, market));
+          return signature === "simulated" ? "indexed" : signature;
+        } catch (error) {
+          setBackendReady(false);
+          console.warn("ProbX API market indexing failed, using local simulation.", error);
+        }
+      }
+
       addMockMarket(question, endTime, {
         ...options,
-        creator: creator.toBase58(),
-        publicKey: getMarketPda(creator, endTime).toBase58()
+        creator,
+        publicKey
       });
       return signature;
     },
-    [addMockMarket, connection, onchainEnabled, wallet]
+    [addMockMarket, backendReady, connection, onchainEnabled, ownerId, wallet]
   );
 
   const value = useMemo(
@@ -209,4 +290,10 @@ export function useMarkets() {
   const value = useContext(MarketContext);
   if (!value) throw new Error("useMarkets must be used within MarketProvider");
   return value;
+}
+
+function upsertById<T extends { id: string }>(items: T[], next: T) {
+  const exists = items.some((item) => item.id === next.id);
+  if (!exists) return [next, ...items];
+  return items.map((item) => (item.id === next.id ? next : item));
 }

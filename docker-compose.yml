@@ -1,0 +1,23 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: probx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: probx
+      MYSQL_USER: probx
+      MYSQL_PASSWORD: probx
+      MYSQL_ROOT_PASSWORD: probxroot
+    ports:
+      - "3306:3306"
+    volumes:
+      - probx_mysql_data:/var/lib/mysql
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uprobx", "-pprobx"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  probx_mysql_data:

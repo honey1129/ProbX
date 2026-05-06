@@ -13,19 +13,21 @@ import { formatPercent, formatPrice, formatSol, probability, timeRemaining } fro
 import type { Side } from "@/lib/types";
 
 const timeframes = ["1H", "24H", "7D"] as const;
+const tradeFilters = ["ALL", "YES", "NO"] as const;
 
 export default function MarketDetailPage() {
   const params = useParams<{ id: string }>();
   const { markets, activity } = useMarkets();
   const [chartSide, setChartSide] = useState<Side>("YES");
   const [timeframe, setTimeframe] = useState<(typeof timeframes)[number]>("24H");
+  const [tradeFilter, setTradeFilter] = useState<(typeof tradeFilters)[number]>("ALL");
 
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const market = markets.find((item) => item.id === id);
 
   const recentTrades = useMemo(() => {
     if (!market) return [];
-    return market.probabilityHistory.slice(-18).reverse().map((price, index) => {
+    const trades = market.probabilityHistory.slice(-18).reverse().map((price, index) => {
       const side: Side = index % 3 === 0 ? "NO" : "YES";
       return {
         id: `${market.id}-${index}`,
@@ -35,7 +37,8 @@ export default function MarketDetailPage() {
         time: `${index + 1}m`
       };
     });
-  }, [market]);
+    return tradeFilter === "ALL" ? trades : trades.filter((trade) => trade.side === tradeFilter);
+  }, [market, tradeFilter]);
 
   if (!market) {
     return (
@@ -55,8 +58,8 @@ export default function MarketDetailPage() {
   const activePrice = chartSide === "YES" ? yesProbability : 1 - yesProbability;
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_380px] gap-3 pb-16">
-      <main className="grid gap-3">
+    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_380px] gap-3 overflow-hidden">
+      <main className="grid h-full min-h-0 grid-rows-[auto_auto_auto_1fr] gap-3 overflow-hidden">
         <section className="terminal-panel p-5">
           <div className="mb-4 flex items-start justify-between gap-5">
             <div className="min-w-0">
@@ -122,7 +125,7 @@ export default function MarketDetailPage() {
               </div>
             </div>
           </div>
-          <ProbabilityChart market={market} />
+          <ProbabilityChart market={market} side={chartSide} timeframe={timeframe} />
         </section>
 
         <section className="grid grid-cols-4 gap-3">
@@ -132,9 +135,22 @@ export default function MarketDetailPage() {
           <StatCard label="Current YES" value={formatPercent(yesProbability)} icon={<Bot size={16} />} />
         </section>
 
-        <section className="terminal-panel overflow-hidden">
-          <div className="border-b border-line px-4 py-3">
+        <section className="terminal-panel min-h-0 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <h2 className="font-black">Trade History</h2>
+            <div className="flex rounded-lg border border-line bg-black/25 p-1">
+              {tradeFilters.map((item) => (
+                <button
+                  key={item}
+                  onClick={() => setTradeFilter(item)}
+                  className={`rounded-md px-3 py-1 text-xs font-black transition ${
+                    tradeFilter === item ? "bg-solBlue/20 text-white" : "text-muted hover:text-white"
+                  }`}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
           </div>
           <table className="w-full border-collapse text-sm">
             <thead className="bg-slate-950/80 text-xs uppercase text-muted">
@@ -146,7 +162,7 @@ export default function MarketDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {recentTrades.map((trade) => (
+              {recentTrades.slice(0, 8).map((trade) => (
                 <tr key={trade.id} className="border-t border-line bg-slate-950/30">
                   <td className={trade.side === "YES" ? "px-4 py-3 font-black text-yes" : "px-4 py-3 font-black text-no"}>
                     BUY {trade.side}
@@ -161,9 +177,9 @@ export default function MarketDetailPage() {
         </section>
       </main>
 
-      <aside className="sticky top-20 grid h-[calc(100vh-96px)] grid-rows-[auto_auto_1fr] gap-3">
+      <aside className="grid h-full min-h-0 grid-rows-[auto_auto_1fr] gap-3 overflow-hidden">
         <TradePanel market={market} />
-        <section className="terminal-panel p-4">
+        <section className="terminal-panel overflow-hidden p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-black">Agent Insight</h2>
             <span className="rounded border border-solBlue/40 bg-solBlue/10 px-2 py-1 text-xs font-black text-solBlue">AI</span>
@@ -178,12 +194,12 @@ export default function MarketDetailPage() {
             comparing short-term flow, pool imbalance, and external sentiment drift.
           </p>
         </section>
-        <section className="terminal-panel overflow-auto p-4">
+        <section className="terminal-panel overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-black">Live Agent Feed</h2>
             <span className="rounded border border-yes/25 bg-yes/10 px-2 py-1 text-xs text-yes">Streaming</span>
           </div>
-          <AgentActivityFeed activity={activity.filter((item) => item.marketId === market.id).slice(0, 10)} markets={markets} />
+          <AgentActivityFeed activity={activity.filter((item) => item.marketId === market.id).slice(0, 6)} markets={markets} />
         </section>
       </aside>
     </div>

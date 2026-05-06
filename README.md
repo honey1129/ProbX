@@ -1,10 +1,11 @@
 # ProbX Prediction Market
 
-ProbX 是一个基于 Solana Anchor 的二元预测市场项目，包含链上合约、Next.js 交易前端和 Python 自动交易 agent。市场以 YES/NO 两侧资金池表达概率，支持创建市场、下注、查询 YES 概率、到期结算和赢家领取奖励。
+ProbX 是一个基于 Solana Anchor 的二元预测市场项目，包含链上合约、Next.js 交易前端、Go API 后端、MySQL 索引库和 Python 自动交易 agent。市场以 YES/NO 两侧资金池表达概率，支持创建市场、下注、查询 YES 概率、到期结算和赢家领取奖励。
 
 ## 功能概览
 
 - Anchor 合约：创建预测市场、下注、价格查询、结算市场、领取奖励。
+- Go 后端：提供 REST API，使用 MySQL 存市场索引、持仓、交易记录和 agent 活动。
 - Next.js 前端：市场列表、交易面板、持仓、概率图表、agent 活动流。
 - Python agent：从链上或 API 拉取市场，基于动量、均值回归和外部信号做 dry-run/实盘下注，也支持多 agent 模拟。
 - 本地开发：默认使用 localnet 程序 ID `4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL`。
@@ -16,6 +17,7 @@ ProbX 是一个基于 Solana Anchor 的二元预测市场项目，包含链上�
 ├── programs/probx_prediction/   # Anchor 预测市场合约
 ├── tests/                       # Anchor TypeScript 测试
 ├── idl/                         # 合约 IDL
+├── backend/                     # Go API + MySQL migrations
 ├── frontend/                    # Next.js 前端应用
 ├── agent.py                     # Python 交易 agent
 ├── config.yaml                  # agent 和 RPC 配置
@@ -27,6 +29,8 @@ ProbX 是一个基于 Solana Anchor 的二元预测市场项目，包含链上�
 - Rust 和 Solana CLI
 - Anchor CLI `0.31.x`
 - Node.js `18+`
+- Go `1.22+`
+- MySQL `8+`，也可以直接使用仓库里的 Docker Compose
 - Python `3.10+`
 - 一个 Solana keypair，默认路径为 `~/.config/solana/id.json`
 
@@ -45,12 +49,57 @@ cd frontend
 npm install
 ```
 
+Go 后端依赖：
+
+```bash
+cd backend
+go mod tidy
+```
+
 Python agent 依赖：
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+## Go API 与 MySQL
+
+启动 MySQL：
+
+```bash
+docker compose up -d mysql
+```
+
+`docker-compose.yml` 会在首次创建数据库时执行 `backend/migrations/*.sql`，包括建表和示例数据。
+
+手动迁移已有数据库：
+
+```bash
+cd backend
+PROBX_MYSQL_CLI_DSN=mysql://probx:probx@127.0.0.1:3306/probx ./scripts/migrate.sh
+```
+
+启动 Go API：
+
+```bash
+cd backend
+PROBX_DATABASE_DSN='probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true' go run ./cmd/server
+```
+
+默认监听 `http://localhost:8080`。
+
+常用接口：
+
+```text
+GET  /health
+GET  /api/bootstrap?owner=local
+GET  /api/markets
+POST /api/markets
+GET  /api/positions?owner=local
+GET  /api/activity?limit=40
+POST /api/trades
 ```
 
 ## 合约开发
@@ -95,6 +144,7 @@ cp .env.example .env.local
 ```bash
 NEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899
 NEXT_PUBLIC_ENABLE_ONCHAIN=false
+NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
 启动开发服务器：
@@ -105,7 +155,7 @@ npm run dev
 
 打开 `http://localhost:3000`。
 
-前端默认使用模拟市场数据。需要连接链上交易时，先启动本地验证器并部署合约，然后将 `frontend/.env.local` 中的 `NEXT_PUBLIC_ENABLE_ONCHAIN` 改为 `true`。
+前端默认可以直接使用模拟市场数据。设置 `NEXT_PUBLIC_API_URL` 后，前端会通过 Go API 读写 MySQL；不设置时会回退到浏览器内存中的 mock 数据。需要连接链上交易时，先启动本地验证器并部署合约，然后将 `frontend/.env.local` 中的 `NEXT_PUBLIC_ENABLE_ONCHAIN` 改为 `true`。
 
 ```bash
 solana-test-validator
@@ -172,6 +222,11 @@ cd frontend
 npm run dev
 npm run build
 npm run typecheck
+
+# Go API
+docker compose up -d mysql
+cd backend
+go run ./cmd/server
 
 # Agent
 ./scripts/run_agent.sh simulate

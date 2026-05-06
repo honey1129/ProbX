@@ -1,8 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import { formatPercent } from "@/lib/format";
 import type { Market, Position } from "@/lib/types";
 
 export function PositionTable({ positions, markets }: { positions: Position[]; markets: Market[] }) {
+  const [claimed, setClaimed] = useState<Record<string, boolean>>({});
+
   return (
     <div className="overflow-hidden rounded-lg border border-line">
       <table className="w-full border-collapse text-sm">
@@ -39,7 +44,13 @@ export function PositionTable({ positions, markets }: { positions: Position[]; m
                 </td>
                 <td className="px-4 py-3 text-right">
                   {position.resolved ? (
-                    <button className="rounded border border-yes/40 bg-yes/10 px-3 py-1 text-xs font-bold text-yes">Claim</button>
+                    <button
+                      onClick={() => setClaimed((current) => ({ ...current, [position.id]: true }))}
+                      disabled={claimed[position.id]}
+                      className="rounded border border-yes/40 bg-yes/10 px-3 py-1 text-xs font-bold text-yes transition hover:bg-yes/20 disabled:border-line disabled:bg-white/5 disabled:text-muted"
+                    >
+                      {claimed[position.id] ? "Claimed" : "Claim"}
+                    </button>
                   ) : (
                     <span className="text-xs text-muted">Open</span>
                   )}

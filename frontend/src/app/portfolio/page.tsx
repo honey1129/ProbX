@@ -43,7 +43,7 @@ export default function PortfolioPage() {
   const winRate = enriched.length ? enriched.filter((item) => item.pnl > 0).length / enriched.length : 0;
 
   return (
-    <div className="grid gap-3 pb-16">
+    <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
       <section className="grid grid-cols-4 gap-3">
         <SummaryCard icon={<WalletCards size={18} />} label="Total Balance" value={formatSol(totalBalance)} tone="blue" />
         <SummaryCard icon={<BadgeDollarSign size={18} />} label="Unrealized PnL" value={formatSignedUsd(unrealized)} tone={unrealized >= 0 ? "yes" : "no"} />
@@ -51,8 +51,8 @@ export default function PortfolioPage() {
         <SummaryCard icon={<ArrowDownUp size={18} />} label="Win Rate" value={formatPercent(winRate)} tone="purple" />
       </section>
 
-      <section className="grid grid-cols-[minmax(0,1fr)_420px] gap-3">
-        <article className="terminal-panel p-4">
+      <section className="grid min-h-0 grid-cols-[minmax(0,1fr)_420px] gap-3">
+        <article className="terminal-panel min-h-0 overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-black">Portfolio</h1>
@@ -72,11 +72,11 @@ export default function PortfolioPage() {
               ))}
             </div>
           </div>
-          <PositionTable positions={sorted} markets={markets} />
+          <PositionTable positions={sorted.slice(0, 6)} markets={markets} />
         </article>
 
-        <aside className="grid gap-3">
-          <section className="terminal-panel p-4">
+        <aside className="grid h-full min-h-0 gap-3 overflow-hidden">
+          <section className="terminal-panel overflow-hidden p-4">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-black">Cumulative PnL</h2>
               <span className={unrealized + realized >= 0 ? "text-sm font-black text-yes" : "text-sm font-black text-no"}>
@@ -86,7 +86,7 @@ export default function PortfolioPage() {
             <PnLChart values={Array.from({ length: 88 }, (_, i) => Math.sin(i / 8) * 260 + i * 24 + enriched.reduce((s, p) => s + p.pnl, 0) / 4)} />
           </section>
 
-          <section className="terminal-panel p-4">
+          <section className="terminal-panel overflow-hidden p-4">
             <h2 className="mb-4 font-black">Exposure</h2>
             <div className="grid gap-4">
               {enriched.slice(0, 4).map((position) => {

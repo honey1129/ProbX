@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Bot, BrainCircuit, Radio, Trophy, Zap } from "lucide-react";
 import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
 import { PnLChart } from "@/components/charts/ProbabilityChart";
@@ -11,6 +11,8 @@ import { formatPercent, formatUsd, probability } from "@/lib/format";
 
 export default function AgentsPage() {
   const { markets, activity } = useMarkets();
+  const [feedFilter, setFeedFilter] = useState<"ALL" | "YES" | "NO">("ALL");
+  const [selectedAgent, setSelectedAgent] = useState(mockAgents[0].name);
 
   const totals = useMemo(() => {
     const pnl = mockAgents.reduce((sum, agent) => sum + agent.pnl, 0);
@@ -21,9 +23,11 @@ export default function AgentsPage() {
 
   const signalMarket = markets[0];
   const signal = signalMarket ? probability(signalMarket) : 0.5;
+  const selectedStats = mockAgents.find((agent) => agent.name === selectedAgent) ?? mockAgents[0];
+  const filteredActivity = feedFilter === "ALL" ? activity : activity.filter((item) => item.side === feedFilter);
 
   return (
-    <div className="grid gap-3 pb-16">
+    <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
       <section className="grid grid-cols-4 gap-3">
         <AgentMetric icon={<Trophy size={18} />} label="Total Agent PnL" value={formatUsd(totals.pnl)} tone="yes" />
         <AgentMetric icon={<Zap size={18} />} label="Win Rate" value={formatPercent(totals.winRate)} tone="purple" />
@@ -31,17 +35,25 @@ export default function AgentsPage() {
         <AgentMetric icon={<Bot size={18} />} label="Active Markets" value={totals.activeMarkets.toString()} tone="purple" />
       </section>
 
-      <section className="grid grid-cols-[390px_minmax(0,1fr)_430px] gap-3">
-        <aside className="terminal-panel max-h-[calc(100vh-148px)] overflow-auto p-4">
+      <section className="grid min-h-0 grid-cols-[390px_minmax(0,1fr)_430px] gap-3">
+        <aside className="terminal-panel h-full overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <h1 className="text-xl font-black">Live Trading Feed</h1>
-            <span className="rounded border border-yes/25 bg-yes/10 px-2 py-1 text-xs text-yes">Agents online</span>
+            <select
+              value={feedFilter}
+              onChange={(event) => setFeedFilter(event.target.value as "ALL" | "YES" | "NO")}
+              className="h-8 rounded-md border border-line bg-black/35 px-2 text-xs font-bold outline-none"
+            >
+              <option value="ALL">All Agents</option>
+              <option value="YES">YES Trades</option>
+              <option value="NO">NO Trades</option>
+            </select>
           </div>
-          <AgentActivityFeed activity={activity} markets={markets} />
+          <AgentActivityFeed activity={filteredActivity.slice(0, 6)} markets={markets} />
         </aside>
 
-        <main className="grid gap-3">
-          <section className="terminal-panel p-4">
+        <main className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
+          <section className="terminal-panel overflow-hidden p-4">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-black">Agent PnL Curve</h2>
@@ -54,7 +66,7 @@ export default function AgentsPage() {
             <PnLChart values={Array.from({ length: 100 }, (_, i) => Math.cos(i / 11) * 520 + i * 42 + Math.sin(i / 4) * 170)} />
           </section>
 
-          <section className="terminal-panel overflow-hidden">
+          <section className="terminal-panel min-h-0 overflow-hidden">
             <div className="border-b border-line px-4 py-3">
               <h2 className="font-black">Agent Comparison</h2>
             </div>
@@ -70,7 +82,13 @@ export default function AgentsPage() {
               </thead>
               <tbody>
                 {mockAgents.map((agent) => (
-                  <tr key={agent.name} className="border-t border-line bg-slate-950/35 transition hover:bg-slate-900/60">
+                  <tr
+                    key={agent.name}
+                    onClick={() => setSelectedAgent(agent.name)}
+                    className={`cursor-pointer border-t border-line transition hover:bg-slate-900/60 ${
+                      selectedAgent === agent.name ? "bg-solPurple/15 shadow-[inset_3px_0_0_#9b5cff]" : "bg-slate-950/35"
+                    }`}
+                  >
                     <td className="px-4 py-3 font-black">{agent.name}</td>
                     <td className="px-4 py-3 text-muted">{agent.strategy}</td>
                     <td className="px-4 py-3 text-right font-bold">{agent.winRate.toFixed(1)}%</td>
@@ -85,11 +103,19 @@ export default function AgentsPage() {
           </section>
         </main>
 
-        <aside className="grid h-max gap-3">
-          <section className="terminal-panel p-4">
+        <aside className="grid h-full min-h-0 grid-rows-[1fr_auto] gap-3 overflow-hidden">
+          <section className="terminal-panel overflow-hidden p-4">
             <div className="mb-4 flex items-center gap-2">
               <BrainCircuit size={18} className="text-solBlue" />
               <h2 className="font-black">Signal Engine</h2>
+            </div>
+            <div className="mb-4 rounded-lg border border-solPurple/30 bg-solPurple/10 p-3">
+              <div className="text-xs uppercase text-muted">Selected Agent</div>
+              <div className="mt-1 flex items-center justify-between">
+                <b className="text-lg">{selectedStats.name}</b>
+                <span className={selectedStats.pnl >= 0 ? "font-black text-yes" : "font-black text-no"}>{formatUsd(selectedStats.pnl)}</span>
+              </div>
+              <div className="mt-1 text-xs text-muted">{selectedStats.strategy} / {selectedStats.trades.toLocaleString()} trades</div>
             </div>
             <div className="grid gap-3">
               <SignalRow label="Mock Sentiment" value="78" max="100" color="from-solBlue to-yes" />
@@ -105,7 +131,7 @@ export default function AgentsPage() {
             </div>
           </section>
 
-          <section className="terminal-panel p-4">
+          <section className="terminal-panel overflow-hidden p-4">
             <h2 className="mb-4 font-black">Strategy Allocation</h2>
             <div className="grid gap-3">
               <Allocation label="Momentum" value={42} />

@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Bot, Flame, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bot, Flame, Search, X } from "lucide-react";
 import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
-import { ProbabilityChart, PnLChart } from "@/components/charts/ProbabilityChart";
+import { ProbabilityChart } from "@/components/charts/ProbabilityChart";
 import { MarketCard } from "@/components/market/MarketCard";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
@@ -18,25 +18,47 @@ export default function MarketListPage() {
   const [category, setCategory] = useState<(typeof categories)[number]>("All");
   const [sort, setSort] = useState("Trending");
   const [selectedId, setSelectedId] = useState(markets[0]?.id);
+  const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
     const base = category === "All" ? markets : markets.filter((market) => market.category === category);
-    return [...base].sort((a, b) => {
+    const searched = normalizedQuery
+      ? base.filter((market) => `${market.question} ${market.category}`.toLowerCase().includes(normalizedQuery))
+      : base;
+    return [...searched].sort((a, b) => {
       if (sort === "New") return b.endTime - a.endTime;
       if (sort === "Volume") return b.volume24h - a.volume24h;
       return Math.abs(b.change24h) + b.volume24h / 20_000_000 - (Math.abs(a.change24h) + a.volume24h / 20_000_000);
     });
-  }, [category, markets, sort]);
+  }, [category, markets, query, sort]);
 
-  const selected = markets.find((market) => market.id === selectedId) ?? markets[0];
+  useEffect(() => {
+    if (!filtered.length) return;
+    if (!filtered.some((market) => market.id === selectedId)) {
+      setSelectedId(filtered[0].id);
+    }
+  }, [filtered, selectedId]);
+
+  const selected = filtered.find((market) => market.id === selectedId) ?? filtered[0] ?? markets[0];
 
   return (
-    <div className="grid grid-cols-[390px_minmax(520px,1fr)_360px] gap-3 pb-16">
-      <aside className="terminal-panel h-[calc(100vh-116px)] overflow-hidden">
+    <div className="grid h-full min-h-0 grid-cols-[390px_minmax(520px,1fr)_360px] gap-3 overflow-hidden">
+      <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
         <div className="border-b border-line p-4">
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-line bg-black/25 px-3 py-2">
             <Search size={16} className="text-muted" />
-            <input className="w-full bg-transparent text-sm outline-none" placeholder="Search markets" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="w-full bg-transparent text-sm outline-none"
+              placeholder="Search markets"
+            />
+            {query ? (
+              <button onClick={() => setQuery("")} className="rounded p-1 text-muted transition hover:bg-white/10 hover:text-white" aria-label="Clear search">
+                <X size={14} />
+              </button>
+            ) : null}
           </div>
           <div className="mb-3 flex flex-wrap gap-2">
             {categories.map((item) => (
@@ -65,16 +87,30 @@ export default function MarketListPage() {
             ))}
           </div>
         </div>
-        <div className="grid max-h-[calc(100%-150px)] gap-2 overflow-auto p-3">
-          {filtered.map((market) => (
-            <div key={market.id} onMouseEnter={() => setSelectedId(market.id)}>
-              <MarketCard market={market} />
+        <div className="grid min-h-0 flex-1 gap-2 overflow-hidden p-3">
+          {filtered.length ? (
+            filtered.map((market) => (
+              <div
+                key={market.id}
+                onMouseEnter={() => setSelectedId(market.id)}
+                onFocus={() => setSelectedId(market.id)}
+                className={selected?.id === market.id ? "rounded-lg ring-1 ring-solBlue/50" : ""}
+              >
+                <MarketCard market={market} />
+              </div>
+            ))
+          ) : (
+            <div className="grid h-48 place-items-center rounded-lg border border-line bg-black/25 p-6 text-center">
+              <div>
+                <p className="font-bold text-slate-200">No markets found</p>
+                <p className="mt-1 text-sm text-muted">Try another keyword or category.</p>
+              </div>
             </div>
-          ))}
+          )}
         </div>
       </aside>
 
-      <section className="grid gap-3">
+      <section className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
         {selected ? (
           <article className="terminal-panel p-5">
             <div className="mb-4 flex items-start justify-between gap-4">
@@ -105,29 +141,18 @@ export default function MarketListPage() {
           </article>
         ) : null}
 
-        <div className="grid grid-cols-[1fr_1.1fr] gap-3">
-          <article className="terminal-panel p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-bold">Portfolio PnL</h2>
-              <span className="text-xs text-muted">24H</span>
-            </div>
-            <div className="mb-3 text-3xl font-black">$3,842.67</div>
-            <div className="mb-4 text-sm font-bold text-yes">▲ $732.14 (23.54%)</div>
-            <PnLChart values={Array.from({ length: 80 }, (_, i) => Math.sin(i / 7) * 450 + Math.cos(i / 3) * 90 + i * 31)} />
-          </article>
-          <article className="terminal-panel p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-bold">Positions</h2>
-              <span className="text-xs text-muted">{positions.length} open</span>
-            </div>
-            <PositionTable positions={positions.slice(0, 4)} markets={markets} />
-          </article>
-        </div>
+        <article className="terminal-panel overflow-hidden p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-bold">Positions</h2>
+            <span className="text-xs text-muted">{positions.length} open</span>
+          </div>
+          <PositionTable positions={positions.slice(0, 4)} markets={markets} />
+        </article>
       </section>
 
-      <aside className="grid h-[calc(100vh-116px)] grid-rows-[auto_1fr] gap-3">
+      <aside className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
         {selected ? <TradePanel market={selected} /> : null}
-        <section className="terminal-panel overflow-auto p-4">
+        <section className="terminal-panel overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-bold">
               <Bot size={17} className="text-solPurple" /> Agent Activity
@@ -136,7 +161,7 @@ export default function MarketListPage() {
               <Flame size={13} /> Live
             </span>
           </div>
-          <AgentActivityFeed activity={activity.slice(0, 8)} markets={markets} />
+          <AgentActivityFeed activity={activity.slice(0, 6)} markets={markets} />
         </section>
       </aside>
     </div>

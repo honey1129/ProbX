@@ -1,6 +1,11 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Bot, CirclePlus, Layers3, WalletCards } from "lucide-react";
 import { WalletConnect } from "@/components/WalletConnect";
+import { useMarkets } from "@/components/market/MarketProvider";
+import { formatPercent, probability } from "@/lib/format";
 
 const tabs = [
   { href: "/", label: "Markets", icon: Layers3 },
@@ -10,6 +15,8 @@ const tabs = [
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
   return (
     <div className="min-h-screen bg-canvas text-slate-100">
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_8%_0%,rgba(155,92,255,0.2),transparent_30rem),radial-gradient(circle_at_82%_10%,rgba(25,245,140,0.12),transparent_32rem)]" />
@@ -28,13 +35,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="flex justify-center gap-3">
             {tabs.map((tab) => {
               const Icon = tab.icon;
+              const active = tab.href === "/" ? pathname === "/" || pathname.startsWith("/markets") : pathname.startsWith(tab.href);
               return (
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className="group flex h-10 items-center gap-2 rounded-lg border border-transparent px-4 text-sm text-slate-300 transition hover:border-solPurple/60 hover:bg-solPurple/15 hover:text-white hover:shadow-glow"
+                  className={`group flex h-10 items-center gap-2 rounded-lg border px-4 text-sm transition ${
+                    active
+                      ? "border-solPurple/70 bg-solPurple/20 text-white shadow-glow"
+                      : "border-transparent text-slate-300 hover:border-solPurple/60 hover:bg-solPurple/15 hover:text-white hover:shadow-glow"
+                  }`}
                 >
-                  <Icon size={16} className="text-violet-300" />
+                  <Icon size={16} className={active ? "text-white" : "text-violet-300"} />
                   {tab.label}
                 </Link>
               );
@@ -50,7 +62,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-[1720px] px-4 py-4">{children}</main>
+      <main className="mx-auto max-w-[1720px] px-4 py-4 xl:pb-20">{children}</main>
       <footer className="fixed bottom-3 left-4 right-4 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 shadow-[0_0_28px_rgba(49,185,255,0.10)] backdrop-blur-xl xl:block">
         <Ticker />
       </footer>
@@ -59,15 +71,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function Ticker() {
-  const items = [
-    { market: "Fed cut rates", side: "YES", probability: "62%", change: "-2.1%" },
-    { market: "BTC > $100k", side: "NO", probability: "58%", change: "+3.1%" },
-    { market: "Solana ETF", side: "YES", probability: "62%", change: "+4.1%" },
-    { market: "NBA Finals", side: "NO", probability: "58%", change: "-5.1%" },
-    { market: "On-chain validators", side: "YES", probability: "62%", change: "+6.1%" },
-    { market: "SOL daily users", side: "YES", probability: "67%", change: "+2.8%" },
-    { market: "ETH > $5k", side: "NO", probability: "54%", change: "-1.6%" }
-  ];
+  const { markets } = useMarkets();
+  const items = markets.map((market) => {
+    const yes = probability(market);
+    const side = yes >= 0.5 ? "YES" : "NO";
+    const displayProbability = side === "YES" ? yes : 1 - yes;
+    return {
+      id: market.id,
+      market: market.question,
+      side,
+      probability: formatPercent(displayProbability, 0),
+      change: `${market.change24h >= 0 ? "+" : "-"}${Math.abs(market.change24h * 100).toFixed(1)}%`
+    };
+  });
 
   return (
     <div className="ticker-shell">
@@ -75,7 +91,7 @@ function Ticker() {
         {[0, 1].map((group) => (
           <div key={group} className="ticker-group" aria-hidden={group === 1}>
             {items.map((item) => (
-              <div key={`${group}-${item.market}`} className="ticker-item">
+              <Link key={`${group}-${item.id}`} href={`/markets/${item.id}`} tabIndex={group === 1 ? -1 : 0} className="ticker-item">
                 <span className="h-2 w-2 rounded-full bg-yes shadow-[0_0_12px_#19f58c]" />
                 <span className="text-slate-300">{item.market}</span>
                 <b className={item.side === "YES" ? "text-yes" : "text-no"}>
@@ -84,7 +100,7 @@ function Ticker() {
                 <span className={item.change.startsWith("+") ? "text-yes" : "text-no"}>
                   {item.change.startsWith("+") ? "▲" : "▼"} {item.change.replace("+", "").replace("-", "")}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         ))}

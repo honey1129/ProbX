@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -p tsconfig.typecheck.json --noEmit"
   },
   "dependencies": {
     "@project-serum/anchor": "^0.26.0",

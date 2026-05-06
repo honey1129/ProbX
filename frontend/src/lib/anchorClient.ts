@@ -9,7 +9,11 @@ if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
 }
 
-export const PROGRAM_ID = new PublicKey("4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL");
+const DEFAULT_PROGRAM_ID = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL";
+
+export const PROGRAM_ID = new PublicKey(
+  process.env.NEXT_PUBLIC_PROBX_PROGRAM_ID?.trim() || DEFAULT_PROGRAM_ID
+);
 
 const legacyIdl = {
   version: "0.1.0",

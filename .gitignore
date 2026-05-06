@@ -2,5 +2,14 @@ target/
 node_modules/
 __pycache__/
 .anchor/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+.env
+.env.local
+.env.*.local
+frontend/.env.local
+backend/.env
+!*.env.example
+!**/.env.example
 .DS_Store
 yarn-error.log

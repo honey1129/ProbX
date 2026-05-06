@@ -1,0 +1,23 @@
+# ProbX Frontend
+
+Next.js trading terminal for the ProbX Solana prediction market.
+
+## Run Locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+## Environment
+
+Copy `.env.example` to `.env.local` when you want custom runtime settings.
+
+```bash
+NEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899
+NEXT_PUBLIC_ENABLE_ONCHAIN=false
+```
+
+The UI runs against simulated market data by default. Set `NEXT_PUBLIC_ENABLE_ONCHAIN=true` to route connected wallet trades through the Anchor `place_bet` and `create_market` calls.

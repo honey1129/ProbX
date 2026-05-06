@@ -1,0 +1,223 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #030609;
+  color-scheme: dark;
+}
+
+body {
+  min-width: 1120px;
+  margin: 0;
+  overflow-x: auto;
+  background:
+    linear-gradient(rgba(125, 170, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 170, 255, 0.045) 1px, transparent 1px),
+    #030609;
+  background-size: 72px 72px;
+}
+
+.probx-wallet-button {
+  height: 40px !important;
+  border: 1px solid rgba(155, 92, 255, 0.78) !important;
+  border-radius: 8px !important;
+  background: linear-gradient(135deg, rgba(155, 92, 255, 0.54), rgba(50, 184, 255, 0.18)) !important;
+  font-family: inherit !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 28px rgba(155, 92, 255, 0.22) !important;
+}
+
+.probx-logo-mark {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 34px;
+  flex: 0 0 auto;
+  filter:
+    drop-shadow(0 0 8px rgba(155, 92, 255, 0.36))
+    drop-shadow(0 0 10px rgba(49, 185, 255, 0.18));
+}
+
+.probx-logo-slice {
+  position: absolute;
+  display: block;
+  border-radius: 2px;
+}
+
+.probx-logo-slice.slice-a {
+  left: 1px;
+  top: 1px;
+  width: 12px;
+  height: 15px;
+  clip-path: polygon(0 0, 100% 0, 64% 100%, 36% 100%);
+  background: linear-gradient(135deg, #7c3cff 0%, #b169ff 50%, #19f58c 100%);
+}
+
+.probx-logo-slice.slice-b {
+  left: 2px;
+  bottom: 1px;
+  width: 21px;
+  height: 27px;
+  clip-path: polygon(39% 0, 75% 0, 100% 100%, 61% 100%);
+  background: linear-gradient(180deg, #31b9ff 0%, #6f5cff 55%, #9b5cff 100%);
+}
+
+.probx-logo-slice.slice-c {
+  right: 1px;
+  top: 1px;
+  width: 21px;
+  height: 27px;
+  clip-path: polygon(25% 0, 64% 0, 38% 100%, 0 100%);
+  background: linear-gradient(180deg, #19f58c 0%, #31b9ff 45%, #6c5cff 100%);
+}
+
+.probx-logo-slice.slice-d {
+  right: 0;
+  bottom: 1px;
+  width: 13px;
+  height: 16px;
+  clip-path: polygon(35% 0, 64% 0, 100% 100%, 0 100%);
+  background: linear-gradient(135deg, #31b9ff 0%, #7c3cff 42%, #b169ff 100%);
+}
+
+.terminal-panel {
+  @apply rounded-lg border border-line bg-panel shadow-2xl backdrop-blur-xl;
+}
+
+.ticker-shell {
+  position: relative;
+  height: 40px;
+  overflow: hidden;
+}
+
+.ticker-shell::before,
+.ticker-shell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  width: 72px;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ticker-shell::before {
+  left: 0;
+  background: linear-gradient(90deg, rgba(2, 9, 15, 0.98), rgba(2, 9, 15, 0));
+}
+
+.ticker-shell::after {
+  right: 0;
+  background: linear-gradient(270deg, rgba(2, 9, 15, 0.98), rgba(2, 9, 15, 0));
+}
+
+.ticker-track {
+  display: flex;
+  width: max-content;
+  height: 100%;
+  animation: ticker-marquee 28s linear infinite;
+}
+
+.ticker-shell:hover .ticker-track {
+  animation-play-state: paused;
+}
+
+.ticker-group {
+  display: flex;
+  height: 100%;
+}
+
+.ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 305px;
+  height: 100%;
+  padding: 0 20px;
+  border-right: 1px solid rgba(132, 185, 255, 0.16);
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+@keyframes ticker-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.chart-card {
+  @apply relative overflow-hidden rounded-lg border border-line bg-slate-950/50;
+  background-image:
+    linear-gradient(rgba(125, 170, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 170, 255, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at 70% 5%, rgba(155, 92, 255, 0.18), transparent 34%);
+  background-size: 100% 20%, 10% 100%, auto;
+}
+
+.trade-side {
+  @apply rounded-lg border p-3 text-center text-sm font-black transition;
+}
+
+.trade-side span {
+  @apply mt-1 block text-xs;
+}
+
+.trade-side.yes {
+  @apply border-yes/50 bg-yes/10 text-yes hover:shadow-yes;
+}
+
+.trade-side.no {
+  @apply border-no/50 bg-no/10 text-no hover:shadow-no;
+}
+
+.trade-side.active.yes {
+  @apply border-yes bg-yes/20 shadow-yes;
+}
+
+.trade-side.active.no {
+  @apply border-no bg-no/20 shadow-no;
+}
+
+.primary-action {
+  @apply h-12 w-full rounded-lg border text-base font-black transition disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.primary-action.yes {
+  @apply border-yes/70 bg-gradient-to-b from-yes/45 to-emerald-900/70 text-white shadow-yes hover:from-yes/55;
+}
+
+.primary-action.no {
+  @apply border-no/70 bg-gradient-to-b from-no/45 to-red-950/80 text-white shadow-no hover:from-no/55;
+}
+
+.agent-tag {
+  @apply my-1 inline-flex rounded px-2 py-0.5 text-[11px] font-black;
+}
+
+.agent-tag.yes {
+  @apply bg-yes/10 text-yes;
+}
+
+.agent-tag.no {
+  @apply bg-no/10 text-no;
+}
+
+.number-flash {
+  animation: number-flash 520ms ease;
+}
+
+@keyframes number-flash {
+  35% {
+    text-shadow: 0 0 18px currentColor;
+  }
+}

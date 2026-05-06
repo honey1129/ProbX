@@ -99,7 +99,12 @@ test -f frontend/.env.local || cp frontend/.env.example frontend/.env.local
 PROBX_HTTP_ADDR=:8080
 PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true
 PROBX_CORS_ORIGINS=http://localhost:3000
+PROBX_SOLANA_RPC_URL=http://127.0.0.1:8899
+PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+PROBX_TRADE_VERIFICATION=off
 ```
+
+`PROBX_TRADE_VERIFICATION=off` 适合本地 demo。testnet 或生产类环境建议设为 `confirmed`，此时 `POST /api/trades` 必须提供已确认的 Solana 交易签名、真实钱包 owner，并且交易需要引用 `PROBX_PROGRAM_ID`。
 
 ### 前端
 

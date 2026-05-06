@@ -3,8 +3,10 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"probx/backend/internal/api"
+	"probx/backend/internal/chain"
 	"probx/backend/internal/config"
 	"probx/backend/internal/mysqlstore"
 )
@@ -18,7 +20,21 @@ func main() {
 	}
 	defer store.Close()
 
-	server := api.NewServer(store, cfg.CORSOrigins)
+	options := api.Options{}
+	switch cfg.TradeVerification {
+	case "", "off":
+	case "confirmed":
+		verifier, err := chain.NewVerifier(cfg.SolanaRPCURL, cfg.ProgramID, 6*time.Second)
+		if err != nil {
+			log.Fatalf("configure trade verifier: %v", err)
+		}
+		options.TradeVerifier = verifier
+		log.Printf("ProbX trade verification enabled against %s", cfg.SolanaRPCURL)
+	default:
+		log.Fatalf("unknown PROBX_TRADE_VERIFICATION mode %q", cfg.TradeVerification)
+	}
+
+	server := api.NewServerWithOptions(store, cfg.CORSOrigins, options)
 	httpServer := &http.Server{
 		Addr:    cfg.HTTPAddr,
 		Handler: server.Routes(),

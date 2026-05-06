@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"probx/backend/internal/chain"
 	"probx/backend/internal/models"
 	"probx/backend/internal/mysqlstore"
 )
@@ -25,13 +26,26 @@ type Store interface {
 	RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error)
 }
 
+type TradeVerifier interface {
+	VerifyTrade(ctx context.Context, req models.TradeRequest) error
+}
+
+type Options struct {
+	TradeVerifier TradeVerifier
+}
+
 type Server struct {
-	store      Store
-	corsOrigin map[string]struct{}
-	allowAll   bool
+	store         Store
+	tradeVerifier TradeVerifier
+	corsOrigin    map[string]struct{}
+	allowAll      bool
 }
 
 func NewServer(store Store, origins []string) *Server {
+	return NewServerWithOptions(store, origins, Options{})
+}
+
+func NewServerWithOptions(store Store, origins []string, options Options) *Server {
 	originSet := map[string]struct{}{}
 	allowAll := false
 	for _, origin := range origins {
@@ -44,7 +58,7 @@ func NewServer(store Store, origins []string) *Server {
 			originSet[origin] = struct{}{}
 		}
 	}
-	return &Server{store: store, corsOrigin: originSet, allowAll: allowAll}
+	return &Server{store: store, tradeVerifier: options.TradeVerifier, corsOrigin: originSet, allowAll: allowAll}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -150,6 +164,12 @@ func (s *Server) recordTrade(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := requestContext(r)
 	defer cancel()
+	if s.tradeVerifier != nil {
+		if err := s.tradeVerifier.VerifyTrade(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
 	response, err := s.store.RecordTrade(ctx, req)
 	if err != nil {
 		writeStoreError(w, err)
@@ -211,6 +231,14 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}
+}
+
+func writeVerificationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, chain.ErrVerifierUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	writeError(w, http.StatusBadRequest, err)
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {

@@ -16,7 +16,12 @@ The Solana program remains the source of truth for funds and settlement. MySQL i
 PROBX_HTTP_ADDR=:8080
 PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true
 PROBX_CORS_ORIGINS=http://localhost:3000
+PROBX_SOLANA_RPC_URL=http://127.0.0.1:8899
+PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+PROBX_TRADE_VERIFICATION=off
 ```
+
+`PROBX_TRADE_VERIFICATION=off` keeps the local demo flow available. Set it to `confirmed` for testnet/prod-like environments; in that mode `POST /api/trades` requires a confirmed Solana signature, a non-local owner wallet, and a transaction that references `PROBX_PROGRAM_ID`.
 
 ## Run With Docker MySQL
 
@@ -86,6 +91,8 @@ curl -X POST http://localhost:8080/api/trades \
     "status": "indexed"
   }'
 ```
+
+When trade verification is enabled, replace the demo `owner` and `signature` values with the connected wallet public key and confirmed transaction signature from the frontend.
 
 ## Checks
 

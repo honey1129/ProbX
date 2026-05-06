@@ -9,19 +9,21 @@ import (
 	"strings"
 	"testing"
 
+	"probx/backend/internal/chain"
 	"probx/backend/internal/models"
 	"probx/backend/internal/mysqlstore"
 )
 
 type fakeStore struct {
-	market models.Market
+	market       models.Market
+	recordCalled bool
 }
 
-func (f fakeStore) Ping(ctx context.Context) error {
+func (f *fakeStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (f fakeStore) Bootstrap(ctx context.Context, owner string) (models.Bootstrap, error) {
+func (f *fakeStore) Bootstrap(ctx context.Context, owner string) (models.Bootstrap, error) {
 	return models.Bootstrap{
 		Markets: []models.Market{f.market},
 		Positions: []models.Position{
@@ -33,18 +35,18 @@ func (f fakeStore) Bootstrap(ctx context.Context, owner string) (models.Bootstra
 	}, nil
 }
 
-func (f fakeStore) ListMarkets(ctx context.Context) ([]models.Market, error) {
+func (f *fakeStore) ListMarkets(ctx context.Context) ([]models.Market, error) {
 	return []models.Market{f.market}, nil
 }
 
-func (f fakeStore) GetMarket(ctx context.Context, id string) (models.Market, error) {
+func (f *fakeStore) GetMarket(ctx context.Context, id string) (models.Market, error) {
 	if id != f.market.ID {
 		return models.Market{}, mysqlstore.ErrNotFound
 	}
 	return f.market, nil
 }
 
-func (f fakeStore) CreateMarket(ctx context.Context, req models.CreateMarketRequest) (models.Market, error) {
+func (f *fakeStore) CreateMarket(ctx context.Context, req models.CreateMarketRequest) (models.Market, error) {
 	if strings.TrimSpace(req.Question) == "" {
 		return models.Market{}, mysqlstore.ErrInvalid
 	}
@@ -55,15 +57,16 @@ func (f fakeStore) CreateMarket(ctx context.Context, req models.CreateMarketRequ
 	return next, nil
 }
 
-func (f fakeStore) ListPositions(ctx context.Context, owner string) ([]models.Position, error) {
+func (f *fakeStore) ListPositions(ctx context.Context, owner string) ([]models.Position, error) {
 	return []models.Position{}, nil
 }
 
-func (f fakeStore) ListActivity(ctx context.Context, marketID string, limit int) ([]models.AgentActivity, error) {
+func (f *fakeStore) ListActivity(ctx context.Context, marketID string, limit int) ([]models.AgentActivity, error) {
 	return []models.AgentActivity{}, nil
 }
 
-func (f fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error) {
+func (f *fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error) {
+	f.recordCalled = true
 	if req.MarketID == "" {
 		return models.TradeResponse{}, mysqlstore.ErrInvalid
 	}
@@ -76,8 +79,18 @@ func (f fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (mo
 	}, nil
 }
 
+type fakeVerifier struct {
+	err   error
+	calls int
+}
+
+func (f *fakeVerifier) VerifyTrade(ctx context.Context, req models.TradeRequest) error {
+	f.calls++
+	return f.err
+}
+
 func TestBootstrap(t *testing.T) {
-	handler := NewServer(fakeStore{market: testMarket()}, []string{"http://localhost:3000"}).Routes()
+	handler := NewServer(&fakeStore{market: testMarket()}, []string{"http://localhost:3000"}).Routes()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/bootstrap?owner=local", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -101,7 +114,7 @@ func TestBootstrap(t *testing.T) {
 }
 
 func TestMarketNotFound(t *testing.T) {
-	handler := NewServer(fakeStore{market: testMarket()}, nil).Routes()
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/markets/missing", nil)
 	res := httptest.NewRecorder()
@@ -113,7 +126,7 @@ func TestMarketNotFound(t *testing.T) {
 }
 
 func TestRecordTrade(t *testing.T) {
-	handler := NewServer(fakeStore{market: testMarket()}, nil).Routes()
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
 	body := strings.NewReader(`{"marketId":"fed-rates","owner":"local","side":"YES","amountSol":1.5}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/trades", body)
@@ -130,6 +143,45 @@ func TestRecordTrade(t *testing.T) {
 	}
 	if payload.Position.Size != 1.5 || payload.Activity.Action != "BUY" {
 		t.Fatalf("unexpected trade response: %+v", payload)
+	}
+}
+
+func TestRecordTradeVerifierBlocksInvalidTrade(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"marketId":"fed-rates","owner":"local","side":"YES","amountSol":1.5,"signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/trades", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.calls != 1 {
+		t.Fatalf("expected verifier to be called once, got %d", verifier.calls)
+	}
+	if store.recordCalled {
+		t.Fatalf("store should not record unverified trade")
+	}
+}
+
+func TestRecordTradeVerifierUnavailable(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerifierUnavailable}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"marketId":"fed-rates","owner":"local","side":"YES","amountSol":1.5,"signature":"sig"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/trades", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", res.Code, res.Body.String())
+	}
+	if store.recordCalled {
+		t.Fatalf("store should not record trade when verifier is unavailable")
 	}
 }
 

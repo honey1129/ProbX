@@ -4,6 +4,7 @@ __pycache__/
 .anchor/
 frontend/.next/
 frontend/tsconfig.tsbuildinfo
+backend/.gocache/
 .env
 .env.local
 .env.*.local

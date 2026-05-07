@@ -9,7 +9,7 @@ function publicEnv(mode: string) {
 
   return {
     NODE_ENV: mode === "production" ? "production" : "development",
-    NEXT_PUBLIC_SOLANA_RPC_URL: read("NEXT_PUBLIC_SOLANA_RPC_URL", "VITE_SOLANA_RPC_URL", "http://127.0.0.1:8899"),
+    NEXT_PUBLIC_SOLANA_RPC_URL: read("NEXT_PUBLIC_SOLANA_RPC_URL", "VITE_SOLANA_RPC_URL", "https://api.devnet.solana.com"),
     NEXT_PUBLIC_PROBX_PROGRAM_ID: read("NEXT_PUBLIC_PROBX_PROGRAM_ID", "VITE_PROBX_PROGRAM_ID"),
     NEXT_PUBLIC_ENABLE_ONCHAIN: read("NEXT_PUBLIC_ENABLE_ONCHAIN", "VITE_ENABLE_ONCHAIN", "false"),
     NEXT_PUBLIC_API_URL: read("NEXT_PUBLIC_API_URL", "VITE_API_URL"),

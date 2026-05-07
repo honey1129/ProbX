@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { Check, ChevronDown, Copy, LogOut, RefreshCw, Wallet } from "lucide-react";
+import { useWalletError } from "@/components/Providers";
 
 export function WalletConnect() {
   const { connected, connecting, disconnect, disconnecting, publicKey, wallet } = useWallet();
   const { setVisible } = useWalletModal();
+  const { error, clearError } = useWalletError();
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -54,6 +56,7 @@ export function WalletConnect() {
 
   function handleMainClick() {
     if (!connected) {
+      clearError();
       setVisible(true);
       return;
     }
@@ -126,6 +129,15 @@ export function WalletConnect() {
               {disconnecting ? "Disconnecting..." : "Disconnect"}
             </button>
           </div>
+        </div>
+      ) : null}
+      {!connected && error ? (
+        <div className="absolute right-0 top-[calc(100%+10px)] z-[10060] w-72 rounded-lg border border-no/35 bg-slate-950/95 p-3 text-xs text-no shadow-[0_18px_48px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <div className="font-bold">Wallet connection failed</div>
+          <div className="mt-1 leading-5 text-red-200">{error}</div>
+          <button type="button" onClick={clearError} className="mt-2 font-black text-slate-200 transition hover:text-white">
+            Dismiss
+          </button>
         </div>
       ) : null}
     </div>

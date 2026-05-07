@@ -670,7 +670,7 @@ select {
 }
 
 .primary-action {
-  @apply h-12 w-full rounded-lg border text-base font-black transition disabled:cursor-not-allowed disabled:opacity-60;
+  @apply inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border text-base font-black transition disabled:cursor-not-allowed disabled:opacity-60;
 }
 
 .primary-action.yes {

@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useEffect, useMemo, useState } from "react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { ChevronDown, Wallet2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Info, Loader2, Wallet2 } from "lucide-react";
 import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import { quoteBuyShares, quoteSellShares } from "@/lib/anchorClient";
 import type { Market, Side } from "@/lib/types";
@@ -13,7 +13,8 @@ type TradeMode = "BUY" | "SELL";
 type TradeTab = "TRADE" | "INFO";
 
 export function TradePanel({ market }: { market: Market }) {
-  const { connected } = useWallet();
+  const { connection } = useConnection();
+  const { connected, publicKey } = useWallet();
   const { buy, sell, positions, isLoading, error, backendEnabled, dataSource } = useMarkets();
   const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
   const [tab, setTab] = useState<TradeTab>("TRADE");
@@ -24,13 +25,55 @@ export function TradePanel({ market }: { market: Market }) {
   const [slippage, setSlippage] = useState("0.5");
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStatus(null);
+  }, [market.id, mode, side]);
+
+  useEffect(() => {
+    if (!onchainEnabled || !connected || !publicKey) {
+      setWalletBalance(null);
+      setBalanceError(null);
+      setBalanceLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setBalanceLoading(true);
+    setBalanceError(null);
+
+    connection
+      .getBalance(publicKey)
+      .then((lamports) => {
+        if (!cancelled) setWalletBalance(lamports / LAMPORTS_PER_SOL);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWalletBalance(null);
+          setBalanceError("Wallet balance unavailable.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBalanceLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, connection, onchainEnabled, publicKey, isSubmitting]);
 
   const availableShares = positions
     .filter((position) => position.marketId === market.id && position.side === side && !position.resolved)
     .reduce((total, position) => total + position.size, 0);
+  const reserveSol = 0.002;
+  const walletSpendable = walletBalance === null ? null : Math.max(0, walletBalance - reserveSol);
   const localBuyLimit = 24.25;
-  const orderLimit = mode === "BUY" ? localBuyLimit : availableShares;
-  const hasFiniteLimit = mode === "SELL" || !backendEnabled;
+  const buyLimit = onchainEnabled && connected && walletSpendable !== null ? walletSpendable : localBuyLimit;
+  const orderLimit = mode === "BUY" ? buyLimit : availableShares;
+  const hasFiniteLimit = mode === "SELL" || (mode === "BUY" && onchainEnabled && connected && walletSpendable !== null) || (!backendEnabled && !onchainEnabled);
   const p = side === "YES" ? probability(market) : 1 - probability(market);
   const amountNumber = Number(amount || 0);
   const buyQuote = useMemo(() => quoteBuyShares(market, side, amountNumber), [amountNumber, market, side]);
@@ -49,24 +92,63 @@ export function TradePanel({ market }: { market: Market }) {
     return Math.abs(nextProbability - p) * 100;
   }, [amountNumber, nextNoPool, nextYesPool, p, side]);
 
+  const validationMessage = useMemo(() => {
+    if (market.resolved) return "This market is resolved.";
+    if (backendEnabled && isLoading) return "Waiting for the ProbX API.";
+    if (backendEnabled && error) return error;
+    if (onchainEnabled && !connected) return "Connect a wallet to trade on-chain.";
+    if (mode === "BUY" && onchainEnabled && connected && balanceLoading) return "Loading wallet balance.";
+    if (mode === "BUY" && onchainEnabled && connected && balanceError) return balanceError;
+    if (!Number.isFinite(amountNumber) || amountNumber <= 0) return "Enter a valid amount.";
+    if (mode === "SELL" && availableShares <= 0) return `No ${side} shares available to sell.`;
+    if (hasFiniteLimit && amountNumber > orderLimit + 1e-9) {
+      return mode === "BUY" ? "Amount exceeds available SOL." : "Amount exceeds available shares.";
+    }
+    return null;
+  }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.resolved, mode, onchainEnabled, orderLimit, side]);
+
+  const percentUsed = hasFiniteLimit && orderLimit > 0 ? Math.max(0, Math.min(100, (amountNumber / orderLimit) * 100 || 0)) : 0;
+  const successStatus = status ? status.includes("updated") || status.includes("API") || status.includes("Tx") : false;
+  const primaryButtonLabel = isSubmitting
+    ? connected && onchainEnabled
+      ? "Signing..."
+      : "Submitting..."
+    : connected && onchainEnabled
+      ? `${mode} ${side}`
+      : backendEnabled
+        ? `Record ${mode} ${side}`
+        : `Preview ${mode} ${side}`;
+  const balanceLabel =
+    mode === "BUY"
+      ? onchainEnabled && connected
+        ? balanceLoading
+          ? "Wallet balance: loading"
+          : walletBalance === null
+            ? "Wallet balance unavailable"
+            : `Wallet balance: ${formatSol(walletBalance, 4)}`
+        : backendEnabled
+          ? "API order amount"
+          : `Preview limit: ${formatSol(orderLimit, 3)}`
+      : `Available: ${orderLimit.toFixed(3)} ${side} shares`;
+
   function setPercent(percent: number) {
     if (!hasFiniteLimit) return;
     const clampedPercent = Math.max(0, Math.min(1, percent));
+    setStatus(null);
     setAmount((orderLimit * clampedPercent).toFixed(clampedPercent === 1 ? 2 : 3));
+  }
+
+  function updateAmount(nextValue: string) {
+    if (/^\d*\.?\d*$/.test(nextValue)) {
+      setStatus(null);
+      setAmount(nextValue);
+    }
   }
 
   async function submit() {
     setStatus(null);
-    if (backendEnabled && error) {
-      setStatus(error);
-      return;
-    }
-    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
-      setStatus("Enter a valid SOL amount.");
-      return;
-    }
-    if (hasFiniteLimit && amountNumber > orderLimit) {
-      setStatus(mode === "BUY" ? "Amount exceeds the local preview order limit." : "Amount exceeds available shares.");
+    if (validationMessage) {
+      setStatus(validationMessage);
       return;
     }
     setIsSubmitting(true);
@@ -113,6 +195,16 @@ export function TradePanel({ market }: { market: Market }) {
 
       {tab === "TRADE" ? (
         <>
+          <div className="mb-3 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted">
+            <span className="inline-flex items-center gap-1.5">
+              {validationMessage ? <AlertTriangle size={13} className="text-no" /> : <CheckCircle2 size={13} className="text-yes" />}
+              {dataSource === "api" ? "ProbX API" : "Local preview"}
+            </span>
+            <span className={onchainEnabled ? (connected ? "text-yes" : "text-no") : "text-muted"}>
+              {onchainEnabled ? (connected ? "Wallet connected" : "Wallet required") : "Off-chain indexing"}
+            </span>
+          </div>
+
           <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-line bg-black/25 p-1">
             {(["BUY", "SELL"] as const).map((item) => (
               <button
@@ -151,28 +243,17 @@ export function TradePanel({ market }: { market: Market }) {
             <span className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-300">
               {mode === "BUY" ? <Wallet2 size={15} className="text-solPurple" /> : null}
               {mode === "BUY" ? "SOL" : side}
-              <ChevronDown size={13} className="text-muted" />
             </span>
             <input
               value={amount}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) => updateAmount(event.target.value)}
+              placeholder="0.00"
               className="h-full flex-1 bg-transparent text-right text-xl font-bold outline-none"
               inputMode="decimal"
             />
           </div>
           <div className="mb-3 flex items-center justify-between text-xs text-muted">
-            <span>
-              {mode === "BUY"
-                ? backendEnabled
-                  ? "API will record the submitted amount"
-                  : `Preview limit: ${formatSol(orderLimit, 3)}`
-                : `Available: ${orderLimit.toFixed(3)} shares`}
-            </span>
-            {hasFiniteLimit ? (
-              <button onClick={() => setPercent(1)} className="rounded border border-line bg-black/25 px-2 py-0.5 text-slate-300 transition hover:border-solBlue/40 hover:text-white">
-                MAX
-              </button>
-            ) : null}
+            <span>{balanceLabel}</span>
           </div>
 
           {hasFiniteLimit ? (
@@ -195,7 +276,7 @@ export function TradePanel({ market }: { market: Market }) {
               </div>
 
               <input
-                value={Math.max(0, Math.min(100, (amountNumber / orderLimit) * 100 || 0))}
+                value={percentUsed}
                 onChange={(event) => setPercent(Number(event.target.value) / 100)}
                 type="range"
                 min="0"
@@ -238,38 +319,37 @@ export function TradePanel({ market }: { market: Market }) {
 
           <div className="mb-3 grid gap-2 rounded-lg border border-white/10 bg-black/25 p-3 text-sm">
             <Row
-              label={mode === "BUY" ? (backendEnabled ? "API Amount" : "Preview Limit") : "Available Shares"}
-              value={mode === "BUY" ? (backendEnabled ? formatSol(amountNumber || 0, 4) : formatSol(orderLimit, 3)) : `${orderLimit.toFixed(3)} ${side}`}
+              label={mode === "BUY" ? "Order Amount" : "Shares Sold"}
+              value={mode === "BUY" ? formatSol(amountNumber || 0, 4) : `${amountNumber.toFixed(3)} ${side}`}
+              strong
             />
-            <Row label="Order Type" value={orderType} />
-            <Row label="Max Slippage" value={`${slippage}%`} />
             <Row label="Est. Fill Price" value={formatPrice(p)} />
             <Row label={mode === "BUY" ? "Shares Received" : "Shares Sold"} value={shares.toFixed(3)} />
             <Row label={mode === "BUY" ? "Potential Return" : "Est. Proceeds"} value={formatSol(mode === "BUY" ? shares : proceeds)} />
             <Row label="Price Impact" value={`${impact.toFixed(2)}%`} />
+            <div className="my-1 border-t border-line" />
+            <Row label="Order Type" value={orderType} />
+            <Row label="Max Slippage" value={`${slippage}%`} />
             <Row label="Protocol Fee" value={formatSol(fee, 4)} />
             <Row label={mode === "BUY" ? "Est. Total" : "SOL Out"} value={formatSol(expectedTotal, 4)} />
           </div>
 
           <button
-            disabled={isSubmitting || amountNumber <= 0 || (backendEnabled && isLoading)}
+            disabled={isSubmitting || Boolean(validationMessage)}
             onClick={submit}
             className={side === "YES" ? "primary-action yes" : "primary-action no"}
           >
-            {isSubmitting ? (connected && onchainEnabled ? "Signing..." : "Submitting...") : connected && onchainEnabled ? `${mode} ${side}` : backendEnabled ? `Record ${mode} ${side}` : `Preview ${mode} ${side}`}
+            {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : null}
+            {primaryButtonLabel}
           </button>
-          {status ? (
-            <p className={`mt-3 rounded-md border px-3 py-2 text-xs ${status.includes("updated") || status.includes("API") || status.includes("Tx") ? "border-yes/30 bg-yes/10 text-yes" : "border-no/30 bg-no/10 text-no"}`}>
-              {status}
+          {status || validationMessage ? (
+            <p className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
+              successStatus ? "border-yes/30 bg-yes/10 text-yes" : "border-no/30 bg-no/10 text-no"
+            }`}>
+              {successStatus ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> : <Info size={14} className="mt-0.5 shrink-0" />}
+              <span>{status ?? validationMessage}</span>
             </p>
           ) : null}
-          <div className="mt-3 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted">
-            <span>{dataSource === "api" ? "ProbX API" : "Local preview"}</span>
-            <span className={backendEnabled || onchainEnabled ? "flex items-center gap-1 text-yes" : "flex items-center gap-1 text-muted"}>
-              <span className={backendEnabled || onchainEnabled ? "h-1.5 w-1.5 rounded-full bg-yes" : "h-1.5 w-1.5 rounded-full bg-muted"} />
-              {onchainEnabled ? "On-chain enabled" : backendEnabled ? "Indexed" : "Preview"}
-            </span>
-          </div>
         </>
       ) : (
         <MarketInfo market={market} />
@@ -278,11 +358,11 @@ export function TradePanel({ market }: { market: Market }) {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex justify-between gap-3">
-      <span className="text-muted">{label}</span>
-      <b className="text-slate-100">{value}</b>
+    <div className="flex items-center justify-between gap-3">
+      <span className="min-w-0 truncate text-muted">{label}</span>
+      <b className={`shrink-0 text-right ${strong ? "text-base text-white" : "text-slate-100"}`}>{value}</b>
     </div>
   );
 }

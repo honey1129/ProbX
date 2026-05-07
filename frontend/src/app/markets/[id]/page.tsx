@@ -58,8 +58,8 @@ export default function MarketDetailPage() {
   const activePrice = chartSide === "YES" ? yesProbability : 1 - yesProbability;
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_380px] gap-3 overflow-hidden">
-      <main className="grid h-full min-h-0 grid-rows-[auto_auto_auto_1fr] gap-3 overflow-hidden">
+    <div className="grid min-h-full grid-cols-[minmax(0,1fr)_380px] gap-3">
+      <main className="grid min-h-0 gap-3">
         <section className="terminal-panel p-5">
           <div className="mb-4 flex items-start justify-between gap-5">
             <div className="min-w-0">
@@ -177,7 +177,7 @@ export default function MarketDetailPage() {
         </section>
       </main>
 
-      <aside className="grid h-full min-h-0 grid-rows-[auto_auto_1fr] gap-3 overflow-hidden">
+      <aside className="grid min-h-0 content-start gap-3">
         <TradePanel market={market} />
         <section className="terminal-panel overflow-hidden p-4">
           <div className="mb-3 flex items-center justify-between">

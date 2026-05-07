@@ -61,7 +61,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto h-[calc(100vh-104px)] max-w-[1720px] px-2.5 py-2.5">{children}</main>
+      <main className="mx-auto h-[calc(100vh-104px)] max-w-[1720px] overflow-x-hidden overflow-y-auto px-2.5 py-2.5 pb-16">{children}</main>
       <footer className="fixed bottom-2.5 left-2.5 right-2.5 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 shadow-[0_0_28px_rgba(49,185,255,0.10)] backdrop-blur-xl xl:block">
         <Ticker />
       </footer>

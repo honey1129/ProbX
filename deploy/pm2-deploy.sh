@@ -86,6 +86,7 @@ npm run build
 
 log "starting or reloading PM2 apps on frontend port $FRONTEND_PORT"
 cd "$PROJECT_DIR"
+pm2 delete probx-frontend >/dev/null 2>&1 || true
 PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" pm2 startOrReload "$ECOSYSTEM_FILE" --update-env
 pm2 save
 

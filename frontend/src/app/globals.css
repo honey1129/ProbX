@@ -60,10 +60,22 @@ select {
   z-index: 10001 !important;
 }
 
-.wallet-adapter-modal,
-.wallet-adapter-modal-overlay,
+.wallet-adapter-modal {
+  z-index: 10000 !important;
+}
+
+.wallet-adapter-modal-overlay {
+  z-index: 10000 !important;
+}
+
 .wallet-adapter-modal-container {
-  z-index: 10002 !important;
+  position: relative;
+  z-index: 10001 !important;
+  pointer-events: none;
+}
+
+.wallet-adapter-modal-wrapper {
+  pointer-events: auto;
 }
 
 .probx-logo-mark {

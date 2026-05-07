@@ -52,9 +52,19 @@ export function Providers({ children }: { children: ReactNode }) {
   }
 
   return (
-    <WalletErrorContext.Provider value={{ error: walletError, clearError: () => setWalletError("") }}>
+    <WalletErrorContext.Provider
+      value={{
+        error: walletError,
+        clearError: () => setWalletError("")
+      }}
+    >
       <SolanaConnectionProvider endpoint={endpoint}>
-        <SolanaWalletProvider wallets={wallets} autoConnect={false} localStorageKey="probx.wallet" onError={handleWalletError}>
+        <SolanaWalletProvider
+          wallets={wallets}
+          autoConnect={false}
+          localStorageKey="probx.wallet"
+          onError={handleWalletError}
+        >
           <SolanaWalletModalProvider>
             <MarketProvider>{children}</MarketProvider>
           </SolanaWalletModalProvider>

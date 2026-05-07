@@ -17,6 +17,7 @@ const categories = ["All", "Politics", "Crypto", "Sports", "Tech", "Macro"] as c
 const featuredOrder = ["fed-rates", "btc-100k", "trump-approval", "sol-etf", "nba-finals", "nvidia-earnings"];
 const overviewTimeframes: ChartTimeframe[] = ["1H", "4H", "1D", "1W", "1M", "ALL"];
 const chartSides: Array<Side | "BOTH"> = ["BOTH", "YES", "NO"];
+const agentFilters: Array<"ALL" | Side> = ["ALL", "YES", "NO"];
 
 export default function MarketListPage() {
   const { markets, positions, activity } = useMarkets();
@@ -29,13 +30,25 @@ export default function MarketListPage() {
   const [chartSide, setChartSide] = useState<Side | "BOTH">("BOTH");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareStatus, setShareStatus] = useState("");
+  const [agentFilter, setAgentFilter] = useState<"ALL" | Side>("ALL");
 
   const filtered = useMemo(() => {
     const categoryMarkets = category === "All" ? markets : markets.filter((market) => market.category === category);
-    const base = deskTab === "Watchlist" ? categoryMarkets.filter((market) => watchlist.has(market.id)) : categoryMarkets;
+    const scoped =
+      deskTab === "Watchlist"
+        ? categoryMarkets.filter((market) => watchlist.has(market.id))
+        : deskTab === "Trending"
+          ? categoryMarkets.filter((market) => featuredRank(market.id) < featuredOrder.length || market.volume24h > 1_000_000)
+          : categoryMarkets;
+    const base = scoped.length || deskTab !== "Trending" ? scoped : categoryMarkets;
     return [...base].sort((a, b) => {
       if (sort === "New") return b.endTime - a.endTime;
       if (sort === "Volume") return b.volume24h - a.volume24h;
+      if (deskTab === "Trending") {
+        const rankDelta = featuredRank(a.id) - featuredRank(b.id);
+        if (rankDelta !== 0) return rankDelta;
+        return Math.abs(b.change24h) + b.volume24h / 1_000_000 - (Math.abs(a.change24h) + a.volume24h / 1_000_000);
+      }
       return featuredRank(a.id) - featuredRank(b.id);
     });
   }, [category, deskTab, markets, sort, watchlist]);
@@ -67,6 +80,10 @@ export default function MarketListPage() {
   const selected = filtered.find((market) => market.id === selectedId) ?? filtered[0] ?? markets[0];
   const yesPrice = selected ? probability(selected) : 0;
   const noPrice = 1 - yesPrice;
+  const filteredActivity = useMemo(
+    () => (agentFilter === "ALL" ? activity : activity.filter((item) => item.side === agentFilter)),
+    [activity, agentFilter]
+  );
 
   useEffect(() => {
     setSettingsOpen(false);
@@ -108,6 +125,12 @@ export default function MarketListPage() {
     window.setTimeout(() => setShareStatus(""), 1500);
   }, [selected, selectedUrl]);
 
+  function showAllMarkets() {
+    setDeskTab("Markets");
+    setCategory("All");
+    setSort("Trending");
+  }
+
   return (
     <div className="grid h-full min-h-0 grid-cols-[360px_minmax(430px,1fr)_260px_270px] gap-2.5 overflow-hidden">
       <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
@@ -116,7 +139,10 @@ export default function MarketListPage() {
             {["Markets", "Watchlist", "Trending"].map((item) => (
               <button
                 key={item}
-                onClick={() => setDeskTab(item)}
+                onClick={() => {
+                  setDeskTab(item);
+                  if (item === "Trending") setSort("Trending");
+                }}
                 className={`relative pb-2 transition ${
                   deskTab === item ? "text-violet-200" : "text-muted hover:text-white"
                 }`}
@@ -180,9 +206,12 @@ export default function MarketListPage() {
           <Link href="/create" className="inline-flex items-center gap-2 text-slate-300 transition hover:text-white">
             <Plus size={14} /> Create Market
           </Link>
-          <Link href="/markets" className="inline-flex items-center gap-2 text-muted transition hover:text-solBlue">
+          <button
+            onClick={showAllMarkets}
+            className="inline-flex items-center gap-2 text-muted transition hover:text-solBlue"
+          >
             View All Markets <ArrowRight size={13} />
-          </Link>
+          </button>
         </div>
       </aside>
 
@@ -266,8 +295,12 @@ export default function MarketListPage() {
             </div>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex gap-2">
-                <span className="price-pill yes">YES {formatPrice(yesPrice)}</span>
-                <span className="price-pill no">NO {formatPrice(noPrice)}</span>
+                <button onClick={() => setChartSide("YES")} className="price-pill yes transition hover:brightness-125">
+                  YES {formatPrice(yesPrice)}
+                </button>
+                <button onClick={() => setChartSide("NO")} className="price-pill no transition hover:brightness-125">
+                  NO {formatPrice(noPrice)}
+                </button>
               </div>
               <div className="flex items-center gap-1 rounded-lg border border-line bg-black/25 p-1 text-xs">
                 {overviewTimeframes.map((item) => (
@@ -327,11 +360,22 @@ export default function MarketListPage() {
               <Flame size={13} /> Live
             </span>
           </div>
-          <button className="mb-3 flex h-9 items-center justify-between rounded-lg border border-line bg-black/25 px-3 text-xs text-slate-300">
-            All Agents <ChevronDown size={13} className="text-muted" />
-          </button>
+          <label className="relative mb-3 block">
+            <select
+              value={agentFilter}
+              onChange={(event) => setAgentFilter(event.target.value as "ALL" | Side)}
+              className="h-9 w-full appearance-none rounded-lg border border-line bg-black/25 px-3 text-xs font-bold text-slate-300 outline-none transition hover:border-solBlue/40 focus:border-solPurple/60"
+            >
+              {agentFilters.map((item) => (
+                <option key={item} value={item}>
+                  {item === "ALL" ? "All Agents" : `${item} Trades`}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="pointer-events-none absolute right-3 top-3 text-muted" />
+          </label>
           <div className="min-h-0 flex-1 overflow-hidden">
-            <AgentActivityFeed activity={activity.slice(0, 20)} markets={markets} />
+            <AgentActivityFeed activity={filteredActivity.slice(0, 20)} markets={markets} />
           </div>
           <Link href="/agents" className="mt-3 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted transition hover:border-solBlue/40 hover:text-white">
             <span>View All Activity</span>

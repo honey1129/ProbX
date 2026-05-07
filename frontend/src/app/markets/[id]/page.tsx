@@ -5,21 +5,21 @@ import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ArrowLeft, Bot, Clock3, Droplets, Radio, UsersRound } from "lucide-react";
 import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
-import { ProbabilityChart } from "@/components/charts/ProbabilityChart";
+import { ProbabilityChart, type ChartTimeframe } from "@/components/charts/ProbabilityChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import type { Side } from "@/lib/types";
 
-const timeframes = ["1H", "24H", "7D"] as const;
+const timeframes: ChartTimeframe[] = ["1H", "1D", "1W", "ALL"];
 const tradeFilters = ["ALL", "YES", "NO"] as const;
 
 export default function MarketDetailPage() {
   const params = useParams<{ id: string }>();
   const { markets, activity } = useMarkets();
   const [chartSide, setChartSide] = useState<Side>("YES");
-  const [timeframe, setTimeframe] = useState<(typeof timeframes)[number]>("24H");
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>("1D");
   const [tradeFilter, setTradeFilter] = useState<(typeof tradeFilters)[number]>("ALL");
 
   const id = Array.isArray(params.id) ? params.id[0] : params.id;

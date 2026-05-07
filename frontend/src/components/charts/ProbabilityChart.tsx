@@ -4,21 +4,22 @@ import { useMemo, useState } from "react";
 import { formatPrice } from "@/lib/format";
 import type { Market, Side } from "@/lib/types";
 
-type Timeframe = "1H" | "24H" | "7D";
+export type ChartTimeframe = "1H" | "4H" | "1D" | "1W" | "1M" | "ALL";
 
 export function ProbabilityChart({
   market,
   compact = false,
   side = "BOTH",
-  timeframe = "24H"
+  timeframe = "1D"
 }: {
   market: Market;
   compact?: boolean;
   side?: Side | "BOTH";
-  timeframe?: Timeframe;
+  timeframe?: ChartTimeframe;
 }) {
   const [hoverX, setHoverX] = useState<number | null>(null);
   const history = useMemo(() => sliceHistory(market.probabilityHistory, timeframe), [market.probabilityHistory, timeframe]);
+  const axisLabels = useMemo(() => labelsForTimeframe(timeframe), [timeframe]);
   const yesSeries = history;
   const noSeries = history.map((p) => 1 - p);
   const primarySeries = side === "NO" ? noSeries : yesSeries;
@@ -118,14 +119,9 @@ export function ProbabilityChart({
         <span>0¢</span>
       </div>
       <div className="pointer-events-none absolute bottom-3 left-4 right-16 flex justify-between text-xs text-muted">
-        <span>00:00</span>
-        <span>03:00</span>
-        <span>06:00</span>
-        <span>09:00</span>
-        <span>12:00</span>
-        <span>15:00</span>
-        <span>18:00</span>
-        <span>21:00</span>
+        {axisLabels.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
       </div>
       {side === "BOTH" ? (
         <>
@@ -183,7 +179,24 @@ function clamp(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
-function sliceHistory(values: number[], timeframe: Timeframe) {
-  const size = timeframe === "1H" ? 24 : timeframe === "24H" ? 72 : 96;
-  return values.slice(-size);
+function sliceHistory(values: number[], timeframe: ChartTimeframe) {
+  if (timeframe === "ALL") return values.length ? values : [0.5];
+
+  const sizeByTimeframe: Record<Exclude<ChartTimeframe, "ALL">, number> = {
+    "1H": 24,
+    "4H": 48,
+    "1D": 72,
+    "1W": 96,
+    "1M": 120
+  };
+  return values.slice(-sizeByTimeframe[timeframe]);
+}
+
+function labelsForTimeframe(timeframe: ChartTimeframe) {
+  if (timeframe === "1H") return ["-60m", "-45m", "-30m", "-15m", "Now"];
+  if (timeframe === "4H") return ["-4h", "-3h", "-2h", "-1h", "Now"];
+  if (timeframe === "1W") return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Now"];
+  if (timeframe === "1M") return ["W1", "W2", "W3", "W4", "Now"];
+  if (timeframe === "ALL") return ["Start", "25%", "50%", "75%", "Now"];
+  return ["00:00", "06:00", "12:00", "18:00", "Now"];
 }

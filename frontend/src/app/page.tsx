@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowRight, Bot, ChevronDown, Flame, Maximize2, Plus, Settings, Share2, Star } from "lucide-react";
 import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
-import { ProbabilityChart } from "@/components/charts/ProbabilityChart";
+import { ProbabilityChart, type ChartTimeframe } from "@/components/charts/ProbabilityChart";
 import { MarketCard } from "@/components/market/MarketCard";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { PositionTable } from "@/components/portfolio/PositionTable";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { formatPrice, formatSol, probability } from "@/lib/format";
+import type { Side } from "@/lib/types";
 
 const categories = ["All", "Politics", "Crypto", "Sports", "Tech", "Macro"] as const;
 const featuredOrder = ["fed-rates", "btc-100k", "trump-approval", "sol-etf", "nba-finals", "nvidia-earnings"];
+const overviewTimeframes: ChartTimeframe[] = ["1H", "4H", "1D", "1W", "1M", "ALL"];
+const chartSides: Array<Side | "BOTH"> = ["BOTH", "YES", "NO"];
 
 export default function MarketListPage() {
   const { markets, positions, activity } = useMarkets();
@@ -21,15 +24,21 @@ export default function MarketListPage() {
   const [sort, setSort] = useState("Trending");
   const [selectedId, setSelectedId] = useState(markets[0]?.id);
   const [deskTab, setDeskTab] = useState("Markets");
+  const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>("1D");
+  const [chartSide, setChartSide] = useState<Side | "BOTH">("BOTH");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shareStatus, setShareStatus] = useState("");
 
   const filtered = useMemo(() => {
-    const base = category === "All" ? markets : markets.filter((market) => market.category === category);
+    const categoryMarkets = category === "All" ? markets : markets.filter((market) => market.category === category);
+    const base = deskTab === "Watchlist" ? categoryMarkets.filter((market) => watchlist.has(market.id)) : categoryMarkets;
     return [...base].sort((a, b) => {
       if (sort === "New") return b.endTime - a.endTime;
       if (sort === "Volume") return b.volume24h - a.volume24h;
       return featuredRank(a.id) - featuredRank(b.id);
     });
-  }, [category, markets, sort]);
+  }, [category, deskTab, markets, sort, watchlist]);
 
   useEffect(() => {
     if (!filtered.length) return;
@@ -38,9 +47,66 @@ export default function MarketListPage() {
     }
   }, [filtered, selectedId]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("probx.watchlist");
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as string[];
+      setWatchlist(new Set(parsed.filter(Boolean)));
+    } catch {
+      window.localStorage.removeItem("probx.watchlist");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("probx.watchlist", JSON.stringify([...watchlist]));
+  }, [watchlist]);
+
   const selected = filtered.find((market) => market.id === selectedId) ?? filtered[0] ?? markets[0];
   const yesPrice = selected ? probability(selected) : 0;
   const noPrice = 1 - yesPrice;
+
+  useEffect(() => {
+    setSettingsOpen(false);
+  }, [selected?.id]);
+
+  const selectedPath = selected ? `/markets/${encodeURIComponent(selected.id)}` : "/";
+  const selectedUrl = useMemo(() => {
+    if (typeof window === "undefined") return selectedPath;
+    return `${window.location.origin}${selectedPath}`;
+  }, [selectedPath]);
+
+  const toggleWatchlist = useCallback((marketId: string) => {
+    setWatchlist((current) => {
+      const next = new Set(current);
+      if (next.has(marketId)) next.delete(marketId);
+      else next.add(marketId);
+      return next;
+    });
+  }, []);
+
+  const copyShareLink = useCallback(async () => {
+    if (!selected) return;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "ProbX market", text: selected.question, url: selectedUrl });
+        setShareStatus("Shared");
+      } else {
+        await navigator.clipboard.writeText(selectedUrl);
+        setShareStatus("Link copied");
+      }
+    } catch {
+      try {
+        await navigator.clipboard.writeText(selectedUrl);
+        setShareStatus("Link copied");
+      } catch {
+        setShareStatus("Copy failed");
+      }
+    }
+    window.setTimeout(() => setShareStatus(""), 1500);
+  }, [selected, selectedUrl]);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[360px_minmax(430px,1fr)_260px_270px] gap-2.5 overflow-hidden">
@@ -56,6 +122,7 @@ export default function MarketListPage() {
                 }`}
               >
                 {item}
+                {item === "Watchlist" && watchlist.size ? <span className="ml-1 text-xs text-solBlue">{watchlist.size}</span> : null}
                 {item === "Trending" ? <span className="ml-1 text-xs text-no">hot</span> : null}
                 {deskTab === item ? <span className="absolute inset-x-0 bottom-0 h-0.5 rounded bg-solPurple shadow-glow" /> : null}
               </button>
@@ -135,19 +202,66 @@ export default function MarketListPage() {
                 </div>
                 <div className="flex min-w-0 items-center gap-2">
                   <h1 className="truncate text-[22px] font-black">{selected.question}</h1>
-                  <Star size={17} className="shrink-0 text-muted" />
+                  <button
+                    onClick={() => toggleWatchlist(selected.id)}
+                    className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border transition ${
+                      watchlist.has(selected.id)
+                        ? "border-solPurple/50 bg-solPurple/20 text-violet-200 shadow-glow"
+                        : "border-transparent text-muted hover:border-line hover:text-white"
+                    }`}
+                    aria-label={watchlist.has(selected.id) ? "Remove from watchlist" : "Add to watchlist"}
+                  >
+                    <Star size={17} className={watchlist.has(selected.id) ? "fill-current" : ""} />
+                  </button>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-xs font-bold text-slate-200">
-                  <Share2 size={14} /> Share
+              <div className="relative flex shrink-0 items-center gap-2">
+                <button
+                  onClick={copyShareLink}
+                  className="inline-flex h-9 min-w-[86px] items-center justify-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-xs font-bold text-slate-200 transition hover:border-solBlue/45 hover:text-white"
+                >
+                  <Share2 size={14} /> {shareStatus || "Share"}
                 </button>
-                <button className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-slate-950/70 text-slate-300">
+                <button
+                  onClick={() => setSettingsOpen((value) => !value)}
+                  className={`grid h-9 w-9 place-items-center rounded-lg border bg-slate-950/70 transition ${
+                    settingsOpen ? "border-solPurple/60 text-violet-200 shadow-glow" : "border-line text-slate-300 hover:border-solBlue/45 hover:text-white"
+                  }`}
+                  aria-expanded={settingsOpen}
+                  aria-label="Chart settings"
+                >
                   <Settings size={14} />
                 </button>
-                <button className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-slate-950/70 text-slate-300">
+                <Link
+                  href={selectedPath}
+                  className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-slate-950/70 text-slate-300 transition hover:border-solBlue/45 hover:text-white"
+                  aria-label="Open market detail"
+                >
                   <Maximize2 size={14} />
-                </button>
+                </Link>
+                {settingsOpen ? (
+                  <div className="absolute right-0 top-11 z-20 w-52 rounded-lg border border-line bg-slate-950/95 p-3 shadow-2xl">
+                    <div className="mb-2 text-xs font-black uppercase text-muted">Chart Curve</div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {chartSides.map((item) => (
+                        <button
+                          key={item}
+                          onClick={() => setChartSide(item)}
+                          className={`rounded-md border px-2 py-1.5 text-xs font-black transition ${
+                            chartSide === item
+                              ? "border-solPurple/50 bg-solPurple/20 text-white shadow-glow"
+                              : "border-line bg-black/30 text-muted hover:text-white"
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-3 text-xs text-slate-400">
+                      {timeframe} range · {chartSide === "BOTH" ? "YES/NO" : chartSide} line
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -156,22 +270,28 @@ export default function MarketListPage() {
                 <span className="price-pill no">NO {formatPrice(noPrice)}</span>
               </div>
               <div className="flex items-center gap-1 rounded-lg border border-line bg-black/25 p-1 text-xs">
-                {["1H", "4H", "1D", "1W", "1M", "ALL"].map((item) => (
+                {overviewTimeframes.map((item) => (
                   <button
                     key={item}
-                    className={`rounded-md px-2.5 py-1 font-black transition ${item === "1D" ? "bg-solPurple/20 text-white shadow-glow" : "text-muted hover:text-white"}`}
+                    onClick={() => setTimeframe(item)}
+                    className={`rounded-md px-2.5 py-1 font-black transition ${timeframe === item ? "bg-solPurple/20 text-white shadow-glow" : "text-muted hover:text-white"}`}
                   >
                     {item}
                   </button>
                 ))}
-                <span className="ml-1 grid h-7 w-8 place-items-center rounded-md border border-solPurple/45 text-violet-200">
+                <button
+                  onClick={() => setChartSide(nextChartSide(chartSide))}
+                  className="ml-1 grid h-7 w-8 place-items-center rounded-md border border-solPurple/45 text-violet-200 transition hover:bg-solPurple/15"
+                  aria-label="Switch chart curve"
+                  title={`Chart: ${chartSide}`}
+                >
                   <Activity size={14} />
-                </span>
+                </button>
               </div>
             </div>
             <ProbabilityBar probability={yesPrice} />
             <div className="mt-3 min-h-0 flex-1">
-              <ProbabilityChart market={selected} compact />
+              <ProbabilityChart market={selected} compact side={chartSide} timeframe={timeframe} />
             </div>
             <div className="mt-3 grid grid-cols-6 divide-x divide-line rounded-lg border border-line bg-black/20">
               <Metric label="Last Price" value={formatPrice(yesPrice)} strong />
@@ -226,6 +346,12 @@ export default function MarketListPage() {
 function featuredRank(id: string) {
   const index = featuredOrder.indexOf(id);
   return index === -1 ? featuredOrder.length : index;
+}
+
+function nextChartSide(side: Side | "BOTH"): Side | "BOTH" {
+  if (side === "BOTH") return "YES";
+  if (side === "YES") return "NO";
+  return "BOTH";
 }
 
 function Metric({ label, value, strong, positive }: { label: string; value: string; strong?: boolean; positive?: boolean }) {

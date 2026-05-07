@@ -7,6 +7,7 @@ import { MarketCard } from "@/components/market/MarketCard";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { PositionTable } from "@/components/portfolio/PositionTable";
+import { MarketShareDialog } from "@/components/share/MarketShareDialog";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { formatPrice, formatSol, probability } from "@/lib/format";
 import type { Side } from "@/lib/types";
@@ -26,7 +27,7 @@ export default function MarketListPage() {
   const [timeframe, setTimeframe] = useState<ChartTimeframe>("1D");
   const [chartSide, setChartSide] = useState<Side | "BOTH">("BOTH");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [shareStatus, setShareStatus] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const categoryMarkets = category === "All" ? markets : markets.filter((market) => market.category === category);
@@ -78,6 +79,7 @@ export default function MarketListPage() {
   const noPrice = 1 - yesPrice;
   useEffect(() => {
     setSettingsOpen(false);
+    setShareOpen(false);
   }, [selected?.id]);
 
   const selectedPath = selected ? `/markets/${encodeURIComponent(selected.id)}` : "/";
@@ -94,27 +96,6 @@ export default function MarketListPage() {
       return next;
     });
   }, []);
-
-  const copyShareLink = useCallback(async () => {
-    if (!selected) return;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "ProbX market", text: selected.question, url: selectedUrl });
-        setShareStatus("Shared");
-      } else {
-        await navigator.clipboard.writeText(selectedUrl);
-        setShareStatus("Link copied");
-      }
-    } catch {
-      try {
-        await navigator.clipboard.writeText(selectedUrl);
-        setShareStatus("Link copied");
-      } catch {
-        setShareStatus("Copy failed");
-      }
-    }
-    window.setTimeout(() => setShareStatus(""), 1500);
-  }, [selected, selectedUrl]);
 
   function showAllMarkets() {
     setDeskTab("Markets");
@@ -295,10 +276,10 @@ export default function MarketListPage() {
               </div>
               <div className="relative flex shrink-0 items-center gap-2">
                 <button
-                  onClick={copyShareLink}
+                  onClick={() => setShareOpen(true)}
                   className="inline-flex h-9 min-w-[86px] items-center justify-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-xs font-bold text-slate-200 transition hover:border-solBlue/45 hover:text-white"
                 >
-                  <Share2 size={14} /> {shareStatus || "Share"}
+                  <Share2 size={14} /> Share
                 </button>
                 <button
                   onClick={() => setSettingsOpen((value) => !value)}
@@ -342,6 +323,7 @@ export default function MarketListPage() {
                 ) : null}
               </div>
             </div>
+            <MarketShareDialog market={selected} open={shareOpen} url={selectedUrl} onClose={() => setShareOpen(false)} />
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex gap-2">
                 <button onClick={() => setChartSide("YES")} className="price-pill yes transition hover:brightness-125">

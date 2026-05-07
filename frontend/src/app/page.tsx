@@ -172,7 +172,7 @@ export default function MarketListPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[360px_minmax(430px,1fr)_260px_270px] gap-2.5 overflow-hidden">
+    <div className="mb-8 grid h-full min-h-0 grid-cols-[360px_minmax(430px,1fr)_260px_270px] gap-2.5 overflow-hidden">
       <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
         <div className="border-b border-line px-3.5 pb-3 pt-3">
           <div className="mb-3 flex items-center gap-6 text-sm">

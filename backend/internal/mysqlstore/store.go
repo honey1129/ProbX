@@ -163,6 +163,106 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 	return s.GetMarket(ctx, req.ID)
 }
 
+func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (models.Market, error) {
+	rawCategory := strings.TrimSpace(market.Category)
+	market.ID = normalizeText(market.ID, market.PublicKey)
+	market.PublicKey = strings.TrimSpace(market.PublicKey)
+	market.Creator = normalizeText(market.Creator, "unknown")
+	market.Question = strings.TrimSpace(market.Question)
+	if rawCategory != "" {
+		market.Category = normalizeCategory(rawCategory)
+	}
+	if market.ID == "" || market.PublicKey == "" {
+		return models.Market{}, fmt.Errorf("%w: market id and publicKey are required", ErrInvalid)
+	}
+	if market.Question == "" {
+		return models.Market{}, fmt.Errorf("%w: question is required", ErrInvalid)
+	}
+
+	now := nowMillis()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.Market{}, err
+	}
+	defer rollbackQuietly(tx)
+
+	var existing struct {
+		ID           string
+		YesPool      float64
+		NoPool       float64
+		Volume24h    float64
+		Participants int
+		Category     string
+	}
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, yes_pool, no_pool, volume_24h, participants, category
+		FROM markets
+		WHERE public_key = ?
+		FOR UPDATE`, market.PublicKey)
+	err = row.Scan(
+		&existing.ID,
+		&existing.YesPool,
+		&existing.NoPool,
+		&existing.Volume24h,
+		&existing.Participants,
+		&existing.Category,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		if rawCategory == "" {
+			market.Category = "Crypto"
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO markets (
+				id, public_key, creator, question, category, yes_pool, no_pool,
+				total_liquidity, volume_24h, participants, change_24h, end_time,
+				resolved, outcome, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, ?, ?)`,
+			market.ID, market.PublicKey, market.Creator, market.Question, market.Category,
+			market.YesPool, market.NoPool, market.TotalLiquidity, market.EndTime,
+			market.Resolved, nullableInt(market.Outcome), now, now,
+		)
+		if err != nil {
+			return models.Market{}, err
+		}
+		if err := insertProbabilityPoint(ctx, tx, market.ID, probability(market.YesPool, market.NoPool), now); err != nil {
+			return models.Market{}, err
+		}
+		if err := tx.Commit(); err != nil {
+			return models.Market{}, err
+		}
+		return s.GetMarket(ctx, market.ID)
+	}
+	if err != nil {
+		return models.Market{}, err
+	}
+
+	market.ID = existing.ID
+	if rawCategory == "" {
+		market.Category = existing.Category
+	}
+	change24h := probability(market.YesPool, market.NoPool) - probability(existing.YesPool, existing.NoPool)
+	_, err = tx.ExecContext(ctx, `
+		UPDATE markets
+		SET creator = ?, question = ?, category = ?, yes_pool = ?, no_pool = ?,
+		    total_liquidity = ?, change_24h = ?, end_time = ?, resolved = ?,
+		    outcome = ?, updated_at = ?
+		WHERE id = ?`,
+		market.Creator, market.Question, market.Category, market.YesPool, market.NoPool,
+		market.TotalLiquidity, change24h, market.EndTime, market.Resolved,
+		nullableInt(market.Outcome), now, market.ID,
+	)
+	if err != nil {
+		return models.Market{}, err
+	}
+	if err := insertProbabilityPoint(ctx, tx, market.ID, probability(market.YesPool, market.NoPool), now); err != nil {
+		return models.Market{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Market{}, err
+	}
+	return s.GetMarket(ctx, market.ID)
+}
+
 func (s *Store) ListPositions(ctx context.Context, owner string) ([]models.Position, error) {
 	owner = strings.TrimSpace(owner)
 	if owner == "" {
@@ -476,6 +576,13 @@ func scanMarket(row scanner) (models.Market, error) {
 		market.Outcome = &value
 	}
 	return market, nil
+}
+
+func nullableInt(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func scanPosition(row scanner) (models.Position, error) {

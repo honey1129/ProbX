@@ -50,6 +50,21 @@ PROBX_MYSQL_CLI_DSN=mysql://probx:probx@127.0.0.1:3306/probx ./scripts/migrate.s
 go run ./cmd/server
 ```
 
+## Run The Indexer
+
+The indexer reads on-chain Anchor `Market` accounts from `PROBX_SOLANA_RPC_URL` and upserts them into MySQL by `public_key`. This first version indexes Market accounts only; Position accounts and full trade history are still separate follow-up work.
+
+Run it from `backend/`:
+
+```bash
+PROBX_DATABASE_DSN='probx:your-password@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true' \
+PROBX_SOLANA_RPC_URL='http://127.0.0.1:8899' \
+PROBX_PROGRAM_ID='4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL' \
+go run ./cmd/indexer
+```
+
+It is a one-shot sync command, so production can run it from cron or a systemd timer while the API keeps serving requests on its own port.
+
 ## API
 
 ```text

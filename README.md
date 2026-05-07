@@ -71,6 +71,7 @@ docker compose up -d mysql
 ```
 
 首次创建数据库时，MySQL 容器会自动执行 `backend/migrations/*.sql`，包括建表和示例数据。
+如果服务器上已经安装了 MySQL，可以跳过 Docker，手动创建数据库并在 `backend/` 目录运行迁移脚本。
 
 启动 Go API：
 
@@ -206,6 +207,22 @@ curl -X POST http://localhost:8080/api/trades \
     "status": "indexed"
   }'
 ```
+
+## 链上索引器
+
+索引器会从 `PROBX_SOLANA_RPC_URL` 读取 `PROBX_PROGRAM_ID` 下的 Anchor `Market` 账户，并按 `public_key` upsert 到 MySQL。当前版本先同步市场、池子、结束时间和结算结果；`Position` 账户和完整链上交易历史是下一步。
+
+在已有 MySQL 的 VPS 上运行一次同步：
+
+```bash
+cd /root/ProbX/backend
+PROBX_DATABASE_DSN='probx:你的新密码@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true' \
+PROBX_SOLANA_RPC_URL='http://127.0.0.1:8899' \
+PROBX_PROGRAM_ID='4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL' \
+go run ./cmd/indexer
+```
+
+如果 API 已经跑在 `:8081`，索引器不用占用 HTTP 端口，可以直接并行执行。上线前可以用 cron 或 systemd timer 定时运行，先做到“链上 Market -> MySQL -> 前端/API 查询”这条路径稳定。
 
 手动迁移已有数据库：
 

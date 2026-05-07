@@ -1,6 +1,8 @@
 import { defineConfig, loadEnv } from "vite";
 import { fileURLToPath, URL } from "node:url";
 
+const allowedHosts = ["probx.site", "www.probx.site", "api.probx.site"];
+
 function publicEnv(mode: string) {
   const env = loadEnv(mode, process.cwd(), "");
   const read = (nextKey: string, viteKey: string, fallback = "") => env[nextKey] ?? env[viteKey] ?? fallback;
@@ -28,7 +30,12 @@ export default defineConfig(({ mode }) => ({
     }
   },
   server: {
+    allowedHosts,
     host: "0.0.0.0",
     port: 3000
+  },
+  preview: {
+    allowedHosts,
+    host: "0.0.0.0"
   }
 }));

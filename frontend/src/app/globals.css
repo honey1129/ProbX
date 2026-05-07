@@ -52,6 +52,20 @@ select {
   box-shadow: 0 0 28px rgba(155, 92, 255, 0.22) !important;
 }
 
+.wallet-adapter-dropdown {
+  z-index: 10000 !important;
+}
+
+.wallet-adapter-dropdown-list {
+  z-index: 10001 !important;
+}
+
+.wallet-adapter-modal,
+.wallet-adapter-modal-overlay,
+.wallet-adapter-modal-container {
+  z-index: 10002 !important;
+}
+
 .probx-logo-mark {
   position: relative;
   display: inline-block;

@@ -6,6 +6,8 @@ PROJECT_DIR="${PROBX_PROJECT_DIR:-/root/ProbX}"
 FRONTEND_PORT="${PROBX_FRONTEND_PORT:-3001}"
 ECOSYSTEM_FILE="$PROJECT_DIR/deploy/pm2/ecosystem.config.cjs"
 
+export PATH="/usr/local/go/bin:/usr/lib/go/bin:/snap/bin:$HOME/go/bin:$PATH"
+
 log() {
   printf '[probx-deploy] %s\n' "$*"
 }

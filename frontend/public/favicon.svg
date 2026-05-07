@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 34" role="img" aria-label="ProbX">
+  <defs>
+    <linearGradient id="slice-a" x1="1" y1="1" x2="13" y2="16" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c3cff" />
+      <stop offset="0.5" stop-color="#b169ff" />
+      <stop offset="1" stop-color="#19f58c" />
+    </linearGradient>
+    <linearGradient id="slice-b" x1="12.5" y1="6" x2="12.5" y2="33" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#31b9ff" />
+      <stop offset="0.55" stop-color="#6f5cff" />
+      <stop offset="1" stop-color="#9b5cff" />
+    </linearGradient>
+    <linearGradient id="slice-c" x1="24.5" y1="1" x2="24.5" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#19f58c" />
+      <stop offset="0.45" stop-color="#31b9ff" />
+      <stop offset="1" stop-color="#6c5cff" />
+    </linearGradient>
+    <linearGradient id="slice-d" x1="23" y1="17" x2="36" y2="33" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#31b9ff" />
+      <stop offset="0.42" stop-color="#7c3cff" />
+      <stop offset="1" stop-color="#b169ff" />
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="2.2" flood-color="#9b5cff" flood-opacity="0.38" />
+      <feDropShadow dx="0" dy="0" stdDeviation="2.8" flood-color="#31b9ff" flood-opacity="0.2" />
+    </filter>
+  </defs>
+  <g filter="url(#glow)">
+    <polygon fill="url(#slice-a)" points="1 1 13 1 8.68 16 5.32 16" />
+    <polygon fill="url(#slice-b)" points="10.19 6 17.75 6 23 33 14.81 33" />
+    <polygon fill="url(#slice-c)" points="19.25 1 27.44 1 21.98 28 14 28" />
+    <polygon fill="url(#slice-d)" points="27.55 17 31.32 17 36 33 23 33" />
+  </g>
+</svg>

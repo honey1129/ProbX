@@ -94,7 +94,16 @@ test -f frontend/.env.local || cp frontend/.env.example frontend/.env.local
 
 ### Go API
 
-后端默认值与 `backend/.env.example` 一致。当前代码不会自动读取 `.env` 文件，如需改配置，请在启动命令前导出环境变量。
+后端默认值与 `backend/.env.example` 一致。`cmd/server` 和 `cmd/indexer` 启动时会自动读取当前目录的 `.env`；从仓库根目录运行时也会尝试读取 `backend/.env`。系统环境变量优先级更高，可以临时覆盖 `.env`。
+
+首次配置可以这样做：
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+然后编辑 `backend/.env`：
 
 ```bash
 PROBX_HTTP_ADDR=:8080
@@ -216,11 +225,10 @@ curl -X POST http://localhost:8080/api/trades \
 
 ```bash
 cd /root/ProbX/backend
-PROBX_DATABASE_DSN='probx:你的新密码@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true' \
-PROBX_SOLANA_RPC_URL='http://127.0.0.1:8899' \
-PROBX_PROGRAM_ID='4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL' \
 go run ./cmd/indexer
 ```
+
+上面的命令会读取 `backend/.env`，所以 `PROBX_DATABASE_DSN`、`PROBX_SOLANA_RPC_URL` 和 `PROBX_PROGRAM_ID` 可以直接写在 `.env` 里。
 
 如果 API 已经跑在 `:8081`，索引器不用占用 HTTP 端口，可以直接并行执行。上线前可以用 cron 或 systemd timer 定时运行，先做到“链上 Market -> MySQL -> 前端/API 查询”这条路径稳定。
 

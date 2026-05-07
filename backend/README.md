@@ -12,6 +12,12 @@ The Solana program remains the source of truth for funds and settlement. MySQL i
 
 ## Configuration
 
+`cmd/server` and `cmd/indexer` automatically load `.env` from the current directory. When run from the repository root, they also try `backend/.env`. Existing shell environment variables win over values from `.env`.
+
+```bash
+cp .env.example .env
+```
+
 ```bash
 PROBX_HTTP_ADDR=:8080
 PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true
@@ -57,9 +63,6 @@ The indexer reads on-chain Anchor `Market` accounts from `PROBX_SOLANA_RPC_URL` 
 Run it from `backend/`:
 
 ```bash
-PROBX_DATABASE_DSN='probx:your-password@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true' \
-PROBX_SOLANA_RPC_URL='http://127.0.0.1:8899' \
-PROBX_PROGRAM_ID='4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL' \
 go run ./cmd/indexer
 ```
 

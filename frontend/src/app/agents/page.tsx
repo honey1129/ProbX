@@ -78,7 +78,7 @@ export default function AgentsPage() {
       </section>
 
       <section className="grid min-h-0 grid-cols-[390px_minmax(0,1fr)_430px] gap-3">
-        <aside className="terminal-panel h-full overflow-hidden p-4">
+        <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <h1 className="text-xl font-black">Activity Feed</h1>
             <select
@@ -91,7 +91,9 @@ export default function AgentsPage() {
               <option value="NO">NO Trades</option>
             </select>
           </div>
-          <AgentActivityFeed activity={filteredActivity.slice(0, 6)} markets={markets} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <AgentActivityFeed activity={filteredActivity} markets={markets} />
+          </div>
         </aside>
 
         <main className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
@@ -112,51 +114,53 @@ export default function AgentsPage() {
             )}
           </section>
 
-          <section className="terminal-panel min-h-0 overflow-hidden">
+          <section className="terminal-panel flex min-h-0 flex-col overflow-hidden">
             <div className="border-b border-line px-4 py-3">
               <h2 className="font-black">Agent Comparison</h2>
             </div>
-            <table className="w-full border-collapse text-sm">
-              <thead className="bg-slate-950/80 text-xs uppercase text-muted">
-                <tr>
-                  <th className="px-4 py-3 text-left">Agent</th>
-                  <th className="px-4 py-3 text-left">Flow</th>
-                  <th className="px-4 py-3 text-right">Avg Conf.</th>
-                  <th className="px-4 py-3 text-right">Volume</th>
-                  <th className="px-4 py-3 text-right">Trades</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!agentStats.length ? (
-                  <tr className="border-t border-line bg-slate-950/35">
-                    <td colSpan={5} className="px-4 py-10 text-center">
-                      <p className="font-bold text-slate-200">No agent rows yet</p>
-                      <p className="mt-1 text-sm text-muted">Agent comparison will populate from indexed activity.</p>
-                    </td>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead className="bg-slate-950/80 text-xs uppercase text-muted">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Agent</th>
+                    <th className="px-4 py-3 text-left">Flow</th>
+                    <th className="px-4 py-3 text-right">Avg Conf.</th>
+                    <th className="px-4 py-3 text-right">Volume</th>
+                    <th className="px-4 py-3 text-right">Trades</th>
                   </tr>
-                ) : null}
-                {agentStats.map((agent) => (
-                  <tr
-                    key={agent.name}
-                    onClick={() => setSelectedAgent(agent.name)}
-                    className={`cursor-pointer border-t border-line transition hover:bg-slate-900/60 ${
-                      selectedStats?.name === agent.name ? "bg-solPurple/15 shadow-[inset_3px_0_0_#9b5cff]" : "bg-slate-950/35"
-                    }`}
-                  >
-                    <td className="px-4 py-3 font-black">{agent.name}</td>
-                    <td className="px-4 py-3 text-muted">{agent.flow}</td>
-                    <td className="px-4 py-3 text-right font-bold">{agent.avgConfidence}%</td>
-                    <td className="px-4 py-3 text-right font-black text-yes">{formatUsd(agent.volume)}</td>
-                    <td className="px-4 py-3 text-right">{agent.trades.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {!agentStats.length ? (
+                    <tr className="border-t border-line bg-slate-950/35">
+                      <td colSpan={5} className="px-4 py-10 text-center">
+                        <p className="font-bold text-slate-200">No agent rows yet</p>
+                        <p className="mt-1 text-sm text-muted">Agent comparison will populate from indexed activity.</p>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {agentStats.map((agent) => (
+                    <tr
+                      key={agent.name}
+                      onClick={() => setSelectedAgent(agent.name)}
+                      className={`cursor-pointer border-t border-line transition hover:bg-slate-900/60 ${
+                        selectedStats?.name === agent.name ? "bg-solPurple/15 shadow-[inset_3px_0_0_#9b5cff]" : "bg-slate-950/35"
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-black">{agent.name}</td>
+                      <td className="px-4 py-3 text-muted">{agent.flow}</td>
+                      <td className="px-4 py-3 text-right font-bold">{agent.avgConfidence}%</td>
+                      <td className="px-4 py-3 text-right font-black text-yes">{formatUsd(agent.volume)}</td>
+                      <td className="px-4 py-3 text-right">{agent.trades.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         </main>
 
         <aside className="grid h-full min-h-0 grid-rows-[1fr_auto] gap-3 overflow-hidden">
-          <section className="terminal-panel overflow-hidden p-4">
+          <section className="terminal-panel overflow-y-auto p-4">
             <div className="mb-4 flex items-center gap-2">
               <BrainCircuit size={18} className="text-solBlue" />
               <h2 className="font-black">Signal Engine</h2>

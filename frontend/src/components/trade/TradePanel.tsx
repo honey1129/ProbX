@@ -173,8 +173,8 @@ export function TradePanel({ market }: { market: Market }) {
   }
 
   return (
-    <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-3">
-      <div className="mb-3 flex items-center border-b border-line pb-2 text-sm">
+    <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-2.5">
+      <div className="mb-2 flex items-center border-b border-line pb-1.5 text-sm">
         <button
           onClick={() => setTab("TRADE")}
           className={`flex-1 border-b-2 pb-2 font-black transition ${
@@ -193,9 +193,10 @@ export function TradePanel({ market }: { market: Market }) {
         </button>
       </div>
 
-      {tab === "TRADE" ? (
-        <>
-          <div className="mb-3 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted">
+      <div className="grid min-h-0 flex-1 content-start">
+        {tab === "TRADE" ? (
+          <div className="grid content-start">
+            <div className="mb-2 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-1.5 text-xs text-muted">
             <span className="inline-flex items-center gap-1.5">
               {validationMessage ? <AlertTriangle size={13} className="text-no" /> : <CheckCircle2 size={13} className="text-yes" />}
               {dataSource === "api" ? "ProbX API" : "Local preview"}
@@ -203,9 +204,9 @@ export function TradePanel({ market }: { market: Market }) {
             <span className={onchainEnabled ? (connected ? "text-yes" : "text-no") : "text-muted"}>
               {onchainEnabled ? (connected ? "Wallet connected" : "Wallet required") : "Off-chain indexing"}
             </span>
-          </div>
+            </div>
 
-          <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-line bg-black/25 p-1">
+          <div className="mb-2 grid grid-cols-2 gap-2 rounded-lg border border-line bg-black/25 p-1">
             {(["BUY", "SELL"] as const).map((item) => (
               <button
                 key={item}
@@ -219,7 +220,7 @@ export function TradePanel({ market }: { market: Market }) {
             ))}
           </div>
 
-          <div className="mb-3 grid grid-cols-2 gap-2">
+          <div className="mb-2 grid grid-cols-2 gap-2">
             <button
               onClick={() => setSide("YES")}
               className={`trade-side yes ${side === "YES" ? "active" : ""}`}
@@ -236,10 +237,10 @@ export function TradePanel({ market }: { market: Market }) {
             </button>
           </div>
 
-          <label className="mb-2 block text-xs font-semibold text-slate-300">
+          <label className="mb-1.5 block text-xs font-semibold text-slate-300">
             {mode === "BUY" ? "Amount" : "Shares"}
           </label>
-          <div className="mb-1.5 flex h-11 items-center rounded-lg border border-line bg-black/35 px-3">
+          <div className="mb-1 flex h-10 items-center rounded-lg border border-line bg-black/35 px-3">
             <span className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-300">
               {mode === "BUY" ? <Wallet2 size={15} className="text-solPurple" /> : null}
               {mode === "BUY" ? "SOL" : side}
@@ -248,17 +249,17 @@ export function TradePanel({ market }: { market: Market }) {
               value={amount}
               onChange={(event) => updateAmount(event.target.value)}
               placeholder="0.00"
-              className="h-full flex-1 bg-transparent text-right text-xl font-bold outline-none"
+              className="h-full flex-1 bg-transparent text-right text-lg font-bold outline-none"
               inputMode="decimal"
             />
           </div>
-          <div className="mb-3 flex items-center justify-between text-xs text-muted">
+          <div className="mb-2 flex items-center justify-between text-xs text-muted">
             <span>{balanceLabel}</span>
           </div>
 
           {hasFiniteLimit ? (
             <>
-              <div className="mb-3 grid grid-cols-4 gap-1.5">
+              <div className="mb-2 grid grid-cols-4 gap-1.5">
                 {[
                   ["25%", 0.25],
                   ["50%", 0.5],
@@ -281,23 +282,23 @@ export function TradePanel({ market }: { market: Market }) {
                 type="range"
                 min="0"
                 max="100"
-                className="mb-4 w-full accent-emerald-400"
+                className="mb-2 w-full accent-emerald-400"
               />
             </>
           ) : null}
 
-          <div className="mb-3 grid grid-cols-2 gap-2">
+          <div className="mb-2 grid grid-cols-2 gap-2">
             <label className="grid gap-1 text-xs text-muted">
               Order Type
               <span className="relative">
                 <select
                   value={orderType}
                   onChange={(event) => setOrderType(event.target.value)}
-                  className="h-9 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
+                  className="h-8 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-xs font-bold text-slate-100 outline-none"
                 >
                   <option>Market</option>
                 </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted" />
+                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-2.5 text-muted" />
               </span>
             </label>
             <label className="grid gap-1 text-xs text-muted">
@@ -306,32 +307,30 @@ export function TradePanel({ market }: { market: Market }) {
                 <select
                   value={slippage}
                   onChange={(event) => setSlippage(event.target.value)}
-                  className="h-9 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
+                  className="h-8 w-full appearance-none rounded-lg border border-line bg-black/35 px-3 text-xs font-bold text-slate-100 outline-none"
                 >
                   <option value="0.1">0.1%</option>
                   <option value="0.5">0.5%</option>
                   <option value="1.0">1.0%</option>
                 </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted" />
+                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-2.5 text-muted" />
               </span>
             </label>
           </div>
 
-          <div className="mb-3 grid gap-2 rounded-lg border border-white/10 bg-black/25 p-3 text-sm">
-            <Row
+          <div className="mb-2 grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-black/25 p-2.5">
+            <QuoteItem
               label={mode === "BUY" ? "Order Amount" : "Shares Sold"}
               value={mode === "BUY" ? formatSol(amountNumber || 0, 4) : `${amountNumber.toFixed(3)} ${side}`}
               strong
             />
-            <Row label="Est. Fill Price" value={formatPrice(p)} />
-            <Row label={mode === "BUY" ? "Shares Received" : "Shares Sold"} value={shares.toFixed(3)} />
-            <Row label={mode === "BUY" ? "Potential Return" : "Est. Proceeds"} value={formatSol(mode === "BUY" ? shares : proceeds)} />
-            <Row label="Price Impact" value={`${impact.toFixed(2)}%`} />
-            <div className="my-1 border-t border-line" />
-            <Row label="Order Type" value={orderType} />
-            <Row label="Max Slippage" value={`${slippage}%`} />
-            <Row label="Protocol Fee" value={formatSol(fee, 4)} />
-            <Row label={mode === "BUY" ? "Est. Total" : "SOL Out"} value={formatSol(expectedTotal, 4)} />
+            <QuoteItem label="Est. Fill Price" value={formatPrice(p)} />
+            <QuoteItem label={mode === "BUY" ? "Shares Received" : "Shares Sold"} value={shares.toFixed(3)} />
+            <QuoteItem label={mode === "BUY" ? "Potential Return" : "Est. Proceeds"} value={formatSol(mode === "BUY" ? shares : proceeds)} />
+            <QuoteItem label="Price Impact" value={`${impact.toFixed(2)}%`} />
+            <QuoteItem label="Max Slippage" value={`${slippage}%`} />
+            <QuoteItem label="Protocol Fee" value={formatSol(fee, 4)} />
+            <QuoteItem label={mode === "BUY" ? "Est. Total" : "SOL Out"} value={formatSol(expectedTotal, 4)} strong />
           </div>
 
           <button
@@ -343,17 +342,18 @@ export function TradePanel({ market }: { market: Market }) {
             {primaryButtonLabel}
           </button>
           {status || validationMessage ? (
-            <p className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
+            <p className={`mt-2 flex items-start gap-2 rounded-md border px-3 py-1.5 text-xs ${
               successStatus ? "border-yes/30 bg-yes/10 text-yes" : "border-no/30 bg-no/10 text-no"
             }`}>
               {successStatus ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> : <Info size={14} className="mt-0.5 shrink-0" />}
               <span>{status ?? validationMessage}</span>
             </p>
           ) : null}
-        </>
-      ) : (
-        <MarketInfo market={market} />
-      )}
+          </div>
+        ) : (
+          <MarketInfo market={market} />
+        )}
+      </div>
     </aside>
   );
 }
@@ -367,13 +367,22 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
+function QuoteItem({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-md border border-line bg-black/20 px-2 py-1.5">
+      <div className="truncate text-[11px] text-muted">{label}</div>
+      <div className={`mt-0.5 truncate text-right text-xs font-black ${strong ? "text-white" : "text-slate-200"}`}>{value}</div>
+    </div>
+  );
+}
+
 function MarketInfo({ market }: { market: Market }) {
   const yesProbability = probability(market);
   const liquidity = market.totalLiquidity;
   const imbalance = Math.abs(market.yesPool - market.noPool) / Math.max(1, market.yesPool + market.noPool);
 
   return (
-    <div className="grid min-h-0 flex-1 content-start gap-3 overflow-hidden">
+    <div className="grid content-start gap-3">
       <div className="rounded-lg border border-line bg-black/25 p-3">
         <div className="mb-2 text-xs uppercase text-muted">Current Odds</div>
         <div className="grid grid-cols-2 gap-2">

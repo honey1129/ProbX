@@ -1,6 +1,6 @@
 # ProbX Prediction Market
 
-ProbX 是一个基于 Solana Anchor 的二元预测市场项目。仓库包含链上合约、Next.js 交易前端、Go REST API、MySQL 索引库，以及一个可 dry-run 或模拟运行的 Python 自动交易 agent。
+ProbX 是一个基于 Solana Anchor 的二元预测市场项目。仓库包含链上合约、Vite React 交易前端、Go REST API、MySQL 索引库，以及一个可 dry-run 或模拟运行的 Python 自动交易 agent。
 
 市场使用 YES/NO 恒定乘积 AMM 表达概率，支持创建市场、买卖 outcome shares、查询 YES 概率、到期结算和赢家领取奖励。Solana 程序负责资金和结算，MySQL 负责面向前端和 agent 的查询索引。
 
@@ -12,7 +12,7 @@ ProbX 是一个基于 Solana Anchor 的二元预测市场项目。仓库包含�
 ├── tests/                       # Anchor TypeScript 测试
 ├── idl/                         # 合约 IDL
 ├── backend/                     # Go API、MySQL store 和 migrations
-├── frontend/                    # Next.js 交易前端
+├── frontend/                    # Vite React 交易前端
 ├── agent.py                     # Python 交易 agent
 ├── config.yaml                  # agent、RPC 和风控配置
 ├── scripts/run_agent.sh         # agent 启动脚本
@@ -29,7 +29,7 @@ ProbX 是一个基于 Solana Anchor 的二元预测市场项目。仓库包含�
 
 - Anchor 合约：创建市场、AMM 买卖份额、价格查询、结算市场、领取奖励。
 - Go 后端：提供 REST API，使用 MySQL 保存市场、概率历史、持仓、交易记录和 agent 活动。
-- Next.js 前端：市场列表、市场详情、交易面板、创建市场、持仓页、概率图表和 agent 活动流。
+- Vite React 前端：市场列表、市场详情、交易面板、创建市场、持仓页、概率图表和 agent 活动流。
 - Python agent：从链上或 API 拉取市场，基于动量、均值回归和外部信号生成交易决策，支持 dry-run、循环轮询和多 agent 模拟。
 
 ## 环境要求
@@ -132,6 +132,8 @@ NEXT_PUBLIC_GITHUB_URL=https://github.com/honey1129/ProbX
 ```
 
 `NEXT_PUBLIC_API_URL` 为空时，前端会进入本地预览模式。设置为 Go API 地址后，前端会通过 MySQL 索引读写市场、持仓和交易活动；API 加载、空数据和错误会在页面上明确展示。
+
+Vite 配置会继续读取现有的 `NEXT_PUBLIC_*` 变量，方便从旧前端平滑迁移；也支持对应的 `VITE_*` 别名。
 
 `NEXT_PUBLIC_X_URL`、`NEXT_PUBLIC_DISCORD_URL`、`NEXT_PUBLIC_TELEGRAM_URL`、`NEXT_PUBLIC_GITHUB_URL` 会渲染到顶部右侧和底部 ticker 右侧的社群图标入口。
 
@@ -284,7 +286,7 @@ cd /root/ProbX
 PROBX_FRONTEND_PORT=3001 bash deploy/pm2-deploy.sh
 ```
 
-部署脚本会依次执行：`git pull --ff-only`、构建 Go 后端、安装并构建 Next.js 前端、用 PM2 启动或重载 `probx-api` 和 `probx-frontend`。
+部署脚本会依次执行：拉取并重置到远程分支、构建 Go 后端、安装并构建 Vite 前端、用 PM2 启动或重载 `probx-api` 和 `probx-frontend`。
 
 设置 PM2 开机自启：
 

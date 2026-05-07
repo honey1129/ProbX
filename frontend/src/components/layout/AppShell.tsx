@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { Bot, CirclePlus, Github, Layers3, MessageCircle, Send, WalletCards } from "lucide-react";
 import type { ElementType } from "react";
 import { WalletConnect } from "@/components/WalletConnect";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { formatPercent, probability } from "@/lib/format";
+import { RouterLink as Link, usePathname } from "@/router";
 
 const tabs = [
   { href: "/", label: "Markets", icon: Layers3 },
@@ -90,9 +89,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto h-[calc(100vh-104px)] max-w-[1720px] overflow-x-hidden overflow-y-scroll px-2.5 py-2.5 pb-16">
+      <main className="mx-auto h-[calc(100vh-104px)] max-w-[1720px] overflow-x-hidden overflow-y-scroll px-2.5 py-2.5">
         {children}
-        <div className="h-14" aria-hidden="true" />
       </main>
       <footer className="fixed bottom-2.5 left-2.5 right-2.5 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 shadow-[0_0_28px_rgba(49,185,255,0.10)] backdrop-blur-xl xl:block">
         <Ticker />

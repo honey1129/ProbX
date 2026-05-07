@@ -3,6 +3,7 @@ node_modules/
 __pycache__/
 .anchor/
 frontend/.next/
+frontend/dist/
 frontend/public/deploy.json
 frontend/tsconfig.tsbuildinfo
 backend/.gocache/

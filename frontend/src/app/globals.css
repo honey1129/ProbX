@@ -646,11 +646,11 @@ select {
 }
 
 .trade-side {
-  @apply rounded-lg border p-2 text-center text-sm font-black transition;
+  @apply rounded-lg border px-2 py-1.5 text-center text-xs font-black transition;
 }
 
 .trade-side span {
-  @apply mt-1 block text-xs;
+  @apply mt-0.5 block text-[11px];
 }
 
 .trade-side.yes {
@@ -670,7 +670,7 @@ select {
 }
 
 .primary-action {
-  @apply inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border text-base font-black transition disabled:cursor-not-allowed disabled:opacity-60;
+  @apply inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60;
 }
 
 .primary-action.yes {

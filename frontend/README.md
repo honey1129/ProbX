@@ -1,6 +1,6 @@
 # ProbX Frontend
 
-Next.js trading terminal for the ProbX Solana prediction market.
+Vite React trading terminal for the ProbX Solana prediction market.
 
 ## Run Locally
 
@@ -10,6 +10,13 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+Build and preview the production bundle:
+
+```bash
+npm run build
+npm run preview -- --port 3000
+```
 
 ## Environment
 
@@ -27,5 +34,7 @@ NEXT_PUBLIC_GITHUB_URL=https://github.com/honey1129/ProbX
 ```
 
 The UI runs in local preview mode when `NEXT_PUBLIC_API_URL` is empty. Set `NEXT_PUBLIC_API_URL` to use the Go backend and MySQL index, set `NEXT_PUBLIC_PROBX_PROGRAM_ID` to the deployed program for the selected RPC network, and set `NEXT_PUBLIC_ENABLE_ONCHAIN=true` to route connected wallet trades through the Anchor `buy_shares` and `create_market` calls.
+
+The Vite config keeps the existing `NEXT_PUBLIC_*` keys for compatibility and also accepts matching `VITE_*` aliases.
 
 Social links render in the header and bottom ticker when their `NEXT_PUBLIC_*_URL` values are set.

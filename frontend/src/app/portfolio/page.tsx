@@ -84,7 +84,7 @@ export default function PortfolioPage() {
       </section>
 
       <section className="grid min-h-0 grid-cols-[minmax(0,1fr)_420px] gap-3">
-        <article className="terminal-panel min-h-0 overflow-hidden p-4">
+        <article className="terminal-panel flex min-h-0 flex-col overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-black">Portfolio</h1>
@@ -112,10 +112,12 @@ export default function PortfolioPage() {
               </button>
             </div>
           ) : null}
-          <PositionTable positions={sorted.slice(0, 6)} markets={markets} />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <PositionTable positions={sorted} markets={markets} />
+          </div>
         </article>
 
-        <aside className="grid h-full min-h-0 gap-3 overflow-hidden">
+        <aside className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-3 overflow-hidden">
           <section className="terminal-panel overflow-hidden p-4">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-black">Cumulative PnL</h2>
@@ -126,11 +128,11 @@ export default function PortfolioPage() {
             {pnlCurve.length ? <PnLChart values={pnlCurve} /> : <EmptyBlock title="No PnL curve yet" message="The curve will appear after positions are recorded." />}
           </section>
 
-          <section className="terminal-panel overflow-hidden p-4">
+          <section className="terminal-panel flex min-h-0 flex-col overflow-hidden p-4">
             <h2 className="mb-4 font-black">Exposure</h2>
-            <div className="grid gap-4">
+            <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto">
               {!enriched.length ? <EmptyBlock title="No exposure yet" message="Open positions will appear here after trades are recorded." /> : null}
-              {enriched.slice(0, 4).map((position) => {
+              {enriched.map((position) => {
                 const market = markets.find((item) => item.id === position.marketId);
                 return (
                   <article key={position.id} className="rounded-lg border border-line bg-black/25 p-3">

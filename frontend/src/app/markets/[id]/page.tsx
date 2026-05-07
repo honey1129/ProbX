@@ -1,16 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, Loader2, Radio, RefreshCw, UsersRound } from "lucide-react";
-import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
-import { ProbabilityChart, type ChartTimeframe } from "@/components/charts/ProbabilityChart";
+import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { formatPercent, formatPrice, formatSol, formatUsd, probability, timeRemaining } from "@/lib/format";
 import type { Side } from "@/lib/types";
+import { RouterLink as Link, useParams } from "@/router";
 
 const timeframes: ChartTimeframe[] = ["1H", "1D", "1W", "ALL"];
 const tradeFilters = ["ALL", "YES", "NO"] as const;
@@ -28,17 +26,8 @@ export default function MarketDetailPage() {
 
   const recentTrades = useMemo(() => {
     const trades = tradeFilter === "ALL" ? marketActivity : marketActivity.filter((trade) => trade.side === tradeFilter);
-    return trades.slice(0, 12);
+    return trades;
   }, [marketActivity, tradeFilter]);
-
-  const flow = useMemo(() => {
-    const yes = marketActivity.filter((item) => item.side === "YES").reduce((sum, item) => sum + item.size, 0);
-    const no = marketActivity.filter((item) => item.side === "NO").reduce((sum, item) => sum + item.size, 0);
-    const confidence = marketActivity.length
-      ? Math.round(marketActivity.reduce((sum, item) => sum + item.confidence, 0) / marketActivity.length)
-      : 0;
-    return { yes, no, confidence, side: yes >= no ? "YES" : "NO" };
-  }, [marketActivity]);
 
   if (isLoading) {
     return (
@@ -87,7 +76,7 @@ export default function MarketDetailPage() {
   const activePrice = chartSide === "YES" ? yesProbability : 1 - yesProbability;
 
   return (
-    <div className="grid min-h-full grid-cols-[minmax(0,1fr)_380px] gap-3">
+    <div className="grid min-h-full grid-cols-[minmax(0,1fr)_348px] gap-3">
       <main className="grid min-h-0 gap-3">
         <section className="terminal-panel p-5">
           <div className="mb-4 flex items-start justify-between gap-5">
@@ -118,9 +107,9 @@ export default function MarketDetailPage() {
         <section className="terminal-panel p-4">
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-black">Probability Chart</h2>
+              <h2 className="text-lg font-black">TradingView K-Line</h2>
               <p className="text-xs text-muted">
-                {dataSource === "api" ? "YES/NO probability history from indexed market state." : "YES/NO probability history from local preview state."}
+                {dataSource === "api" ? "Candles built from indexed market probability history." : "Candles built from local preview probability history."}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -156,7 +145,7 @@ export default function MarketDetailPage() {
               </div>
             </div>
           </div>
-          <ProbabilityChart market={market} side={chartSide} timeframe={timeframe} />
+          <TradingViewKlineChart market={market} side={chartSide} timeframe={timeframe} />
         </section>
 
         <section className="grid grid-cols-4 gap-3">
@@ -166,7 +155,7 @@ export default function MarketDetailPage() {
           <StatCard label="Current YES" value={formatPercent(yesProbability)} icon={<Bot size={16} />} />
         </section>
 
-        <section className="terminal-panel min-h-0 overflow-hidden">
+        <section className="terminal-panel flex min-h-0 flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <h2 className="font-black">Trade History</h2>
             <div className="flex rounded-lg border border-line bg-black/25 p-1">
@@ -183,78 +172,43 @@ export default function MarketDetailPage() {
               ))}
             </div>
           </div>
-          <table className="w-full border-collapse text-sm">
-            <thead className="bg-slate-950/80 text-xs uppercase text-muted">
-              <tr>
-                <th className="px-4 py-3 text-left">Side</th>
-                <th className="px-4 py-3 text-right">Size</th>
-                <th className="px-4 py-3 text-right">Confidence</th>
-                <th className="px-4 py-3 text-right">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!recentTrades.length ? (
-                <tr className="border-t border-line bg-slate-950/30">
-                  <td colSpan={4} className="px-4 py-10 text-center">
-                    <p className="font-bold text-slate-200">No indexed trades yet</p>
-                    <p className="mt-1 text-sm text-muted">Trades will appear here after the API records market activity.</p>
-                  </td>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-slate-950/80 text-xs uppercase text-muted">
+                <tr>
+                  <th className="px-4 py-3 text-left">Side</th>
+                  <th className="px-4 py-3 text-right">Size</th>
+                  <th className="px-4 py-3 text-right">Confidence</th>
+                  <th className="px-4 py-3 text-right">Time</th>
                 </tr>
-              ) : null}
-              {recentTrades.slice(0, 8).map((trade) => (
-                <tr key={trade.id} className="border-t border-line bg-slate-950/30">
-                  <td className={trade.side === "YES" ? "px-4 py-3 font-black text-yes" : "px-4 py-3 font-black text-no"}>
-                    {trade.action} {trade.side}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold">{formatUsd(trade.size)}</td>
-                  <td className="px-4 py-3 text-right">{trade.confidence}%</td>
-                  <td className="px-4 py-3 text-right text-muted">{relativeTime(trade.timestamp)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {!recentTrades.length ? (
+                  <tr className="border-t border-line bg-slate-950/30">
+                    <td colSpan={4} className="px-4 py-10 text-center">
+                      <p className="font-bold text-slate-200">No indexed trades yet</p>
+                      <p className="mt-1 text-sm text-muted">Trades will appear here after the API records market activity.</p>
+                    </td>
+                  </tr>
+                ) : null}
+                {recentTrades.map((trade) => (
+                  <tr key={trade.id} className="border-t border-line bg-slate-950/30">
+                    <td className={trade.side === "YES" ? "px-4 py-3 font-black text-yes" : "px-4 py-3 font-black text-no"}>
+                      {trade.action} {trade.side}
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold">{formatUsd(trade.size)}</td>
+                    <td className="px-4 py-3 text-right">{trade.confidence}%</td>
+                    <td className="px-4 py-3 text-right text-muted">{relativeTime(trade.timestamp)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       </main>
 
-      <aside className="grid min-h-0 content-start gap-3">
+      <aside className="h-full min-h-0 overflow-hidden">
         <TradePanel market={market} />
-        <section className="terminal-panel overflow-hidden p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-black">Agent Insight</h2>
-            <span className={`rounded border px-2 py-1 text-xs font-black ${
-              marketActivity.length ? "border-solBlue/40 bg-solBlue/10 text-solBlue" : "border-line bg-black/25 text-muted"
-            }`}>
-              {marketActivity.length ? "Indexed" : "Empty"}
-            </span>
-          </div>
-          {marketActivity.length ? (
-            <>
-              <div className="mb-3 grid grid-cols-3 gap-2">
-                <MiniSignal label="Trades" value={marketActivity.length.toString()} />
-                <MiniSignal label="Flow" value={flow.side} />
-                <MiniSignal label="Confidence" value={`${flow.confidence}%`} />
-              </div>
-              <p className="text-sm leading-6 text-slate-300">
-                Indexed agent flow currently leans <b className={flow.side === "YES" ? "text-yes" : "text-no"}>{flow.side}</b> with {formatUsd(flow.yes + flow.no)} recorded activity.
-              </p>
-            </>
-          ) : (
-            <div className="rounded-lg border border-line bg-black/25 p-4 text-sm text-muted">
-              No indexed agent signals are available for this market yet.
-            </div>
-          )}
-        </section>
-        <section className="terminal-panel overflow-hidden p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-black">Agent Feed</h2>
-            <span className={`rounded border px-2 py-1 text-xs ${
-              marketActivity.length ? "border-yes/25 bg-yes/10 text-yes" : "border-line bg-black/25 text-muted"
-            }`}>
-              {marketActivity.length ? "Recorded" : "No entries"}
-            </span>
-          </div>
-          <AgentActivityFeed activity={marketActivity.slice(0, 6)} markets={markets} />
-        </section>
       </aside>
     </div>
   );
@@ -294,16 +248,4 @@ function relativeTime(timestamp: number) {
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
-}
-
-function MiniSignal({ label, value, suffix }: { label: string; value: string; suffix?: string }) {
-  return (
-    <div className="rounded-lg border border-line bg-black/25 p-3">
-      <div className="text-[11px] uppercase text-muted">{label}</div>
-      <div className="mt-1 text-lg font-black">
-        {value}
-        {suffix ? <span className="text-xs text-muted">{suffix}</span> : null}
-      </div>
-    </div>
-  );
 }

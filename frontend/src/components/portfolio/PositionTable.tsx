@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { formatPercent } from "@/lib/format";
 import type { Market, Position } from "@/lib/types";
+import { RouterLink as Link } from "@/router";
 
 export function PositionTable({ positions, markets, compact = false }: { positions: Position[]; markets: Market[]; compact?: boolean }) {
   const { redeem } = useMarkets();

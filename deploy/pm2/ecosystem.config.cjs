@@ -17,8 +17,8 @@ module.exports = {
     {
       name: "probx-frontend",
       cwd: `${projectDir}/frontend`,
-      script: "node_modules/next/dist/bin/next",
-      args: `start -H 0.0.0.0 -p ${frontendPort}`,
+      script: "./node_modules/vite/bin/vite.js",
+      args: `preview --host 0.0.0.0 --port ${frontendPort}`,
       exec_mode: "fork",
       autorestart: true,
       max_restarts: 10,

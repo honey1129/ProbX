@@ -95,7 +95,7 @@ export default function CreateMarketPage() {
           </div>
         ) : null}
 
-        <form onSubmit={submit} className="grid min-h-0 flex-1 content-start gap-5 overflow-hidden">
+        <form onSubmit={submit} className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1">
           <label className="grid gap-2">
             <span className="flex items-center gap-2 text-sm font-bold text-slate-200">
               <FileQuestion size={16} className="text-solBlue" /> Question
@@ -172,7 +172,7 @@ export default function CreateMarketPage() {
       </main>
 
       <aside className="h-full min-h-0">
-        <section className="terminal-panel h-full overflow-hidden p-4">
+        <section className="terminal-panel h-full overflow-y-auto p-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-black">Market Preview</h2>
             <span className="rounded border border-yes/25 bg-yes/10 px-2 py-1 text-xs text-yes">50/50</span>

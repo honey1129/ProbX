@@ -75,11 +75,11 @@ go build -o probx-api ./cmd/server
 
 log "installing frontend dependencies"
 cd "$PROJECT_DIR/frontend"
-npm ci --legacy-peer-deps
+npm install --legacy-peer-deps
 
 log "building frontend"
 npm cache verify >/dev/null 2>&1 || true
-rm -rf .next
+rm -rf dist
 mkdir -p public
 printf '{"commit":"%s","branch":"%s","builtAt":"%s"}\n' "$DEPLOY_COMMIT" "$BRANCH" "$DEPLOY_TIME" > public/deploy.json
 npm run build

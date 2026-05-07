@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Clock3, Star, TrendingDown, TrendingUp } from "lucide-react";
 import { formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import type { Market } from "@/lib/types";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
+import { RouterLink as Link } from "@/router";
 
 export function MarketCard({ market }: { market: Market }) {
   const p = probability(market);

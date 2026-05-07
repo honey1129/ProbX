@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
-import { Activity, AlertTriangle, ArrowRight, Bot, ChevronDown, Flame, Loader2, Maximize2, Plus, RefreshCw, Settings, Share2, Star } from "lucide-react";
-import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
-import { ProbabilityChart, type ChartTimeframe } from "@/components/charts/ProbabilityChart";
+import { Activity, AlertTriangle, ArrowRight, Loader2, Maximize2, Plus, RefreshCw, Settings, Share2, Star } from "lucide-react";
+import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { MarketCard } from "@/components/market/MarketCard";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
@@ -12,15 +10,14 @@ import { PositionTable } from "@/components/portfolio/PositionTable";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { formatPrice, formatSol, probability } from "@/lib/format";
 import type { Side } from "@/lib/types";
+import { RouterLink as Link } from "@/router";
 
 const categories = ["All", "Politics", "Crypto", "Sports", "Tech", "Macro"] as const;
 const featuredOrder = ["fed-rates", "btc-100k", "trump-approval", "sol-etf", "nba-finals", "nvidia-earnings"];
 const overviewTimeframes: ChartTimeframe[] = ["1H", "4H", "1D", "1W", "1M", "ALL"];
 const chartSides: Array<Side | "BOTH"> = ["BOTH", "YES", "NO"];
-const agentFilters: Array<"ALL" | Side> = ["ALL", "YES", "NO"];
-
 export default function MarketListPage() {
-  const { markets, positions, activity, isLoading, error, backendEnabled, dataSource, refresh } = useMarkets();
+  const { markets, positions, isLoading, error, backendEnabled, dataSource, refresh } = useMarkets();
   const [category, setCategory] = useState<(typeof categories)[number]>("All");
   const [sort, setSort] = useState("Trending");
   const [selectedId, setSelectedId] = useState(markets[0]?.id);
@@ -30,7 +27,6 @@ export default function MarketListPage() {
   const [chartSide, setChartSide] = useState<Side | "BOTH">("BOTH");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareStatus, setShareStatus] = useState("");
-  const [agentFilter, setAgentFilter] = useState<"ALL" | Side>("ALL");
 
   const filtered = useMemo(() => {
     const categoryMarkets = category === "All" ? markets : markets.filter((market) => market.category === category);
@@ -80,11 +76,6 @@ export default function MarketListPage() {
   const selected = filtered.find((market) => market.id === selectedId) ?? filtered[0] ?? markets[0];
   const yesPrice = selected ? probability(selected) : 0;
   const noPrice = 1 - yesPrice;
-  const filteredActivity = useMemo(
-    () => (agentFilter === "ALL" ? activity : activity.filter((item) => item.side === agentFilter)),
-    [activity, agentFilter]
-  );
-
   useEffect(() => {
     setSettingsOpen(false);
   }, [selected?.id]);
@@ -172,7 +163,7 @@ export default function MarketListPage() {
   }
 
   return (
-    <div className="mb-8 grid h-full min-h-0 grid-cols-[360px_minmax(430px,1fr)_260px_270px] gap-2.5 overflow-hidden">
+    <div className="grid h-full min-h-0 grid-cols-[360px_minmax(520px,1fr)_348px] gap-2.5 overflow-hidden">
       <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
         <div className="border-b border-line px-3.5 pb-3 pt-3">
           <div className="mb-3 flex items-center gap-6 text-sm">
@@ -275,7 +266,7 @@ export default function MarketListPage() {
 
       <section className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(230px,0.52fr)] gap-2.5 overflow-hidden">
         {selected ? (
-          <article className="terminal-panel flex min-h-0 flex-col overflow-hidden p-4">
+          <article className="terminal-panel flex min-h-0 flex-col overflow-y-auto p-4">
             <div className="mb-3 flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="mb-2 flex items-center gap-2 text-xs text-muted">
@@ -328,7 +319,7 @@ export default function MarketListPage() {
                 </Link>
                 {settingsOpen ? (
                   <div className="absolute right-0 top-11 z-20 w-52 rounded-lg border border-line bg-slate-950/95 p-3 shadow-2xl">
-                    <div className="mb-2 text-xs font-black uppercase text-muted">Chart Curve</div>
+                    <div className="mb-2 text-xs font-black uppercase text-muted">K-Line Side</div>
                     <div className="grid grid-cols-3 gap-1">
                       {chartSides.map((item) => (
                         <button
@@ -345,7 +336,7 @@ export default function MarketListPage() {
                       ))}
                     </div>
                     <div className="mt-3 text-xs text-slate-400">
-                      {timeframe} range · {chartSide === "BOTH" ? "YES/NO" : chartSide} line
+                      {timeframe} range · {chartSide === "BOTH" ? "YES candles + NO line" : `${chartSide} candles`}
                     </div>
                   </div>
                 ) : null}
@@ -373,7 +364,7 @@ export default function MarketListPage() {
                 <button
                   onClick={() => setChartSide(nextChartSide(chartSide))}
                   className="ml-1 grid h-7 w-8 place-items-center rounded-md border border-solPurple/45 text-violet-200 transition hover:bg-solPurple/15"
-                  aria-label="Switch chart curve"
+                  aria-label="Switch chart side"
                   title={`Chart: ${chartSide}`}
                 >
                   <Activity size={14} />
@@ -382,7 +373,7 @@ export default function MarketListPage() {
             </div>
             <ProbabilityBar probability={yesPrice} />
             <div className="mt-3 min-h-0 flex-1">
-              <ProbabilityChart market={selected} compact side={chartSide} timeframe={timeframe} />
+              <TradingViewKlineChart market={selected} compact side={chartSide} timeframe={timeframe} />
             </div>
             <div className="mt-3 grid grid-cols-6 divide-x divide-line rounded-lg border border-line bg-black/20">
               <Metric label="Last Price" value={formatPrice(yesPrice)} strong />
@@ -395,57 +386,21 @@ export default function MarketListPage() {
           </article>
         ) : null}
 
-        <article className="terminal-panel min-h-0 overflow-hidden p-3.5">
+        <article className="terminal-panel flex min-h-0 flex-col overflow-hidden p-3.5">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-bold">Positions ({positions.length})</h2>
-            <span className="text-xs text-muted">{positions.length} open</span>
+            <Link href="/portfolio" className="text-xs text-muted transition hover:text-solBlue">
+              View all
+            </Link>
           </div>
-          <PositionTable positions={positions.slice(0, 5)} markets={markets} compact />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <PositionTable positions={positions} markets={markets} compact />
+          </div>
         </article>
       </section>
 
       <aside className="h-full min-h-0 overflow-hidden">
         {selected ? <TradePanel market={selected} /> : null}
-      </aside>
-
-      <aside className="h-full min-h-0 overflow-hidden">
-        <section className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-3.5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-bold">
-              <Bot size={17} className="text-solPurple" /> Agent Activity
-            </h2>
-            <span className={`flex items-center gap-2 rounded border px-2 py-1 text-xs ${
-              error
-                ? "border-no/25 bg-no/10 text-no"
-                : filteredActivity.length
-                  ? "border-yes/20 bg-yes/10 text-yes"
-                  : "border-line bg-black/25 text-muted"
-            }`}>
-              {error ? <AlertTriangle size={13} /> : <Flame size={13} />} {error ? "API issue" : filteredActivity.length ? "Recorded" : "No activity"}
-            </span>
-          </div>
-          <label className="relative mb-3 block">
-            <select
-              value={agentFilter}
-              onChange={(event) => setAgentFilter(event.target.value as "ALL" | Side)}
-              className="h-9 w-full appearance-none rounded-lg border border-line bg-black/25 px-3 text-xs font-bold text-slate-300 outline-none transition hover:border-solBlue/40 focus:border-solPurple/60"
-            >
-              {agentFilters.map((item) => (
-                <option key={item} value={item}>
-                  {item === "ALL" ? "All Agents" : `${item} Trades`}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={13} className="pointer-events-none absolute right-3 top-3 text-muted" />
-          </label>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <AgentActivityFeed activity={filteredActivity.slice(0, 20)} markets={markets} />
-          </div>
-          <Link href="/agents" className="mt-3 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted transition hover:border-solBlue/40 hover:text-white">
-            <span>View All Activity</span>
-            <ArrowRight size={13} />
-          </Link>
-        </section>
       </aside>
     </div>
   );

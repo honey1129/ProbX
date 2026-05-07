@@ -75,7 +75,7 @@ go build -o probx-api ./cmd/server
 
 log "installing frontend dependencies"
 cd "$PROJECT_DIR/frontend"
-npm ci
+npm ci --legacy-peer-deps
 
 log "building frontend"
 npm cache verify >/dev/null 2>&1 || true

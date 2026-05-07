@@ -17,24 +17,21 @@ const tabs = [
 
 type SocialIcon = ElementType<{ size?: string | number; className?: string }>;
 type SocialLinkConfig = { label: string; href?: string; icon: SocialIcon };
-type SocialLink = { label: string; href: string; icon: SocialIcon };
+type SocialLink = { label: string; href?: string; icon: SocialIcon };
 
-function publicUrl(value: string | undefined, fallback = "") {
+function publicUrl(value: string | undefined) {
   const url = value?.trim();
-  return url || fallback;
+  return url || undefined;
 }
 
 const socialLinkConfigs: SocialLinkConfig[] = [
   { label: "X", href: publicUrl(process.env.NEXT_PUBLIC_X_URL), icon: XIcon },
   { label: "Discord", href: publicUrl(process.env.NEXT_PUBLIC_DISCORD_URL), icon: MessageCircle },
   { label: "Telegram", href: publicUrl(process.env.NEXT_PUBLIC_TELEGRAM_URL), icon: Send },
-  { label: "GitHub", href: publicUrl(process.env.NEXT_PUBLIC_GITHUB_URL, "https://github.com/honey1129/ProbX"), icon: Github }
+  { label: "GitHub", href: publicUrl(process.env.NEXT_PUBLIC_GITHUB_URL), icon: Github }
 ];
 
-const socialLinks: SocialLink[] = socialLinkConfigs.flatMap((item) => {
-  if (!item.href) return [];
-  return [{ label: item.label, href: item.href, icon: item.icon }];
-});
+const socialLinks: SocialLink[] = socialLinkConfigs;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -167,7 +164,10 @@ function SocialLinks({ placement }: { placement: "header" | "footer" }) {
     <div className={placement === "header" ? "hidden items-center gap-1.5 xl:flex" : "flex items-center gap-1.5"}>
       {socialLinks.map((item) => {
         const Icon = item.icon;
-        return (
+        const className =
+          "grid h-9 w-9 place-items-center rounded-lg border border-line bg-slate-950/70 text-slate-300 transition hover:border-solBlue/45 hover:bg-solBlue/10 hover:text-white";
+
+        return item.href ? (
           <a
             key={item.label}
             href={item.href}
@@ -175,10 +175,14 @@ function SocialLinks({ placement }: { placement: "header" | "footer" }) {
             rel="noreferrer"
             aria-label={item.label}
             title={item.label}
-            className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-slate-950/70 text-slate-300 transition hover:border-solBlue/45 hover:bg-solBlue/10 hover:text-white"
+            className={className}
           >
             <Icon size={16} />
           </a>
+        ) : (
+          <span key={item.label} aria-label={item.label} title={item.label} className={className}>
+            <Icon size={16} />
+          </span>
         );
       })}
     </div>

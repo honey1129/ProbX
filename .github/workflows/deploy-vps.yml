@@ -26,9 +26,22 @@ jobs:
           script_stop: true
           script: |
             cd "${{ secrets.VPS_PROJECT_DIR }}"
+            FRONTEND_ENV_FILE="frontend/.env.local"
+            FRONTEND_ENV_BACKUP=""
+            restore_frontend_env() {
+              if [ -n "$FRONTEND_ENV_BACKUP" ] && [ -f "$FRONTEND_ENV_BACKUP" ]; then
+                mv -f "$FRONTEND_ENV_BACKUP" "$FRONTEND_ENV_FILE"
+              fi
+            }
+            trap restore_frontend_env 0
+            if [ -f "$FRONTEND_ENV_FILE" ]; then
+              FRONTEND_ENV_BACKUP="$(mktemp "${TMPDIR:-/tmp}/probx-frontend-env.XXXXXX")"
+              cp "$FRONTEND_ENV_FILE" "$FRONTEND_ENV_BACKUP"
+            fi
             git fetch origin "${{ github.ref_name }}"
-            git checkout "${{ github.ref_name }}"
-            git pull --ff-only origin "${{ github.ref_name }}"
+            git reset --hard "origin/${{ github.ref_name }}"
+            restore_frontend_env
+            FRONTEND_ENV_BACKUP=""
             PROBX_PROJECT_DIR="${{ secrets.VPS_PROJECT_DIR }}" \
             PROBX_DEPLOY_BRANCH="${{ github.ref_name }}" \
             PROBX_FRONTEND_PORT="${{ vars.PROBX_FRONTEND_PORT || 3001 }}" \

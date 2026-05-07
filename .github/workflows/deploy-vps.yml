@@ -1,0 +1,35 @@
+name: Deploy VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            cd "${{ secrets.VPS_PROJECT_DIR }}"
+            git fetch origin "${{ github.ref_name }}"
+            git checkout "${{ github.ref_name }}"
+            git pull --ff-only origin "${{ github.ref_name }}"
+            PROBX_PROJECT_DIR="${{ secrets.VPS_PROJECT_DIR }}" \
+            PROBX_DEPLOY_BRANCH="${{ github.ref_name }}" \
+            PROBX_FRONTEND_PORT="${{ vars.PROBX_FRONTEND_PORT || 3001 }}" \
+            bash deploy/pm2-deploy.sh

@@ -232,6 +232,81 @@ go run ./cmd/indexer
 
 如果 API 已经跑在 `:8081`，索引器不用占用 HTTP 端口，可以直接并行执行。上线前可以用 cron 或 systemd timer 定时运行，先做到“链上 Market -> MySQL -> 前端/API 查询”这条路径稳定。
 
+## PM2 自动部署
+
+仓库提供了 PM2 部署脚本和 GitHub Actions workflow：
+
+```text
+deploy/pm2-deploy.sh
+deploy/pm2/ecosystem.config.cjs
+.github/workflows/deploy-vps.yml
+```
+
+VPS 首次准备：
+
+```bash
+npm install -g pm2
+cd /root/ProbX
+git pull
+```
+
+确认这两个文件只存在于 VPS 本地，不提交到仓库：
+
+```text
+/root/ProbX/backend/.env
+/root/ProbX/frontend/.env.local
+```
+
+当前前端如果跑 `3001`，后端 CORS 和前端 API 建议这样配：
+
+```bash
+# backend/.env
+PROBX_HTTP_ADDR=:8081
+PROBX_CORS_ORIGINS=http://185.214.135.24:3001
+```
+
+```bash
+# frontend/.env.local
+NEXT_PUBLIC_API_URL=http://185.214.135.24:8081
+NEXT_PUBLIC_ENABLE_ONCHAIN=false
+```
+
+手动执行一次部署：
+
+```bash
+cd /root/ProbX
+PROBX_FRONTEND_PORT=3001 bash deploy/pm2-deploy.sh
+```
+
+部署脚本会依次执行：`git pull --ff-only`、构建 Go 后端、安装并构建 Next.js 前端、用 PM2 启动或重载 `probx-api` 和 `probx-frontend`。
+
+设置 PM2 开机自启：
+
+```bash
+pm2 save
+pm2 startup
+```
+
+`pm2 startup` 会输出一行命令，把那行命令复制执行一次。
+
+GitHub 自动部署需要在仓库 Settings -> Secrets and variables -> Actions 里添加 Secrets：
+
+```text
+VPS_HOST=185.214.135.24
+VPS_USER=root
+VPS_SSH_KEY=用于登录 VPS 的私钥
+VPS_SSH_PORT=22
+VPS_PROJECT_DIR=/root/ProbX
+```
+
+可选添加 Variables：
+
+```text
+PROBX_FRONTEND_PORT=3001
+```
+
+之后每次 push 到 `main`，GitHub Actions 会 SSH 到 VPS 并执行 `deploy/pm2-deploy.sh`。
+
 手动迁移已有数据库：
 
 ```bash

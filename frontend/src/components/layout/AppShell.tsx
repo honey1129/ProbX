@@ -19,11 +19,16 @@ type SocialIcon = ElementType<{ size?: string | number; className?: string }>;
 type SocialLinkConfig = { label: string; href?: string; icon: SocialIcon };
 type SocialLink = { label: string; href: string; icon: SocialIcon };
 
+function publicUrl(value: string | undefined, fallback = "") {
+  const url = value?.trim();
+  return url || fallback;
+}
+
 const socialLinkConfigs: SocialLinkConfig[] = [
-  { label: "X", href: process.env.NEXT_PUBLIC_X_URL, icon: XIcon },
-  { label: "Discord", href: process.env.NEXT_PUBLIC_DISCORD_URL, icon: MessageCircle },
-  { label: "Telegram", href: process.env.NEXT_PUBLIC_TELEGRAM_URL, icon: Send },
-  { label: "GitHub", href: process.env.NEXT_PUBLIC_GITHUB_URL ?? "https://github.com/honey1129/ProbX", icon: Github }
+  { label: "X", href: publicUrl(process.env.NEXT_PUBLIC_X_URL), icon: XIcon },
+  { label: "Discord", href: publicUrl(process.env.NEXT_PUBLIC_DISCORD_URL), icon: MessageCircle },
+  { label: "Telegram", href: publicUrl(process.env.NEXT_PUBLIC_TELEGRAM_URL), icon: Send },
+  { label: "GitHub", href: publicUrl(process.env.NEXT_PUBLIC_GITHUB_URL, "https://github.com/honey1129/ProbX"), icon: Github }
 ];
 
 const socialLinks: SocialLink[] = socialLinkConfigs.flatMap((item) => {
@@ -159,7 +164,7 @@ function SocialLinks({ placement }: { placement: "header" | "footer" }) {
   if (!socialLinks.length) return null;
 
   return (
-    <div className={placement === "header" ? "hidden items-center gap-1.5 2xl:flex" : "flex items-center gap-1.5"}>
+    <div className={placement === "header" ? "hidden items-center gap-1.5 xl:flex" : "flex items-center gap-1.5"}>
       {socialLinks.map((item) => {
         const Icon = item.icon;
         return (

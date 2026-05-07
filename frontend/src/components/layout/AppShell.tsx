@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, CirclePlus, Layers3, WalletCards } from "lucide-react";
+import { Bot, CirclePlus, Github, Layers3, MessageCircle, Send, WalletCards } from "lucide-react";
+import type { ElementType } from "react";
 import { WalletConnect } from "@/components/WalletConnect";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { formatPercent, probability } from "@/lib/format";
@@ -13,6 +14,22 @@ const tabs = [
   { href: "/create", label: "Create", icon: CirclePlus },
   { href: "/agents", label: "Agents", icon: Bot }
 ];
+
+type SocialIcon = ElementType<{ size?: string | number; className?: string }>;
+type SocialLinkConfig = { label: string; href?: string; icon: SocialIcon };
+type SocialLink = { label: string; href: string; icon: SocialIcon };
+
+const socialLinkConfigs: SocialLinkConfig[] = [
+  { label: "X", href: process.env.NEXT_PUBLIC_X_URL, icon: XIcon },
+  { label: "Discord", href: process.env.NEXT_PUBLIC_DISCORD_URL, icon: MessageCircle },
+  { label: "Telegram", href: process.env.NEXT_PUBLIC_TELEGRAM_URL, icon: Send },
+  { label: "GitHub", href: process.env.NEXT_PUBLIC_GITHUB_URL ?? "https://github.com/honey1129/ProbX", icon: Github }
+];
+
+const socialLinks: SocialLink[] = socialLinkConfigs.flatMap((item) => {
+  if (!item.href) return [];
+  return [{ label: item.label, href: item.href, icon: item.icon }];
+});
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -66,6 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className={`h-2 w-2 rounded-full ${statusClass}`} />
               {statusLabel}
             </div>
+            <SocialLinks placement="header" />
             <WalletConnect />
           </div>
         </div>
@@ -130,6 +148,45 @@ function Ticker() {
       <Link href="/markets" className="flex h-full shrink-0 items-center px-5 text-slate-300 transition hover:text-white">
         View All
       </Link>
+      <div className="flex h-full shrink-0 items-center border-l border-line px-3">
+        <SocialLinks placement="footer" />
+      </div>
     </div>
+  );
+}
+
+function SocialLinks({ placement }: { placement: "header" | "footer" }) {
+  if (!socialLinks.length) return null;
+
+  return (
+    <div className={placement === "header" ? "hidden items-center gap-1.5 2xl:flex" : "flex items-center gap-1.5"}>
+      {socialLinks.map((item) => {
+        const Icon = item.icon;
+        return (
+          <a
+            key={item.label}
+            href={item.href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={item.label}
+            title={item.label}
+            className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-slate-950/70 text-slate-300 transition hover:border-solBlue/45 hover:bg-solBlue/10 hover:text-white"
+          >
+            <Icon size={16} />
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function XIcon({ size = 16, className }: { size?: string | number; className?: string }) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M17.53 3h3.12l-6.82 7.8L21.85 21h-6.28l-4.92-6.43L5.02 21H1.9l7.29-8.34L1.5 3h6.44l4.45 5.88L17.53 3Zm-1.1 16.2h1.73L7 4.71H5.14L16.43 19.2Z"
+      />
+    </svg>
   );
 }

@@ -20,6 +20,12 @@ NEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899
 NEXT_PUBLIC_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 NEXT_PUBLIC_ENABLE_ONCHAIN=false
 NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_X_URL=
+NEXT_PUBLIC_DISCORD_URL=
+NEXT_PUBLIC_TELEGRAM_URL=
+NEXT_PUBLIC_GITHUB_URL=https://github.com/honey1129/ProbX
 ```
 
 The UI runs in local preview mode when `NEXT_PUBLIC_API_URL` is empty. Set `NEXT_PUBLIC_API_URL` to use the Go backend and MySQL index, set `NEXT_PUBLIC_PROBX_PROGRAM_ID` to the deployed program for the selected RPC network, and set `NEXT_PUBLIC_ENABLE_ONCHAIN=true` to route connected wallet trades through the Anchor `buy_shares` and `create_market` calls.
+
+Social links render in the header and bottom ticker when their `NEXT_PUBLIC_*_URL` values are set.

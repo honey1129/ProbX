@@ -1,4 +1,4 @@
-import type { AgentActivity, AgentStats, Market, Position, Side } from "./types";
+import type { AgentActivity, Market, Position, Side } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 
@@ -18,7 +18,7 @@ function seededNoise(index: number, seed: number) {
   return value - Math.floor(value) - 0.5;
 }
 
-export const mockMarkets: Market[] = [
+export const localMarkets: Market[] = [
   {
     id: "fed-rates",
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Fed111",
@@ -111,7 +111,7 @@ export const mockMarkets: Market[] = [
   }
 ];
 
-export const mockPositions: Position[] = [
+export const localPositions: Position[] = [
   { id: "p1", marketId: "fed-rates", side: "YES", size: 16.0, entryProbability: 0.58, currentProbability: 0.621, pnl: 70.4 },
   { id: "p2", marketId: "btc-100k", side: "YES", size: 12.0, entryProbability: 0.48, currentProbability: 0.551, pnl: 85.2 },
   { id: "p3", marketId: "trump-approval", side: "NO", size: 9.0, entryProbability: 0.52, currentProbability: 0.582, pnl: -55.8 },
@@ -119,21 +119,14 @@ export const mockPositions: Position[] = [
   { id: "p5", marketId: "nvidia-earnings", side: "YES", size: 11.0, entryProbability: 0.63, currentProbability: 0.716, pnl: 94.6 }
 ];
 
-export const mockAgents: AgentStats[] = [
-  { name: "OmegaAgent", strategy: "Momentum", pnl: 1284, winRate: 68.4, trades: 412 },
-  { name: "AlphaBot", strategy: "Mean Reversion", pnl: 944, winRate: 63.2, trades: 377 },
-  { name: "QuantMind", strategy: "Hybrid", pnl: 2188, winRate: 71.1, trades: 529 },
-  { name: "StatArb", strategy: "Arbitrage", pnl: -184, winRate: 54.6, trades: 298 },
-  { name: "MacroSense", strategy: "External Signal", pnl: 738, winRate: 61.8, trades: 244 },
-  { name: "EventHorizon", strategy: "News Flow", pnl: 1094, winRate: 66.7, trades: 331 }
-];
+const localAgentNames = ["OmegaAgent", "AlphaBot", "QuantMind", "StatArb", "MacroSense", "EventHorizon"];
 
-export const mockActivity: AgentActivity[] = mockAgents.flatMap((agent, index) => {
-  const market = mockMarkets[index % mockMarkets.length];
+export const localActivity: AgentActivity[] = localAgentNames.flatMap((agent, index) => {
+  const market = localMarkets[index % localMarkets.length];
   const side: Side = index % 3 === 0 ? "NO" : "YES";
   return {
-    id: `a-${agent.name}`,
-    agent: agent.name,
+    id: `a-${agent}`,
+    agent,
     marketId: market.id,
     side,
     action: side === "YES" ? "BUY" : "SELL",

@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Activity, ArrowRight, Bot, ChevronDown, Flame, Maximize2, Plus, Settings, Share2, Star } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Bot, ChevronDown, Flame, Loader2, Maximize2, Plus, RefreshCw, Settings, Share2, Star } from "lucide-react";
 import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
 import { ProbabilityChart, type ChartTimeframe } from "@/components/charts/ProbabilityChart";
 import { MarketCard } from "@/components/market/MarketCard";
@@ -20,7 +20,7 @@ const chartSides: Array<Side | "BOTH"> = ["BOTH", "YES", "NO"];
 const agentFilters: Array<"ALL" | Side> = ["ALL", "YES", "NO"];
 
 export default function MarketListPage() {
-  const { markets, positions, activity } = useMarkets();
+  const { markets, positions, activity, isLoading, error, backendEnabled, dataSource, refresh } = useMarkets();
   const [category, setCategory] = useState<(typeof categories)[number]>("All");
   const [sort, setSort] = useState("Trending");
   const [selectedId, setSelectedId] = useState(markets[0]?.id);
@@ -131,6 +131,46 @@ export default function MarketListPage() {
     setSort("Trending");
   }
 
+  if (isLoading) {
+    return (
+      <HomeStatePanel
+        icon={<Loader2 size={26} className="animate-spin text-solBlue" />}
+        title="Loading ProbX markets"
+        message={backendEnabled ? "Reading markets, positions, and activity from the ProbX API." : "Preparing local market data."}
+      />
+    );
+  }
+
+  if (error && !markets.length) {
+    return (
+      <HomeStatePanel
+        icon={<AlertTriangle size={26} className="text-no" />}
+        title="ProbX API is unavailable"
+        message={error}
+        action={
+          <button onClick={refresh} className="inline-flex items-center gap-2 rounded-lg border border-solBlue/50 bg-solBlue/10 px-4 py-2 font-bold text-solBlue transition hover:bg-solBlue/20">
+            <RefreshCw size={15} /> Retry
+          </button>
+        }
+      />
+    );
+  }
+
+  if (!markets.length) {
+    return (
+      <HomeStatePanel
+        icon={<Activity size={26} className="text-muted" />}
+        title={backendEnabled ? "No markets returned by the API" : "No markets available"}
+        message={backendEnabled ? "Create the first market or wait for the indexer to publish market rows." : "Create a market to start filling this workspace."}
+        action={
+          <Link href="/create" className="inline-flex items-center gap-2 rounded-lg border border-solPurple/60 bg-solPurple/20 px-4 py-2 font-bold text-white shadow-glow">
+            <Plus size={15} /> Create Market
+          </Link>
+        }
+      />
+    );
+  }
+
   return (
     <div className="grid h-full min-h-0 grid-cols-[360px_minmax(430px,1fr)_260px_270px] gap-2.5 overflow-hidden">
       <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
@@ -180,6 +220,22 @@ export default function MarketListPage() {
               </button>
             ))}
           </div>
+          <div className={`mt-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs ${
+            error
+              ? "border-no/30 bg-no/10 text-no"
+              : dataSource === "api"
+                ? "border-yes/25 bg-yes/10 text-yes"
+                : "border-line bg-black/25 text-muted"
+          }`}>
+            <span className="min-w-0 truncate">
+              {error ? `API error: ${error}` : dataSource === "api" ? "Data source: ProbX API" : "Data source: local preview"}
+            </span>
+            {error ? (
+              <button onClick={refresh} className="shrink-0 font-black text-slate-100 transition hover:text-white">
+                Retry
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="scroll-surface grid min-h-0 flex-1 content-start gap-1.5 overflow-y-auto p-2">
           {filtered.length ? (
@@ -197,7 +253,9 @@ export default function MarketListPage() {
             <div className="grid h-48 place-items-center rounded-lg border border-line bg-black/25 p-6 text-center">
               <div>
                 <p className="font-bold text-slate-200">No markets found</p>
-                <p className="mt-1 text-sm text-muted">Try another keyword or category.</p>
+                <p className="mt-1 text-sm text-muted">
+                  {deskTab === "Watchlist" ? "Add markets to your watchlist or switch back to all markets." : "Try another category or sorting mode."}
+                </p>
               </div>
             </div>
           )}
@@ -356,8 +414,14 @@ export default function MarketListPage() {
             <h2 className="flex items-center gap-2 font-bold">
               <Bot size={17} className="text-solPurple" /> Agent Activity
             </h2>
-            <span className="live-badge flex items-center gap-2 rounded border border-yes/20 bg-yes/10 px-2 py-1 text-xs text-yes">
-              <Flame size={13} /> Live
+            <span className={`flex items-center gap-2 rounded border px-2 py-1 text-xs ${
+              error
+                ? "border-no/25 bg-no/10 text-no"
+                : filteredActivity.length
+                  ? "border-yes/20 bg-yes/10 text-yes"
+                  : "border-line bg-black/25 text-muted"
+            }`}>
+              {error ? <AlertTriangle size={13} /> : <Flame size={13} />} {error ? "API issue" : filteredActivity.length ? "Recorded" : "No activity"}
             </span>
           </div>
           <label className="relative mb-3 block">
@@ -384,6 +448,19 @@ export default function MarketListPage() {
         </section>
       </aside>
     </div>
+  );
+}
+
+function HomeStatePanel({ icon, title, message, action }: { icon: ReactNode; title: string; message: string; action?: ReactNode }) {
+  return (
+    <section className="terminal-panel grid min-h-[520px] place-items-center p-10 text-center">
+      <div className="max-w-xl">
+        <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-lg border border-line bg-black/25">{icon}</div>
+        <h1 className="text-3xl font-black">{title}</h1>
+        <p className="mt-3 text-sm text-muted">{message}</p>
+        {action ? <div className="mt-6">{action}</div> : null}
+      </div>
+    </section>
   );
 }
 

@@ -16,6 +16,15 @@ const tabs = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { backendEnabled, isLoading, error } = useMarkets();
+  const statusLabel = backendEnabled ? (isLoading ? "API loading" : error ? "API error" : "API connected") : "Local preview";
+  const statusClass = backendEnabled
+    ? isLoading
+      ? "bg-solBlue shadow-[0_0_14px_rgba(49,185,255,0.35)]"
+      : error
+        ? "bg-no shadow-[0_0_14px_rgba(255,78,92,0.35)]"
+        : "bg-yes shadow-[0_0_14px_rgba(25,245,140,0.35)]"
+    : "bg-muted shadow-[0_0_14px_rgba(148,163,184,0.25)]";
 
   return (
     <div className="h-screen overflow-hidden bg-canvas text-slate-100">
@@ -54,8 +63,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-3">
             <div className="hidden h-10 items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-4 text-sm text-slate-200 lg:flex">
-              <span className="h-2 w-2 rounded-full bg-yes shadow-[0_0_14px_#19f58c]" />
-              Solana Mainnet
+              <span className={`h-2 w-2 rounded-full ${statusClass}`} />
+              {statusLabel}
             </div>
             <WalletConnect />
           </div>
@@ -70,7 +79,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function Ticker() {
-  const { markets } = useMarkets();
+  const { markets, backendEnabled } = useMarkets();
   const items = markets.slice(0, 6).map((market) => {
     const yes = probability(market);
     const side = yes >= 0.5 ? "YES" : "NO";
@@ -91,23 +100,29 @@ function Ticker() {
         Market Ticker
       </div>
       <div className="ticker-shell min-w-0 flex-1">
-        <div className="ticker-track">
-          {[0, 1].map((group) => (
-            <div key={group} className="ticker-group">
-              {items.map((item) => (
-                <Link key={`${group}-${item.id}`} href={`/markets/${item.id}`} className="ticker-item">
-                  <span className="max-w-[190px] truncate text-slate-300">{item.market}</span>
-                  <b className={item.side === "YES" ? "text-yes" : "text-no"}>
-                    {item.side} {item.probability}
-                  </b>
-                  <span className={item.change.startsWith("+") ? "text-yes" : "text-no"}>
-                    {item.change.startsWith("+") ? "▲" : "▼"} {item.change.replace("+", "").replace("-", "")}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          ))}
-        </div>
+        {items.length ? (
+          <div className="ticker-track">
+            {[0, 1].map((group) => (
+              <div key={group} className="ticker-group">
+                {items.map((item) => (
+                  <Link key={`${group}-${item.id}`} href={`/markets/${item.id}`} className="ticker-item">
+                    <span className="max-w-[190px] truncate text-slate-300">{item.market}</span>
+                    <b className={item.side === "YES" ? "text-yes" : "text-no"}>
+                      {item.side} {item.probability}
+                    </b>
+                    <span className={item.change.startsWith("+") ? "text-yes" : "text-no"}>
+                      {item.change.startsWith("+") ? "▲" : "▼"} {item.change.replace("+", "").replace("-", "")}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex h-full items-center px-4 text-muted">
+            {backendEnabled ? "No markets indexed yet" : "No local markets available"}
+          </div>
+        )}
       </div>
       <Link href="/markets" className="flex h-full shrink-0 items-center px-5 text-slate-300 transition hover:text-white">
         View All

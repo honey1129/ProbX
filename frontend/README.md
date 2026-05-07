@@ -22,4 +22,4 @@ NEXT_PUBLIC_ENABLE_ONCHAIN=false
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
-The UI runs against simulated market data by default. Set `NEXT_PUBLIC_API_URL` to use the Go backend and MySQL index, set `NEXT_PUBLIC_PROBX_PROGRAM_ID` to the deployed program for the selected RPC network, and set `NEXT_PUBLIC_ENABLE_ONCHAIN=true` to route connected wallet trades through the Anchor `buy_shares` and `create_market` calls.
+The UI runs in local preview mode when `NEXT_PUBLIC_API_URL` is empty. Set `NEXT_PUBLIC_API_URL` to use the Go backend and MySQL index, set `NEXT_PUBLIC_PROBX_PROGRAM_ID` to the deployed program for the selected RPC network, and set `NEXT_PUBLIC_ENABLE_ONCHAIN=true` to route connected wallet trades through the Anchor `buy_shares` and `create_market` calls.

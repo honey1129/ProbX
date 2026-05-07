@@ -9,7 +9,7 @@ import type { Market } from "@/lib/types";
 const categories: Market["category"][] = ["Crypto", "Politics", "Sports", "Tech", "Macro", "On-chain"];
 
 export default function CreateMarketPage() {
-  const { createMarket } = useMarkets();
+  const { createMarket, backendEnabled, isLoading, error, refresh } = useMarkets();
   const [question, setQuestion] = useState("Will SOL close above $200 this month?");
   const [category, setCategory] = useState<Market["category"]>("Crypto");
   const [endTime, setEndTime] = useState(defaultDateTimeLocal());
@@ -58,10 +58,10 @@ export default function CreateMarketPage() {
         initialLiquidity: Number(initialLiquidity) || 1000
       });
       setStatus(
-        signature === "simulated"
-          ? "Market created in local simulation."
+        signature === "local"
+          ? "Market created in local preview."
           : signature === "indexed"
-            ? "Market saved to backend."
+            ? "Market saved to ProbX API."
             : `Create transaction sent: ${signature.slice(0, 12)}...`
       );
     } catch (error) {
@@ -77,12 +77,23 @@ export default function CreateMarketPage() {
         <div className="mb-6 flex items-center justify-between border-b border-line pb-4">
           <div>
             <h1 className="text-3xl font-black">Create Market</h1>
-            <p className="mt-1 text-sm text-muted">Launch a YES/NO market with an Anchor create_market transaction.</p>
+            <p className="mt-1 text-sm text-muted">
+              {backendEnabled ? "Create a YES/NO market through the ProbX API." : "Create a YES/NO market in the local preview workspace."}
+            </p>
           </div>
           <span className="rounded-lg border border-solPurple/50 bg-solPurple/15 px-3 py-2 text-xs font-black text-violet-200 shadow-glow">
-            DAO-style listing
+            {backendEnabled ? "API listing" : "Local preview"}
           </span>
         </div>
+
+        {error ? (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-no/30 bg-no/10 px-4 py-3 text-sm text-no">
+            <span className="min-w-0 truncate">ProbX API error: {error}</span>
+            <button onClick={refresh} className="shrink-0 font-black text-slate-100 transition hover:text-white" type="button">
+              Retry
+            </button>
+          </div>
+        ) : null}
 
         <form onSubmit={submit} className="grid min-h-0 flex-1 content-start gap-5 overflow-hidden">
           <label className="grid gap-2">
@@ -149,12 +160,12 @@ export default function CreateMarketPage() {
           </div>
 
           <button
-            disabled={isSubmitting}
+            disabled={isSubmitting || (backendEnabled && isLoading)}
             className="primary-action yes flex items-center justify-center gap-2"
             type="submit"
           >
             {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <CirclePlus size={18} />}
-            {isSubmitting ? "Creating..." : "Create Market"}
+            {isSubmitting ? "Creating..." : backendEnabled && isLoading ? "Waiting for API..." : "Create Market"}
           </button>
           {status ? <p className="rounded-lg border border-line bg-black/25 p-3 text-sm text-slate-300">{status}</p> : null}
         </form>
@@ -163,7 +174,7 @@ export default function CreateMarketPage() {
       <aside className="h-full min-h-0">
         <section className="terminal-panel h-full overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-black">Live Preview</h2>
+            <h2 className="font-black">Market Preview</h2>
             <span className="rounded border border-yes/25 bg-yes/10 px-2 py-1 text-xs text-yes">50/50</span>
           </div>
           <MarketCard market={preview} />

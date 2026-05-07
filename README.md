@@ -127,7 +127,7 @@ NEXT_PUBLIC_ENABLE_ONCHAIN=false
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
-`NEXT_PUBLIC_API_URL` 为空时，前端会回退到浏览器内存中的 mock 数据。设置为 Go API 地址后，前端会通过 MySQL 索引读写市场、持仓和交易活动。
+`NEXT_PUBLIC_API_URL` 为空时，前端会进入本地预览模式。设置为 Go API 地址后，前端会通过 MySQL 索引读写市场、持仓和交易活动；API 加载、空数据和错误会在页面上明确展示。
 
 `NEXT_PUBLIC_PROBX_PROGRAM_ID` 必须和当前 RPC 网络上部署的 ProbX 程序一致。`NEXT_PUBLIC_ENABLE_ONCHAIN=false` 时，交易和创建市场走前端/API 的模拟或索引流程。需要连接钱包并发送链上交易时，先启动 localnet 并部署合约，然后将 `NEXT_PUBLIC_ENABLE_ONCHAIN` 改为 `true`。
 

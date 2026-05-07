@@ -14,7 +14,7 @@ type TradeTab = "TRADE" | "INFO";
 
 export function TradePanel({ market }: { market: Market }) {
   const { connected } = useWallet();
-  const { buy, sell, positions } = useMarkets();
+  const { buy, sell, positions, isLoading, error, backendEnabled, dataSource } = useMarkets();
   const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
   const [tab, setTab] = useState<TradeTab>("TRADE");
   const [mode, setMode] = useState<TradeMode>("BUY");
@@ -28,7 +28,9 @@ export function TradePanel({ market }: { market: Market }) {
   const availableShares = positions
     .filter((position) => position.marketId === market.id && position.side === side && !position.resolved)
     .reduce((total, position) => total + position.size, 0);
-  const mockBalance = mode === "BUY" ? 24.25 : availableShares;
+  const localBuyLimit = 24.25;
+  const orderLimit = mode === "BUY" ? localBuyLimit : availableShares;
+  const hasFiniteLimit = mode === "SELL" || !backendEnabled;
   const p = side === "YES" ? probability(market) : 1 - probability(market);
   const amountNumber = Number(amount || 0);
   const buyQuote = useMemo(() => quoteBuyShares(market, side, amountNumber), [amountNumber, market, side]);
@@ -48,18 +50,23 @@ export function TradePanel({ market }: { market: Market }) {
   }, [amountNumber, nextNoPool, nextYesPool, p, side]);
 
   function setPercent(percent: number) {
+    if (!hasFiniteLimit) return;
     const clampedPercent = Math.max(0, Math.min(1, percent));
-    setAmount((mockBalance * clampedPercent).toFixed(clampedPercent === 1 ? 2 : 3));
+    setAmount((orderLimit * clampedPercent).toFixed(clampedPercent === 1 ? 2 : 3));
   }
 
   async function submit() {
     setStatus(null);
+    if (backendEnabled && error) {
+      setStatus(error);
+      return;
+    }
     if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
       setStatus("Enter a valid SOL amount.");
       return;
     }
-    if (amountNumber > mockBalance) {
-      setStatus(mode === "BUY" ? "Amount exceeds simulated wallet balance." : "Amount exceeds available shares.");
+    if (hasFiniteLimit && amountNumber > orderLimit) {
+      setStatus(mode === "BUY" ? "Amount exceeds the local preview order limit." : "Amount exceeds available shares.");
       return;
     }
     setIsSubmitting(true);
@@ -70,10 +77,10 @@ export function TradePanel({ market }: { market: Market }) {
           ? await buy(market.id, side, amountNumber, { slippageBps })
           : await sell(market.id, side, amountNumber, { slippageBps });
       setStatus(
-        signature === "simulated"
-          ? "Simulated AMM trade executed"
+        signature === "local"
+          ? "Local preview trade updated"
           : signature === "indexed"
-            ? "Trade saved to backend"
+            ? "Trade saved to ProbX API"
             : `Tx sent: ${signature.slice(0, 12)}...`
       );
     } catch (error) {
@@ -154,37 +161,49 @@ export function TradePanel({ market }: { market: Market }) {
             />
           </div>
           <div className="mb-3 flex items-center justify-between text-xs text-muted">
-            <span>{mode === "BUY" ? `Balance: ${formatSol(mockBalance, 3)}` : `Available: ${mockBalance.toFixed(3)} shares`}</span>
-            <button onClick={() => setPercent(1)} className="rounded border border-line bg-black/25 px-2 py-0.5 text-slate-300 transition hover:border-solBlue/40 hover:text-white">
-              MAX
-            </button>
-          </div>
-
-          <div className="mb-3 grid grid-cols-4 gap-1.5">
-            {[
-              ["25%", 0.25],
-              ["50%", 0.5],
-              ["75%", 0.75],
-              ["MAX", 1]
-            ].map(([label, percent]) => (
-              <button
-                key={label}
-                onClick={() => setPercent(Number(percent))}
-                className="rounded border border-line bg-slate-950/70 py-1.5 text-xs text-slate-300 transition hover:border-solBlue/50 hover:text-white"
-              >
-                {label}
+            <span>
+              {mode === "BUY"
+                ? backendEnabled
+                  ? "API will record the submitted amount"
+                  : `Preview limit: ${formatSol(orderLimit, 3)}`
+                : `Available: ${orderLimit.toFixed(3)} shares`}
+            </span>
+            {hasFiniteLimit ? (
+              <button onClick={() => setPercent(1)} className="rounded border border-line bg-black/25 px-2 py-0.5 text-slate-300 transition hover:border-solBlue/40 hover:text-white">
+                MAX
               </button>
-            ))}
+            ) : null}
           </div>
 
-          <input
-            value={Math.max(0, Math.min(100, (amountNumber / mockBalance) * 100 || 0))}
-            onChange={(event) => setPercent(Number(event.target.value) / 100)}
-            type="range"
-            min="0"
-            max="100"
-            className="mb-4 w-full accent-emerald-400"
-          />
+          {hasFiniteLimit ? (
+            <>
+              <div className="mb-3 grid grid-cols-4 gap-1.5">
+                {[
+                  ["25%", 0.25],
+                  ["50%", 0.5],
+                  ["75%", 0.75],
+                  ["MAX", 1]
+                ].map(([label, percent]) => (
+                  <button
+                    key={label}
+                    onClick={() => setPercent(Number(percent))}
+                    className="rounded border border-line bg-slate-950/70 py-1.5 text-xs text-slate-300 transition hover:border-solBlue/50 hover:text-white"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                value={Math.max(0, Math.min(100, (amountNumber / orderLimit) * 100 || 0))}
+                onChange={(event) => setPercent(Number(event.target.value) / 100)}
+                type="range"
+                min="0"
+                max="100"
+                className="mb-4 w-full accent-emerald-400"
+              />
+            </>
+          ) : null}
 
           <div className="mb-3 grid grid-cols-2 gap-2">
             <label className="grid gap-1 text-xs text-muted">
@@ -218,7 +237,10 @@ export function TradePanel({ market }: { market: Market }) {
           </div>
 
           <div className="mb-3 grid gap-2 rounded-lg border border-white/10 bg-black/25 p-3 text-sm">
-            <Row label={mode === "BUY" ? "Balance" : "Available Shares"} value={mode === "BUY" ? formatSol(mockBalance, 3) : `${mockBalance.toFixed(3)} ${side}`} />
+            <Row
+              label={mode === "BUY" ? (backendEnabled ? "API Amount" : "Preview Limit") : "Available Shares"}
+              value={mode === "BUY" ? (backendEnabled ? formatSol(amountNumber || 0, 4) : formatSol(orderLimit, 3)) : `${orderLimit.toFixed(3)} ${side}`}
+            />
             <Row label="Order Type" value={orderType} />
             <Row label="Max Slippage" value={`${slippage}%`} />
             <Row label="Est. Fill Price" value={formatPrice(p)} />
@@ -230,20 +252,23 @@ export function TradePanel({ market }: { market: Market }) {
           </div>
 
           <button
-            disabled={isSubmitting || amountNumber <= 0}
+            disabled={isSubmitting || amountNumber <= 0 || (backendEnabled && isLoading)}
             onClick={submit}
             className={side === "YES" ? "primary-action yes" : "primary-action no"}
           >
-            {isSubmitting ? "Signing..." : connected && onchainEnabled ? `${mode} ${side}` : `Simulate ${mode} ${side}`}
+            {isSubmitting ? (connected && onchainEnabled ? "Signing..." : "Submitting...") : connected && onchainEnabled ? `${mode} ${side}` : backendEnabled ? `Record ${mode} ${side}` : `Preview ${mode} ${side}`}
           </button>
           {status ? (
-            <p className={`mt-3 rounded-md border px-3 py-2 text-xs ${status.includes("executed") || status.includes("Tx") ? "border-yes/30 bg-yes/10 text-yes" : "border-no/30 bg-no/10 text-no"}`}>
+            <p className={`mt-3 rounded-md border px-3 py-2 text-xs ${status.includes("updated") || status.includes("API") || status.includes("Tx") ? "border-yes/30 bg-yes/10 text-yes" : "border-no/30 bg-no/10 text-no"}`}>
               {status}
             </p>
           ) : null}
           <div className="mt-3 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-2 text-xs text-muted">
-            <span>Market is on Solana</span>
-            <span className="flex items-center gap-1 text-yes"><span className="h-1.5 w-1.5 rounded-full bg-yes" /> Live</span>
+            <span>{dataSource === "api" ? "ProbX API" : "Local preview"}</span>
+            <span className={backendEnabled || onchainEnabled ? "flex items-center gap-1 text-yes" : "flex items-center gap-1 text-muted"}>
+              <span className={backendEnabled || onchainEnabled ? "h-1.5 w-1.5 rounded-full bg-yes" : "h-1.5 w-1.5 rounded-full bg-muted"} />
+              {onchainEnabled ? "On-chain enabled" : backendEnabled ? "Indexed" : "Preview"}
+            </span>
           </div>
         </>
       ) : (

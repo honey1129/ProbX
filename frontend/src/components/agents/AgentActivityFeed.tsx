@@ -18,7 +18,7 @@ export function AgentActivityFeed({ activity, markets }: { activity: AgentActivi
       <div className="grid h-40 place-items-center rounded-lg border border-line bg-black/25 p-5 text-center">
         <div>
           <p className="font-bold text-slate-200">No matching activity</p>
-          <p className="mt-1 text-sm text-muted">Live trades will appear here as agents update.</p>
+          <p className="mt-1 text-sm text-muted">Recorded trades will appear here after activity is indexed.</p>
         </div>
       </div>
     );
@@ -28,7 +28,7 @@ export function AgentActivityFeed({ activity, markets }: { activity: AgentActivi
     <div className="scroll-surface grid h-full content-start gap-2 overflow-y-auto pr-0.5">
       {activity.map((item, index) => {
         const market = markets.find((m) => m.id === item.marketId);
-        const age = now ? `${Math.max(1, Math.round((now - item.timestamp) / 1000))}s ago` : "live";
+        const age = now ? `${Math.max(1, Math.round((now - item.timestamp) / 1000))}s ago` : "now";
         return (
           <article key={item.id} className="grid grid-cols-[42px_1fr] gap-3 rounded-lg border border-line bg-slate-950/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
             <AgentAvatar index={index} />

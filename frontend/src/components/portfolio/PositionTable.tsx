@@ -21,7 +21,7 @@ export function PositionTable({ positions, markets, compact = false }: { positio
       setClaimed((current) => ({ ...current, [position.id]: true }));
       setMessages((current) => ({
         ...current,
-        [position.id]: signature === "simulated" ? "Claimed" : `Tx ${signature.slice(0, 8)}...`
+        [position.id]: signature === "local" ? "Marked claimed" : `Tx ${signature.slice(0, 8)}...`
       }));
     } catch (error) {
       setMessages((current) => ({
@@ -48,6 +48,14 @@ export function PositionTable({ positions, markets, compact = false }: { positio
           </tr>
         </thead>
         <tbody>
+          {!positions.length ? (
+            <tr className="border-t border-line bg-slate-950/35">
+              <td colSpan={showAction ? 7 : 6} className="px-4 py-10 text-center">
+                <p className="font-bold text-slate-200">No positions yet</p>
+                <p className="mt-1 text-sm text-muted">Your open and resolved positions will appear here after trades are recorded.</p>
+              </td>
+            </tr>
+          ) : null}
           {positions.map((position) => {
             const market = markets.find((item) => item.id === position.marketId);
             const pnlClass = position.pnl >= 0 ? "text-yes" : "text-no";

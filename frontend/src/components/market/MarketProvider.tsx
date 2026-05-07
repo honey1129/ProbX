@@ -14,7 +14,7 @@ import {
   type AnchorWalletLike
 } from "@/lib/anchorClient";
 import { createBackendMarket, fetchBootstrap, isBackendApiConfigured, recordBackendTrade } from "@/lib/backendApi";
-import { clamp, mockActivity, mockMarkets, mockPositions } from "@/lib/mockData";
+import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
 
@@ -22,12 +22,17 @@ type MarketContextValue = {
   markets: Market[];
   positions: Position[];
   activity: AgentActivity[];
+  isLoading: boolean;
+  error: string | null;
+  dataSource: "api" | "local";
+  backendEnabled: boolean;
+  refresh: () => void;
   selectedMarket: (id: string) => Market | undefined;
   buy: (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => Promise<string>;
   sell: (marketId: string, side: Side, sharesSol: number, options?: TradeOptions) => Promise<string>;
   redeem: (positionId: string) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
-  addMockMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
+  addLocalMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
 };
 
 const MarketContext = createContext<MarketContextValue | null>(null);
@@ -49,10 +54,13 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
   const backendEnabled = isBackendApiConfigured();
   const ownerId = wallet.publicKey?.toBase58() ?? "local";
-  const [backendReady, setBackendReady] = useState(backendEnabled);
-  const [markets, setMarkets] = useState<Market[]>(mockMarkets);
-  const [positions, setPositions] = useState<Position[]>(mockPositions);
-  const [activity, setActivity] = useState<AgentActivity[]>(mockActivity);
+  const [apiReady, setApiReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(backendEnabled);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [markets, setMarkets] = useState<Market[]>(backendEnabled ? [] : localMarkets);
+  const [positions, setPositions] = useState<Position[]>(backendEnabled ? [] : localPositions);
+  const [activity, setActivity] = useState<AgentActivity[]>(backendEnabled ? [] : localActivity);
   const marketsRef = useRef(markets);
 
   useEffect(() => {
@@ -60,38 +68,41 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   }, [markets]);
 
   useEffect(() => {
-    if (!backendEnabled) return;
+    if (!backendEnabled) {
+      setApiReady(false);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
 
     let cancelled = false;
-    let timer: number | null = null;
+    setIsLoading(true);
+    setError(null);
 
-    const load = () => {
-      fetchBootstrap(ownerId)
-        .then((payload) => {
-          if (cancelled) return;
-          setMarkets(payload.markets);
-          setPositions(payload.positions);
-          setActivity(payload.activity);
-          setBackendReady(true);
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          setBackendReady(false);
-          console.warn("ProbX API bootstrap failed, using local mock data.", error);
-          timer = window.setTimeout(load, 5000);
-        });
-    };
-
-    load();
+    fetchBootstrap(ownerId)
+      .then((payload) => {
+        if (cancelled) return;
+        setMarkets(payload.markets);
+        setPositions(payload.positions);
+        setActivity(payload.activity);
+        setApiReady(true);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setApiReady(false);
+        setError(errorMessage(error, "ProbX API is unavailable."));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
 
     return () => {
       cancelled = true;
-      if (timer !== null) window.clearTimeout(timer);
     };
-  }, [backendEnabled, ownerId]);
+  }, [backendEnabled, ownerId, reloadToken]);
 
   useEffect(() => {
-    if (backendReady) return;
+    if (backendEnabled) return;
 
     const id = window.setInterval(() => {
       setMarkets((current) =>
@@ -114,12 +125,12 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       setActivity((current) => {
         const liveMarkets = marketsRef.current;
-        const market = liveMarkets[Math.floor(Math.random() * liveMarkets.length)] ?? mockMarkets[0];
+        const market = liveMarkets[Math.floor(Math.random() * liveMarkets.length)] ?? localMarkets[0];
         const side: Side = Math.random() > probability(market) ? "NO" : "YES";
         const action: AgentActivity["action"] = side === "YES" ? "BUY" : "SELL";
         return [
           {
-            id: `live-${Date.now()}`,
+            id: `local-${Date.now()}`,
             agent: ["OmegaAgent", "AlphaBot", "QuantMind", "StatArb", "MacroSense", "EventHorizon"][Math.floor(Math.random() * 6)],
             marketId: market.id,
             side,
@@ -134,16 +145,17 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     }, 2500);
 
     return () => window.clearInterval(id);
-  }, [backendReady]);
+  }, [backendEnabled]);
 
   const selectedMarket = useCallback((id: string) => markets.find((market) => market.id === id), [markets]);
+  const refresh = useCallback(() => setReloadToken((token) => token + 1), []);
 
   const buy = useCallback(
     async (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => {
       const market = markets.find((item) => item.id === marketId);
       if (!market) throw new Error("Market not found");
 
-      let signature = "simulated";
+      let signature = backendEnabled ? "indexed" : "local";
       if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
         signature = await buySharesIx({
           connection,
@@ -155,7 +167,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      if (backendReady) {
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
         try {
           const result = await recordBackendTrade({
             marketId,
@@ -163,17 +176,20 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             side,
             amountSol,
             action: "BUY",
-            signature: signature === "simulated" ? "indexed" : signature,
-            status: signature === "simulated" ? "indexed" : "sent"
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
           });
 
           setMarkets((current) => upsertById(current, result.market));
           setPositions((current) => upsertById(current, result.position));
           setActivity((current) => [result.activity, ...current.filter((item) => item.id !== result.activity.id)].slice(0, 40));
+          setError(null);
           return result.signature;
         } catch (error) {
-          setBackendReady(false);
-          console.warn("ProbX API trade indexing failed, using local simulation.", error);
+          const message = errorMessage(error, "ProbX API trade indexing failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
         }
       }
 
@@ -224,7 +240,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [backendReady, connection, markets, onchainEnabled, ownerId, wallet]
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
   );
 
   const sell = useCallback(
@@ -240,7 +256,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         throw new Error("Not enough shares to sell.");
       }
 
-      let signature = "simulated";
+      let signature = backendEnabled ? "indexed" : "local";
       if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
         signature = await sellSharesIx({
           connection,
@@ -252,7 +268,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      if (backendReady) {
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
         try {
           const result = await recordBackendTrade({
             marketId,
@@ -260,17 +277,20 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             side,
             amountSol: sharesSol,
             action: "SELL",
-            signature: signature === "simulated" ? "indexed" : signature,
-            status: signature === "simulated" ? "indexed" : "sent"
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
           });
 
           setMarkets((current) => upsertById(current, result.market));
           setPositions((current) => upsertById(current, result.position));
           setActivity((current) => [result.activity, ...current.filter((item) => item.id !== result.activity.id)].slice(0, 40));
+          setError(null);
           return result.signature;
         } catch (error) {
-          setBackendReady(false);
-          console.warn("ProbX API sell indexing failed, using local simulation.", error);
+          const message = errorMessage(error, "ProbX API sell indexing failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
         }
       }
 
@@ -308,7 +328,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [backendReady, connection, markets, onchainEnabled, ownerId, positions, wallet]
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, positions, wallet]
   );
 
   const redeem = useCallback(
@@ -323,7 +343,11 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         throw new Error("This position is not on the winning side.");
       }
 
-      let signature = "simulated";
+      if (backendEnabled && !onchainEnabled) {
+        throw new Error("Redeem requires on-chain settlement to be enabled.");
+      }
+
+      let signature = backendEnabled ? "indexed" : "local";
       if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
         signature = await redeemWinningsIx({
           connection,
@@ -356,10 +380,10 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [connection, markets, onchainEnabled, positions, wallet]
+    [backendEnabled, connection, markets, onchainEnabled, positions, wallet]
   );
 
-  const addMockMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
+  const addLocalMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
     const initialLiquidity = Math.max(0.01, options?.initialLiquidity ?? 1);
     setMarkets((current) => [
       {
@@ -383,7 +407,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
   const createMarket = useCallback(
     async (question: string, endTime: number, options?: CreateMarketOptions) => {
-      let signature = "simulated";
+      let signature = backendEnabled ? "indexed" : "local";
       let publicKey = options?.publicKey;
       let creator = options?.creator ?? ownerId;
 
@@ -400,7 +424,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         publicKey = getMarketPda(creatorKey, endTime).toBase58();
       }
 
-      if (backendReady) {
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
         try {
           const market = await createBackendMarket({
             question,
@@ -411,26 +436,47 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             publicKey
           });
           setMarkets((current) => upsertById(current, market));
-          return signature === "simulated" ? "indexed" : signature;
+          setError(null);
+          return signature;
         } catch (error) {
-          setBackendReady(false);
-          console.warn("ProbX API market indexing failed, using local simulation.", error);
+          const message = errorMessage(error, "ProbX API market indexing failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
         }
       }
 
-      addMockMarket(question, endTime, {
+      addLocalMarket(question, endTime, {
         ...options,
         creator,
         publicKey
       });
       return signature;
     },
-    [addMockMarket, backendReady, connection, onchainEnabled, ownerId, wallet]
+    [addLocalMarket, apiReady, backendEnabled, connection, error, onchainEnabled, ownerId, wallet]
   );
 
   const value = useMemo(
-    () => ({ markets, positions, activity, selectedMarket, buy, sell, redeem, createMarket, addMockMarket }),
-    [markets, positions, activity, selectedMarket, buy, sell, redeem, createMarket, addMockMarket]
+    () => {
+      const dataSource: MarketContextValue["dataSource"] = backendEnabled ? "api" : "local";
+      return {
+        markets,
+        positions,
+        activity,
+        isLoading,
+        error,
+        dataSource,
+        backendEnabled,
+        refresh,
+        selectedMarket,
+        buy,
+        sell,
+        redeem,
+        createMarket,
+        addLocalMarket
+      };
+    },
+    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, createMarket, addLocalMarket]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;
@@ -494,4 +540,8 @@ function reduceLocalPositions(items: Position[], marketId: string, side: Side, s
       };
     })
     .filter((position) => position.size > 1e-9 || position.resolved);
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }

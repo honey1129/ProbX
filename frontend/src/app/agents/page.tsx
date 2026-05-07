@@ -1,36 +1,78 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bot, BrainCircuit, Radio, Trophy, Zap } from "lucide-react";
+import { AlertTriangle, Bot, BrainCircuit, Loader2, Radio, RefreshCw, Trophy, Zap } from "lucide-react";
 import { AgentActivityFeed } from "@/components/agents/AgentActivityFeed";
 import { PnLChart } from "@/components/charts/ProbabilityChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
-import { mockAgents } from "@/lib/mockData";
 import { formatPercent, formatUsd, probability } from "@/lib/format";
+import type { AgentActivity } from "@/lib/types";
 
 export default function AgentsPage() {
-  const { markets, activity } = useMarkets();
+  const { markets, activity, isLoading, error, backendEnabled, refresh } = useMarkets();
   const [feedFilter, setFeedFilter] = useState<"ALL" | "YES" | "NO">("ALL");
-  const [selectedAgent, setSelectedAgent] = useState(mockAgents[0].name);
+  const [selectedAgent, setSelectedAgent] = useState("");
+
+  const agentStats = useMemo(() => deriveAgentStats(activity), [activity]);
 
   const totals = useMemo(() => {
-    const pnl = mockAgents.reduce((sum, agent) => sum + agent.pnl, 0);
-    const trades = mockAgents.reduce((sum, agent) => sum + agent.trades, 0);
-    const winRate = mockAgents.reduce((sum, agent) => sum + agent.winRate, 0) / mockAgents.length / 100;
-    return { pnl, trades, winRate, activeMarkets: markets.length };
-  }, [markets.length]);
+    const volume = activity.reduce((sum, item) => sum + item.size, 0);
+    const trades = activity.length;
+    const confidence = trades ? activity.reduce((sum, item) => sum + item.confidence, 0) / trades / 100 : 0;
+    return { volume, trades, confidence, activeMarkets: markets.length };
+  }, [activity, markets.length]);
+
+  const volumeCurve = useMemo(() => {
+    let total = 0;
+    return [...activity]
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((item) => {
+        total += item.size;
+        return total;
+      });
+  }, [activity]);
 
   const signalMarket = markets[0];
   const signal = signalMarket ? probability(signalMarket) : 0.5;
-  const selectedStats = mockAgents.find((agent) => agent.name === selectedAgent) ?? mockAgents[0];
+  const selectedStats = agentStats.find((agent) => agent.name === selectedAgent) ?? agentStats[0];
   const filteredActivity = feedFilter === "ALL" ? activity : activity.filter((item) => item.side === feedFilter);
+  const yesFlow = activity.filter((item) => item.side === "YES").reduce((sum, item) => sum + item.size, 0);
+  const noFlow = activity.filter((item) => item.side === "NO").reduce((sum, item) => sum + item.size, 0);
+  const totalFlow = Math.max(1, yesFlow + noFlow);
+  const yesShare = yesFlow / totalFlow;
+  const buyShare = activity.length ? activity.filter((item) => item.action === "BUY").length / activity.length : 0;
+
+  if (isLoading) {
+    return (
+      <AgentsStatePanel
+        icon={<Loader2 size={26} className="animate-spin text-solBlue" />}
+        title="Loading agent activity"
+        message={backendEnabled ? "Reading indexed activity from the ProbX API." : "Preparing local activity data."}
+      />
+    );
+  }
+
+  if (error && !activity.length) {
+    return (
+      <AgentsStatePanel
+        icon={<AlertTriangle size={26} className="text-no" />}
+        title="Agent activity is unavailable"
+        message={error}
+        action={
+          <button onClick={refresh} className="inline-flex items-center gap-2 rounded-lg border border-solBlue/50 bg-solBlue/10 px-4 py-2 font-bold text-solBlue transition hover:bg-solBlue/20">
+            <RefreshCw size={15} /> Retry
+          </button>
+        }
+      />
+    );
+  }
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
       <section className="grid grid-cols-4 gap-3">
-        <AgentMetric icon={<Trophy size={18} />} label="Total Agent PnL" value={formatUsd(totals.pnl)} tone="yes" />
-        <AgentMetric icon={<Zap size={18} />} label="Win Rate" value={formatPercent(totals.winRate)} tone="purple" />
+        <AgentMetric icon={<Trophy size={18} />} label="Recorded Volume" value={formatUsd(totals.volume)} tone="yes" />
+        <AgentMetric icon={<Zap size={18} />} label="Avg Confidence" value={formatPercent(totals.confidence, 0)} tone="purple" />
         <AgentMetric icon={<Radio size={18} />} label="Total Trades" value={totals.trades.toLocaleString()} tone="blue" />
         <AgentMetric icon={<Bot size={18} />} label="Active Markets" value={totals.activeMarkets.toString()} tone="purple" />
       </section>
@@ -38,7 +80,7 @@ export default function AgentsPage() {
       <section className="grid min-h-0 grid-cols-[390px_minmax(0,1fr)_430px] gap-3">
         <aside className="terminal-panel h-full overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
-            <h1 className="text-xl font-black">Live Trading Feed</h1>
+            <h1 className="text-xl font-black">Activity Feed</h1>
             <select
               value={feedFilter}
               onChange={(event) => setFeedFilter(event.target.value as "ALL" | "YES" | "NO")}
@@ -56,14 +98,18 @@ export default function AgentsPage() {
           <section className="terminal-panel overflow-hidden p-4">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-black">Agent PnL Curve</h2>
-                <p className="text-sm text-muted">Cumulative profit across momentum, mean reversion, and external signal engines.</p>
+                <h2 className="text-xl font-black">Activity Volume Curve</h2>
+                <p className="text-sm text-muted">Cumulative recorded activity by timestamp.</p>
               </div>
               <span className="rounded-lg border border-solPurple/40 bg-solPurple/15 px-3 py-2 text-xs font-black text-violet-200 shadow-glow">
-                Ensemble mode
+                {backendEnabled ? "API indexed" : "Local preview"}
               </span>
             </div>
-            <PnLChart values={Array.from({ length: 100 }, (_, i) => Math.cos(i / 11) * 520 + i * 42 + Math.sin(i / 4) * 170)} />
+            {volumeCurve.length ? (
+              <PnLChart values={volumeCurve} />
+            ) : (
+              <EmptyBlock title="No activity volume yet" message="The curve will appear after trades are recorded." />
+            )}
           </section>
 
           <section className="terminal-panel min-h-0 overflow-hidden">
@@ -74,27 +120,33 @@ export default function AgentsPage() {
               <thead className="bg-slate-950/80 text-xs uppercase text-muted">
                 <tr>
                   <th className="px-4 py-3 text-left">Agent</th>
-                  <th className="px-4 py-3 text-left">Strategy</th>
-                  <th className="px-4 py-3 text-right">Win Rate</th>
-                  <th className="px-4 py-3 text-right">PnL</th>
+                  <th className="px-4 py-3 text-left">Flow</th>
+                  <th className="px-4 py-3 text-right">Avg Conf.</th>
+                  <th className="px-4 py-3 text-right">Volume</th>
                   <th className="px-4 py-3 text-right">Trades</th>
                 </tr>
               </thead>
               <tbody>
-                {mockAgents.map((agent) => (
+                {!agentStats.length ? (
+                  <tr className="border-t border-line bg-slate-950/35">
+                    <td colSpan={5} className="px-4 py-10 text-center">
+                      <p className="font-bold text-slate-200">No agent rows yet</p>
+                      <p className="mt-1 text-sm text-muted">Agent comparison will populate from indexed activity.</p>
+                    </td>
+                  </tr>
+                ) : null}
+                {agentStats.map((agent) => (
                   <tr
                     key={agent.name}
                     onClick={() => setSelectedAgent(agent.name)}
                     className={`cursor-pointer border-t border-line transition hover:bg-slate-900/60 ${
-                      selectedAgent === agent.name ? "bg-solPurple/15 shadow-[inset_3px_0_0_#9b5cff]" : "bg-slate-950/35"
+                      selectedStats?.name === agent.name ? "bg-solPurple/15 shadow-[inset_3px_0_0_#9b5cff]" : "bg-slate-950/35"
                     }`}
                   >
                     <td className="px-4 py-3 font-black">{agent.name}</td>
-                    <td className="px-4 py-3 text-muted">{agent.strategy}</td>
-                    <td className="px-4 py-3 text-right font-bold">{agent.winRate.toFixed(1)}%</td>
-                    <td className={agent.pnl >= 0 ? "px-4 py-3 text-right font-black text-yes" : "px-4 py-3 text-right font-black text-no"}>
-                      {formatUsd(agent.pnl)}
-                    </td>
+                    <td className="px-4 py-3 text-muted">{agent.flow}</td>
+                    <td className="px-4 py-3 text-right font-bold">{agent.avgConfidence}%</td>
+                    <td className="px-4 py-3 text-right font-black text-yes">{formatUsd(agent.volume)}</td>
                     <td className="px-4 py-3 text-right">{agent.trades.toLocaleString()}</td>
                   </tr>
                 ))}
@@ -111,16 +163,22 @@ export default function AgentsPage() {
             </div>
             <div className="mb-4 rounded-lg border border-solPurple/30 bg-solPurple/10 p-3">
               <div className="text-xs uppercase text-muted">Selected Agent</div>
-              <div className="mt-1 flex items-center justify-between">
-                <b className="text-lg">{selectedStats.name}</b>
-                <span className={selectedStats.pnl >= 0 ? "font-black text-yes" : "font-black text-no"}>{formatUsd(selectedStats.pnl)}</span>
-              </div>
-              <div className="mt-1 text-xs text-muted">{selectedStats.strategy} / {selectedStats.trades.toLocaleString()} trades</div>
+              {selectedStats ? (
+                <>
+                  <div className="mt-1 flex items-center justify-between">
+                    <b className="text-lg">{selectedStats.name}</b>
+                    <span className="font-black text-yes">{formatUsd(selectedStats.volume)}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted">{selectedStats.flow} / {selectedStats.trades.toLocaleString()} trades</div>
+                </>
+              ) : (
+                <div className="mt-2 text-sm text-muted">No indexed agent activity yet.</div>
+              )}
             </div>
             <div className="grid gap-3">
-              <SignalRow label="Mock Sentiment" value="78" max="100" color="from-solBlue to-yes" />
-              <SignalRow label="Momentum" value={Math.round((signal - 0.35) * 120).toString()} max="100" color="from-solPurple to-solBlue" />
-              <SignalRow label="Confidence" value="84" max="100" color="from-yes to-emerald-300" />
+              <SignalRow label="Market Probability" value={Math.round(signal * 100).toString()} max="100" color="from-solBlue to-yes" />
+              <SignalRow label="YES Flow Share" value={Math.round(yesShare * 100).toString()} max="100" color="from-solPurple to-solBlue" />
+              <SignalRow label="Avg Confidence" value={Math.round(totals.confidence * 100).toString()} max="100" color="from-yes to-emerald-300" />
             </div>
             <div className="mt-4 rounded-lg border border-line bg-black/25 p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -132,15 +190,65 @@ export default function AgentsPage() {
           </section>
 
           <section className="terminal-panel overflow-hidden p-4">
-            <h2 className="mb-4 font-black">Strategy Allocation</h2>
+            <h2 className="mb-4 font-black">Activity Allocation</h2>
             <div className="grid gap-3">
-              <Allocation label="Momentum" value={42} />
-              <Allocation label="Mean Reversion" value={31} />
-              <Allocation label="External Signal" value={27} />
+              <Allocation label="YES flow" value={Math.round(yesShare * 100)} />
+              <Allocation label="NO flow" value={Math.round((1 - yesShare) * 100)} />
+              <Allocation label="BUY actions" value={Math.round(buyShare * 100)} />
             </div>
           </section>
         </aside>
       </section>
+    </div>
+  );
+}
+
+type DerivedAgentStats = {
+  name: string;
+  flow: string;
+  volume: number;
+  avgConfidence: number;
+  trades: number;
+};
+
+function deriveAgentStats(activity: AgentActivity[]): DerivedAgentStats[] {
+  const grouped = new Map<string, AgentActivity[]>();
+  activity.forEach((item) => {
+    grouped.set(item.agent, [...(grouped.get(item.agent) ?? []), item]);
+  });
+
+  return [...grouped.entries()]
+    .map(([name, items]) => {
+      const yes = items.filter((item) => item.side === "YES").reduce((sum, item) => sum + item.size, 0);
+      const no = items.filter((item) => item.side === "NO").reduce((sum, item) => sum + item.size, 0);
+      const volume = yes + no;
+      const avgConfidence = Math.round(items.reduce((sum, item) => sum + item.confidence, 0) / Math.max(1, items.length));
+      const flow = yes > no ? "YES flow" : no > yes ? "NO flow" : "Balanced flow";
+      return { name, flow, volume, avgConfidence, trades: items.length };
+    })
+    .sort((a, b) => b.volume - a.volume);
+}
+
+function AgentsStatePanel({ icon, title, message, action }: { icon: React.ReactNode; title: string; message: string; action?: React.ReactNode }) {
+  return (
+    <section className="terminal-panel grid min-h-[520px] place-items-center p-10 text-center">
+      <div className="max-w-xl">
+        <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-lg border border-line bg-black/25">{icon}</div>
+        <h1 className="text-3xl font-black">{title}</h1>
+        <p className="mt-3 text-sm text-muted">{message}</p>
+        {action ? <div className="mt-6">{action}</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function EmptyBlock({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="grid h-72 place-items-center rounded-lg border border-line bg-black/25 p-6 text-center">
+      <div>
+        <p className="font-bold text-slate-200">{title}</p>
+        <p className="mt-1 text-sm text-muted">{message}</p>
+      </div>
     </div>
   );
 }

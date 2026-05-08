@@ -1,4 +1,5 @@
 import type { AgentActivity, Market, Position, Side } from "./types";
+import { MARKET_AVATAR_URLS } from "./marketAvatars";
 
 const now = Math.floor(Date.now() / 1000);
 
@@ -26,6 +27,7 @@ export const localMarkets: Market[] = [
     endTime: now + 3600 * 24 * 23,
     question: "Will the Fed cut rates in June 2025?",
     category: "Macro",
+    avatarUrl: MARKET_AVATAR_URLS["fed-rates"],
     yesPool: 1_320,
     noPool: 805,
     totalLiquidity: 2_125,
@@ -41,6 +43,7 @@ export const localMarkets: Market[] = [
     endTime: now + 3600 * 24 * 8,
     question: "Bitcoin above $100k by May 31?",
     category: "Crypto",
+    avatarUrl: MARKET_AVATAR_URLS["btc-100k"],
     yesPool: 1_670,
     noPool: 1_360,
     totalLiquidity: 3_030,
@@ -56,6 +59,7 @@ export const localMarkets: Market[] = [
     endTime: now + 3600 * 24 * 18,
     question: "Trump approval rating above 50% by June?",
     category: "Politics",
+    avatarUrl: MARKET_AVATAR_URLS["trump-approval"],
     yesPool: 690,
     noPool: 960,
     totalLiquidity: 1_650,
@@ -71,6 +75,7 @@ export const localMarkets: Market[] = [
     endTime: now + 3600 * 24 * 71,
     question: "Solana ETF approved in 2025?",
     category: "Crypto",
+    avatarUrl: MARKET_AVATAR_URLS["sol-etf"],
     yesPool: 322,
     noPool: 798,
     totalLiquidity: 1_120,
@@ -86,6 +91,7 @@ export const localMarkets: Market[] = [
     endTime: now + 3600 * 24 * 39,
     question: "NBA Finals 2025: Celtics win title?",
     category: "Sports",
+    avatarUrl: MARKET_AVATAR_URLS["nba-finals"],
     yesPool: 280,
     noPool: 562,
     totalLiquidity: 842,
@@ -101,6 +107,7 @@ export const localMarkets: Market[] = [
     endTime: now + 3600 * 24 * 19,
     question: "NVIDIA earnings beat in May?",
     category: "Tech",
+    avatarUrl: MARKET_AVATAR_URLS["nvidia-earnings"],
     yesPool: 982,
     noPool: 388,
     totalLiquidity: 1_370,

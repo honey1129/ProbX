@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Clock3, Star, TrendingDown, TrendingUp } from "lucide-react";
 import { formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import type { Market } from "@/lib/types";
+import { marketAvatarMode, marketAvatarUrl } from "@/lib/marketAvatars";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { RouterLink as Link } from "@/router";
 
@@ -82,11 +83,17 @@ export function MarketCard({ market }: { market: Market }) {
 
 function MarketVisual({ market }: { market: Market }) {
   const variant = marketVisualVariant(market);
+  const avatarUrl = marketAvatarUrl(market);
+  const [imageFailed, setImageFailed] = useState(false);
 
-  if (market.avatarUrl) {
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarUrl]);
+
+  if (avatarUrl && !imageFailed) {
     return (
-      <div className="market-avatar custom" aria-hidden="true">
-        <img src={market.avatarUrl} alt="" loading="lazy" />
+      <div className={`market-avatar custom ${marketAvatarMode(market)}`} aria-hidden="true">
+        <img src={avatarUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} />
       </div>
     );
   }

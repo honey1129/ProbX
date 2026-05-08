@@ -31,14 +31,20 @@ type TradeVerifier interface {
 }
 
 type Options struct {
-	TradeVerifier TradeVerifier
+	TradeVerifier     TradeVerifier
+	SolanaRPCURL      string
+	ProgramID         string
+	TradeVerification string
 }
 
 type Server struct {
-	store         Store
-	tradeVerifier TradeVerifier
-	corsOrigin    map[string]struct{}
-	allowAll      bool
+	store             Store
+	tradeVerifier     TradeVerifier
+	solanaRPCURL      string
+	programID         string
+	tradeVerification string
+	corsOrigin        map[string]struct{}
+	allowAll          bool
 }
 
 func NewServer(store Store, origins []string) *Server {
@@ -58,12 +64,29 @@ func NewServerWithOptions(store Store, origins []string, options Options) *Serve
 			originSet[origin] = struct{}{}
 		}
 	}
-	return &Server{store: store, tradeVerifier: options.TradeVerifier, corsOrigin: originSet, allowAll: allowAll}
+	tradeVerification := strings.TrimSpace(strings.ToLower(options.TradeVerification))
+	if tradeVerification == "" {
+		if options.TradeVerifier != nil {
+			tradeVerification = "confirmed"
+		} else {
+			tradeVerification = "off"
+		}
+	}
+	return &Server{
+		store:             store,
+		tradeVerifier:     options.TradeVerifier,
+		solanaRPCURL:      strings.TrimSpace(options.SolanaRPCURL),
+		programID:         strings.TrimSpace(options.ProgramID),
+		tradeVerification: tradeVerification,
+		corsOrigin:        originSet,
+		allowAll:          allowAll,
+	}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/markets", s.markets)
 	mux.HandleFunc("POST /api/markets", s.createMarket)
@@ -82,6 +105,43 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) status(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := requestContext(r)
+	defer cancel()
+
+	dbOK := true
+	dbError := ""
+	if err := s.store.Ping(ctx); err != nil {
+		dbOK = false
+		dbError = err.Error()
+	}
+
+	markets, err := s.store.ListMarkets(ctx)
+	if err != nil {
+		dbOK = false
+		if dbError == "" {
+			dbError = err.Error()
+		}
+		markets = nil
+	}
+
+	origins := make([]string, 0, len(s.corsOrigin))
+	for origin := range s.corsOrigin {
+		origins = append(origins, origin)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                dbOK,
+		"database":          map[string]any{"ok": dbOK, "error": dbError},
+		"marketCount":       len(markets),
+		"solanaRpcUrl":      s.solanaRPCURL,
+		"programId":         s.programID,
+		"tradeVerification": s.tradeVerification,
+		"corsOrigins":       origins,
+		"corsAllowAll":      s.allowAll,
+	})
 }
 
 func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {

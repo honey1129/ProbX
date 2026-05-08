@@ -23,6 +23,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("configure Solana account client: %v", err)
 	}
+	log.Printf("ProbX indexer using rpc=%s program=%s", cfg.SolanaRPCURL, cfg.ProgramID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

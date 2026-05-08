@@ -114,6 +114,59 @@ func TestBootstrap(t *testing.T) {
 	}
 }
 
+func TestStatusReportsRuntimeConfig(t *testing.T) {
+	const (
+		rpcURL    = "https://api.devnet.solana.com"
+		programID = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"
+	)
+	handler := NewServerWithOptions(
+		&fakeStore{market: testMarket()},
+		[]string{"https://probx.site", "https://www.probx.site"},
+		Options{
+			SolanaRPCURL:      rpcURL,
+			ProgramID:         programID,
+			TradeVerification: "confirmed",
+		},
+	).Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload struct {
+		OK                bool     `json:"ok"`
+		MarketCount       int      `json:"marketCount"`
+		SolanaRPCURL      string   `json:"solanaRpcUrl"`
+		ProgramID         string   `json:"programId"`
+		TradeVerification string   `json:"tradeVerification"`
+		CORSOrigins       []string `json:"corsOrigins"`
+		CORSAllowAll      bool     `json:"corsAllowAll"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if !payload.OK || payload.MarketCount != 1 {
+		t.Fatalf("unexpected status payload: %+v", payload)
+	}
+	if payload.SolanaRPCURL != rpcURL || payload.ProgramID != programID {
+		t.Fatalf("unexpected chain config: rpc=%q program=%q", payload.SolanaRPCURL, payload.ProgramID)
+	}
+	if payload.TradeVerification != "confirmed" {
+		t.Fatalf("unexpected trade verification mode %q", payload.TradeVerification)
+	}
+	if payload.CORSAllowAll {
+		t.Fatalf("did not expect allow-all CORS")
+	}
+	if !contains(payload.CORSOrigins, "https://probx.site") || !contains(payload.CORSOrigins, "https://www.probx.site") {
+		t.Fatalf("unexpected CORS origins: %+v", payload.CORSOrigins)
+	}
+}
+
 func TestMarketNotFound(t *testing.T) {
 	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
 
@@ -224,6 +277,15 @@ func TestStoreErrorMapping(t *testing.T) {
 			t.Fatalf("expected %d for %v, got %d", tt.status, tt.err, res.Code)
 		}
 	}
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func testMarket() models.Market {

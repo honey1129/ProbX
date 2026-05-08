@@ -20,7 +20,11 @@ func main() {
 	}
 	defer store.Close()
 
-	options := api.Options{}
+	options := api.Options{
+		SolanaRPCURL:      cfg.SolanaRPCURL,
+		ProgramID:         cfg.ProgramID,
+		TradeVerification: cfg.TradeVerification,
+	}
 	switch cfg.TradeVerification {
 	case "", "off":
 	case "confirmed":

@@ -40,6 +40,7 @@ const MarketContext = createContext<MarketContextValue | null>(null);
 type CreateMarketOptions = {
   category?: Market["category"];
   initialLiquidity?: number;
+  avatarUrl?: string;
   publicKey?: string;
   creator?: string;
 };
@@ -393,6 +394,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         endTime,
         question,
         category: options?.category ?? "Crypto",
+        avatarUrl: options?.avatarUrl,
         yesPool: initialLiquidity,
         noPool: initialLiquidity,
         totalLiquidity: initialLiquidity,
@@ -431,6 +433,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             question,
             endTime,
             category: options?.category,
+            avatarUrl: options?.avatarUrl,
             initialLiquidity: options?.initialLiquidity,
             creator,
             publicKey

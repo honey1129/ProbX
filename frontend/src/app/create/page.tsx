@@ -1,17 +1,20 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { CalendarClock, CirclePlus, Droplets, FileQuestion, Loader2 } from "lucide-react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { CalendarClock, CirclePlus, Droplets, FileQuestion, ImagePlus, Link2, Loader2, X } from "lucide-react";
 import { MarketCard } from "@/components/market/MarketCard";
 import { useMarkets } from "@/components/market/MarketProvider";
 import type { Market } from "@/lib/types";
 
 const categories: Market["category"][] = ["Crypto", "Politics", "Sports", "Tech", "Macro", "On-chain"];
+const maxAvatarBytes = 240_000;
+const maxAvatarPayloadLength = 360_000;
 
 export default function CreateMarketPage() {
   const { createMarket, backendEnabled, isLoading, error, refresh } = useMarkets();
   const [question, setQuestion] = useState("Will SOL close above $200 this month?");
   const [category, setCategory] = useState<Market["category"]>("Crypto");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [endTime, setEndTime] = useState(defaultDateTimeLocal());
   const [initialLiquidity, setInitialLiquidity] = useState("1");
   const [status, setStatus] = useState<string | null>(null);
@@ -26,6 +29,7 @@ export default function CreateMarketPage() {
       endTime: Math.floor(new Date(endTime).getTime() / 1000),
       question: question.trim() || "Market question preview",
       category,
+      avatarUrl: avatarUrl.trim() || undefined,
       yesPool: liquidity,
       noPool: liquidity,
       totalLiquidity: liquidity,
@@ -34,7 +38,29 @@ export default function CreateMarketPage() {
       change24h: 0,
       probabilityHistory: Array.from({ length: 72 }, () => 0.5)
     };
-  }, [category, endTime, initialLiquidity, question]);
+  }, [avatarUrl, category, endTime, initialLiquidity, question]);
+
+  async function handleAvatarUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setStatus("Avatar file must be an image.");
+      return;
+    }
+    if (file.size > maxAvatarBytes) {
+      setStatus("Avatar image is too large. Please use an image under 240 KB.");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setAvatarUrl(dataUrl);
+      setStatus(null);
+    } catch {
+      setStatus("Could not read avatar image.");
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,12 +76,17 @@ export default function CreateMarketPage() {
       setStatus("End time must be in the future.");
       return;
     }
+    if (avatarUrl.trim().length > maxAvatarPayloadLength) {
+      setStatus("Avatar image payload is too large.");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       const signature = await createMarket(trimmed, unixEndTime, {
         category,
-        initialLiquidity: Number(initialLiquidity) || 1000
+        initialLiquidity: Number(initialLiquidity) || 1000,
+        avatarUrl: avatarUrl.trim() || undefined
       });
       setStatus(
         signature === "local"
@@ -110,6 +141,50 @@ export default function CreateMarketPage() {
             />
             <span className="text-right text-xs text-muted">{question.length}/180</span>
           </label>
+
+          <div className="grid gap-2">
+            <span className="flex items-center gap-2 text-sm font-bold text-slate-200">
+              <ImagePlus size={16} className="text-solPurple" /> Avatar
+            </span>
+            <div className="grid grid-cols-[112px_minmax(0,1fr)] gap-4 rounded-lg border border-line bg-black/25 p-4">
+              <div className="grid place-items-center rounded-lg border border-line bg-slate-950/70 p-2">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="h-20 w-20 rounded-lg object-cover" />
+                ) : (
+                  <div className="grid h-20 w-20 place-items-center rounded-lg border border-dashed border-solPurple/35 bg-solPurple/10 text-solPurple">
+                    <ImagePlus size={24} />
+                  </div>
+                )}
+              </div>
+              <div className="grid min-w-0 gap-3">
+                <div className="flex gap-2">
+                  <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-solPurple/45 bg-solPurple/15 px-3 text-sm font-black text-violet-100 transition hover:bg-solPurple/25">
+                    <ImagePlus size={15} /> Upload
+                    <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
+                  </label>
+                  {avatarUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setAvatarUrl("")}
+                      className="inline-flex h-10 items-center gap-2 rounded-lg border border-line px-3 text-sm font-bold text-muted transition hover:border-no/45 hover:text-no"
+                    >
+                      <X size={15} /> Remove
+                    </button>
+                  ) : null}
+                </div>
+                <label className="flex h-11 min-w-0 items-center gap-2 rounded-lg border border-line bg-black/35 px-3">
+                  <Link2 size={15} className="shrink-0 text-muted" />
+                  <input
+                    value={avatarUrl}
+                    onChange={(event) => setAvatarUrl(event.target.value)}
+                    className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold outline-none placeholder:text-muted"
+                    placeholder="https://... or uploaded image data"
+                  />
+                </label>
+                <p className="text-xs text-muted">Use a square image under 240 KB, or paste a hosted image URL.</p>
+              </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-3 gap-4">
             <label className="grid gap-2">
@@ -201,4 +276,13 @@ function defaultDateTimeLocal() {
   const offset = date.getTimezoneOffset();
   const local = new Date(date.getTime() - offset * 60 * 1000);
   return local.toISOString().slice(0, 16);
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }

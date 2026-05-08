@@ -227,6 +227,16 @@ select {
   background: linear-gradient(135deg, #19f58c, #31b9ff 48%, #9b5cff);
 }
 
+.market-avatar.custom {
+  background: rgba(3, 10, 15, 0.9);
+}
+
+.market-avatar.custom img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .market-avatar.nvidia {
   background:
     radial-gradient(circle at 70% 22%, rgba(255, 255, 255, 0.32), transparent 22%),

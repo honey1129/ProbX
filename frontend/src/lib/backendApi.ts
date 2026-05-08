@@ -14,6 +14,7 @@ export type CreateMarketPayload = {
   creator?: string;
   question: string;
   category?: Market["category"];
+  avatarUrl?: string;
   endTime: number;
   initialLiquidity?: number;
 };

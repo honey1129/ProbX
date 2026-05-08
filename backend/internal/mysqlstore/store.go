@@ -38,6 +38,10 @@ func Open(dsn string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := ensureSchema(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
@@ -67,7 +71,7 @@ func (s *Store) Bootstrap(ctx context.Context, owner string) (models.Bootstrap, 
 
 func (s *Store) ListMarkets(ctx context.Context) ([]models.Market, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, public_key, creator, question, category, yes_pool, no_pool,
+		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
@@ -93,7 +97,7 @@ func (s *Store) ListMarkets(ctx context.Context) ([]models.Market, error) {
 
 func (s *Store) GetMarket(ctx context.Context, id string) (models.Market, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, question, category, yes_pool, no_pool,
+		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
@@ -115,9 +119,13 @@ func (s *Store) GetMarket(ctx context.Context, id string) (models.Market, error)
 func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest) (models.Market, error) {
 	req.Question = strings.TrimSpace(req.Question)
 	req.Category = normalizeCategory(req.Category)
+	req.AvatarURL = strings.TrimSpace(req.AvatarURL)
 	req.Creator = normalizeText(req.Creator, "local")
 	if req.Question == "" {
 		return models.Market{}, fmt.Errorf("%w: question is required", ErrInvalid)
+	}
+	if len(req.AvatarURL) > 360_000 {
+		return models.Market{}, fmt.Errorf("%w: avatarUrl is too large", ErrInvalid)
 	}
 	if req.EndTime <= time.Now().Unix() {
 		return models.Market{}, fmt.Errorf("%w: endTime must be in the future", ErrInvalid)
@@ -144,11 +152,11 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO markets (
-			id, public_key, creator, question, category, yes_pool, no_pool,
+			id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
 			total_liquidity, volume_24h, participants, change_24h, end_time,
 			resolved, outcome, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
-		req.ID, req.PublicKey, req.Creator, req.Question, req.Category,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
+		req.ID, req.PublicKey, req.Creator, req.Question, req.Category, nullableString(req.AvatarURL),
 		yesPool, noPool, req.InitialLiquidity, req.EndTime, now, now,
 	)
 	if err != nil {
@@ -169,6 +177,7 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 	market.PublicKey = strings.TrimSpace(market.PublicKey)
 	market.Creator = normalizeText(market.Creator, "unknown")
 	market.Question = strings.TrimSpace(market.Question)
+	market.AvatarURL = strings.TrimSpace(market.AvatarURL)
 	if rawCategory != "" {
 		market.Category = normalizeCategory(rawCategory)
 	}
@@ -177,6 +186,9 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 	}
 	if market.Question == "" {
 		return models.Market{}, fmt.Errorf("%w: question is required", ErrInvalid)
+	}
+	if len(market.AvatarURL) > 360_000 {
+		return models.Market{}, fmt.Errorf("%w: avatarUrl is too large", ErrInvalid)
 	}
 
 	now := nowMillis()
@@ -213,11 +225,11 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO markets (
-				id, public_key, creator, question, category, yes_pool, no_pool,
+				id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
 				total_liquidity, volume_24h, participants, change_24h, end_time,
 				resolved, outcome, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, ?, ?)`,
-			market.ID, market.PublicKey, market.Creator, market.Question, market.Category,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, ?, ?)`,
+			market.ID, market.PublicKey, market.Creator, market.Question, market.Category, nullableString(market.AvatarURL),
 			market.YesPool, market.NoPool, market.TotalLiquidity, market.EndTime,
 			market.Resolved, nullableInt(market.Outcome), now, now,
 		)
@@ -243,11 +255,11 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 	change24h := probability(market.YesPool, market.NoPool) - probability(existing.YesPool, existing.NoPool)
 	_, err = tx.ExecContext(ctx, `
 		UPDATE markets
-		SET creator = ?, question = ?, category = ?, yes_pool = ?, no_pool = ?,
+		SET creator = ?, question = ?, category = ?, avatar_url = COALESCE(?, avatar_url), yes_pool = ?, no_pool = ?,
 		    total_liquidity = ?, change_24h = ?, end_time = ?, resolved = ?,
 		    outcome = ?, updated_at = ?
 		WHERE id = ?`,
-		market.Creator, market.Question, market.Category, market.YesPool, market.NoPool,
+		market.Creator, market.Question, market.Category, nullableString(market.AvatarURL), market.YesPool, market.NoPool,
 		market.TotalLiquidity, change24h, market.EndTime, market.Resolved,
 		nullableInt(market.Outcome), now, market.ID,
 	)
@@ -364,7 +376,7 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 	defer rollbackQuietly(tx)
 
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, question, category, yes_pool, no_pool,
+		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
@@ -549,8 +561,9 @@ type scanner interface {
 
 func scanMarket(row scanner) (models.Market, error) {
 	var (
-		market  models.Market
-		outcome sql.NullInt64
+		market    models.Market
+		avatarURL sql.NullString
+		outcome   sql.NullInt64
 	)
 	err := row.Scan(
 		&market.ID,
@@ -558,6 +571,7 @@ func scanMarket(row scanner) (models.Market, error) {
 		&market.Creator,
 		&market.Question,
 		&market.Category,
+		&avatarURL,
 		&market.YesPool,
 		&market.NoPool,
 		&market.TotalLiquidity,
@@ -571,6 +585,9 @@ func scanMarket(row scanner) (models.Market, error) {
 	if err != nil {
 		return models.Market{}, err
 	}
+	if avatarURL.Valid {
+		market.AvatarURL = avatarURL.String
+	}
 	if outcome.Valid {
 		value := int(outcome.Int64)
 		market.Outcome = &value
@@ -578,11 +595,41 @@ func scanMarket(row scanner) (models.Market, error) {
 	return market, nil
 }
 
+func ensureSchema(ctx context.Context, db *sql.DB) error {
+	return ensureColumn(ctx, db, "markets", "avatar_url", "MEDIUMTEXT NULL AFTER category")
+}
+
+func ensureColumn(ctx context.Context, db *sql.DB, tableName string, columnName string, definition string) error {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+		tableName, columnName,
+	).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err = db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition))
+	return err
+}
+
 func nullableInt(value *int) any {
 	if value == nil {
 		return nil
 	}
 	return *value
+}
+
+func nullableString(value string) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func scanPosition(row scanner) (models.Position, error) {

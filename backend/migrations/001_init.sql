@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS markets (
   creator VARCHAR(96) NOT NULL,
   question VARCHAR(280) NOT NULL,
   category VARCHAR(32) NOT NULL,
+  avatar_url MEDIUMTEXT NULL,
   yes_pool DOUBLE NOT NULL DEFAULT 0,
   no_pool DOUBLE NOT NULL DEFAULT 0,
   total_liquidity DOUBLE NOT NULL DEFAULT 0,

@@ -7,6 +7,7 @@ type Market struct {
 	EndTime            int64     `json:"endTime"`
 	Question           string    `json:"question"`
 	Category           string    `json:"category"`
+	AvatarURL          string    `json:"avatarUrl,omitempty"`
 	YesPool            float64   `json:"yesPool"`
 	NoPool             float64   `json:"noPool"`
 	TotalLiquidity     float64   `json:"totalLiquidity"`
@@ -52,6 +53,7 @@ type CreateMarketRequest struct {
 	Creator          string  `json:"creator"`
 	Question         string  `json:"question"`
 	Category         string  `json:"category"`
+	AvatarURL        string  `json:"avatarUrl"`
 	EndTime          int64   `json:"endTime"`
 	InitialLiquidity float64 `json:"initialLiquidity"`
 }

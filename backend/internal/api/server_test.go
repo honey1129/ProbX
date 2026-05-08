@@ -54,6 +54,7 @@ func (f *fakeStore) CreateMarket(ctx context.Context, req models.CreateMarketReq
 	next.ID = "created"
 	next.Question = req.Question
 	next.EndTime = req.EndTime
+	next.AvatarURL = req.AvatarURL
 	return next, nil
 }
 
@@ -143,6 +144,27 @@ func TestRecordTrade(t *testing.T) {
 	}
 	if payload.Position.Size != 1.5 || payload.Activity.Action != "BUY" {
 		t.Fatalf("unexpected trade response: %+v", payload)
+	}
+}
+
+func TestCreateMarketWithAvatarURL(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"question":"Will SOL close above $250?","category":"Crypto","endTime":1893456000,"avatarUrl":"https://probx.site/avatar.png"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.Market
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.AvatarURL != "https://probx.site/avatar.png" {
+		t.Fatalf("unexpected avatar URL: %q", payload.AvatarURL)
 	}
 }
 

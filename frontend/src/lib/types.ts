@@ -7,6 +7,7 @@ export type Market = {
   endTime: number;
   question: string;
   category: "Crypto" | "Politics" | "Sports" | "On-chain" | "Tech" | "Macro";
+  avatarUrl?: string;
   yesPool: number;
   noPool: number;
   totalLiquidity: number;

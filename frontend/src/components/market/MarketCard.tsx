@@ -83,6 +83,14 @@ export function MarketCard({ market }: { market: Market }) {
 function MarketVisual({ market }: { market: Market }) {
   const variant = marketVisualVariant(market);
 
+  if (market.avatarUrl) {
+    return (
+      <div className="market-avatar custom" aria-hidden="true">
+        <img src={market.avatarUrl} alt="" loading="lazy" />
+      </div>
+    );
+  }
+
   return (
     <div className={`market-avatar ${variant}`} aria-hidden="true">
       {variant === "fed" ? (

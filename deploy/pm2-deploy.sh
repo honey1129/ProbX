@@ -33,6 +33,7 @@ require_cmd go
 require_cmd npm
 require_cmd pm2
 require_cmd curl
+require_cmd mysql
 
 if [ ! -d "$PROJECT_DIR/.git" ]; then
   printf 'Project directory is not a git checkout: %s\n' "$PROJECT_DIR" >&2
@@ -72,6 +73,17 @@ log "checked out commit $DEPLOY_COMMIT"
 log "building backend"
 cd "$PROJECT_DIR/backend"
 go build -o probx-api ./cmd/server
+go build -o probx-indexer ./cmd/indexer
+
+log "applying backend migrations"
+set -a
+. "$PROJECT_DIR/backend/.env"
+set +a
+if [ -n "${PROBX_MYSQL_CLI_DSN:-}" ]; then
+  "$PROJECT_DIR/backend/scripts/migrate.sh"
+else
+  log "skipping migrations; set PROBX_MYSQL_CLI_DSN in backend/.env to enable automatic migrations"
+fi
 
 log "installing frontend dependencies"
 cd "$PROJECT_DIR/frontend"
@@ -89,6 +101,10 @@ cd "$PROJECT_DIR"
 pm2 delete probx-frontend >/dev/null 2>&1 || true
 PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" pm2 startOrReload "$ECOSYSTEM_FILE" --update-env
 pm2 save
+
+log "indexing devnet markets"
+cd "$PROJECT_DIR/backend"
+./probx-indexer || log "indexer failed; API and frontend were still deployed"
 
 log "verifying frontend health"
 for attempt in $(seq 1 30); do

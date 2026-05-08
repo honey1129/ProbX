@@ -5,11 +5,14 @@ skip-lint = false
 [programs.localnet]
 probx_prediction = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"
 
+[programs.devnet]
+probx_prediction = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

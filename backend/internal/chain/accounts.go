@@ -20,6 +20,7 @@ const lamportsPerSOL = 1_000_000_000
 
 var marketDiscriminator = accountDiscriminator("Market")
 var positionDiscriminator = accountDiscriminator("Position")
+var marketCreatedEventDiscriminator = eventDiscriminator("MarketCreated")
 var sharesBoughtEventDiscriminator = eventDiscriminator("SharesBought")
 var sharesSoldEventDiscriminator = eventDiscriminator("SharesSold")
 var marketResolvedEventDiscriminator = eventDiscriminator("MarketResolved")
@@ -61,8 +62,12 @@ type ProgramEvent struct {
 	Slot            uint64
 	Type            string
 	Action          string
+	OnchainID       uint64
 	MarketPublicKey string
 	Owner           string
+	Resolver        string
+	Question        string
+	EndTime         int64
 	Side            uint8
 	AmountLamports  uint64
 	SharesLamports  uint64
@@ -425,6 +430,18 @@ func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
 	reader := accountReader{raw: raw, offset: 0}
 	discriminator := reader.readBytes(8)
 	switch {
+	case bytes.Equal(discriminator, marketCreatedEventDiscriminator):
+		event := ProgramEvent{Type: "MarketCreated", Action: "CREATE"}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.OnchainID = reader.readU64()
+		event.Owner = base58Encode(reader.readBytes(32))
+		event.Resolver = base58Encode(reader.readBytes(32))
+		event.Question = reader.readString()
+		event.EndTime = reader.readI64()
+		event.TotalLiquidity = reader.readU64()
+		event.YesPoolLamports = reader.readU64()
+		event.NoPoolLamports = reader.readU64()
+		return event, reader.err == nil
 	case bytes.Equal(discriminator, sharesBoughtEventDiscriminator):
 		event := ProgramEvent{Type: "SharesBought", Action: "BUY"}
 		event.MarketPublicKey = base58Encode(reader.readBytes(32))
@@ -520,8 +537,12 @@ func (e ProgramEvent) Model() models.IndexedEvent {
 		Signature:       e.Signature,
 		Slot:            e.Slot,
 		Type:            e.Type,
+		OnchainID:       e.OnchainID,
 		MarketPublicKey: e.MarketPublicKey,
 		Owner:           e.Owner,
+		Resolver:        e.Resolver,
+		Question:        e.Question,
+		EndTime:         e.EndTime,
 		Side:            sideLabel(e.Side),
 		Action:          e.Action,
 		AmountSOL:       lamportsToSOL(e.AmountLamports),

@@ -78,6 +78,40 @@ func TestDecodePositionAccount(t *testing.T) {
 	}
 }
 
+func TestDecodeMarketCreatedEvent(t *testing.T) {
+	market := bytes.Repeat([]byte{9}, 32)
+	creator := bytes.Repeat([]byte{10}, 32)
+	resolver := bytes.Repeat([]byte{11}, 32)
+	raw := append([]byte{}, marketCreatedEventDiscriminator...)
+	raw = append(raw, market...)
+	raw = appendU64(raw, 77)
+	raw = append(raw, creator...)
+	raw = append(raw, resolver...)
+	raw = appendString(raw, "Will SOL close above $250?")
+	raw = appendU64(raw, 1_893_456_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+
+	event, ok := DecodeProgramEvent("Program data: " + base64.StdEncoding.EncodeToString(raw))
+	if !ok {
+		t.Fatalf("expected event decode")
+	}
+	if event.Type != "MarketCreated" || event.Action != "CREATE" || event.OnchainID != 77 {
+		t.Fatalf("unexpected event header: %+v", event)
+	}
+	if event.MarketPublicKey != base58Encode(market) || event.Owner != base58Encode(creator) || event.Resolver != base58Encode(resolver) {
+		t.Fatalf("unexpected event pubkeys: %+v", event)
+	}
+	if event.Question != "Will SOL close above $250?" || event.EndTime != 1_893_456_000 {
+		t.Fatalf("unexpected event content: %+v", event)
+	}
+	model := event.Model()
+	if model.OnchainID != 77 || model.Question != event.Question || model.TotalLiquidity != 2 {
+		t.Fatalf("unexpected model: %+v", model)
+	}
+}
+
 func TestDecodeSharesBoughtEvent(t *testing.T) {
 	market := bytes.Repeat([]byte{11}, 32)
 	owner := bytes.Repeat([]byte{12}, 32)
@@ -494,6 +528,13 @@ func appendU64(out []byte, value uint64) []byte {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, value)
 	return append(out, buf...)
+}
+
+func appendString(out []byte, value string) []byte {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, uint32(len(value)))
+	out = append(out, buf...)
+	return append(out, []byte(value)...)
 }
 
 func jsonResponse(t *testing.T, payload map[string]any) *http.Response {

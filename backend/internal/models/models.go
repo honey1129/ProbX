@@ -114,8 +114,12 @@ type IndexedEvent struct {
 	Signature       string
 	Slot            uint64
 	Type            string
+	OnchainID       uint64
 	MarketPublicKey string
 	Owner           string
+	Resolver        string
+	Question        string
+	EndTime         int64
 	Side            string
 	Action          string
 	AmountSOL       float64

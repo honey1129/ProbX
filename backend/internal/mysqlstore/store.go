@@ -393,6 +393,16 @@ func (s *Store) IndexProgramEvent(ctx context.Context, event models.IndexedEvent
 		return inserted, err
 	}
 
+	if event.Type == "MarketCreated" {
+		if err := indexCreatedEvent(ctx, tx, event); err != nil {
+			return false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
 	market, err := selectMarketByPublicKeyForUpdate(ctx, tx, event.MarketPublicKey)
 	if err != nil {
 		return false, err
@@ -1032,6 +1042,64 @@ func insertIndexedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEve
 		return false, err
 	}
 	return affected > 0, nil
+}
+
+func indexCreatedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEvent) error {
+	event.Question = strings.TrimSpace(event.Question)
+	if event.Question == "" {
+		return fmt.Errorf("%w: created event question is required", ErrInvalid)
+	}
+	if event.EndTime <= 0 {
+		return fmt.Errorf("%w: created event endTime is required", ErrInvalid)
+	}
+	marketID := event.MarketPublicKey
+	if event.OnchainID > 0 {
+		marketID = fmt.Sprintf("market_%d", event.OnchainID)
+	}
+	creator := normalizeText(event.Owner, "unknown")
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO markets (
+			id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+			total_liquidity, volume_24h, participants, change_24h, end_time,
+			resolved, outcome, created_at, updated_at
+		) VALUES (?, ?, ?, ?, 'Crypto', NULL, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)
+		ON DUPLICATE KEY UPDATE
+		  creator = VALUES(creator),
+		  question = VALUES(question),
+		  yes_pool = VALUES(yes_pool),
+		  no_pool = VALUES(no_pool),
+		  total_liquidity = VALUES(total_liquidity),
+		  end_time = VALUES(end_time),
+		  updated_at = GREATEST(updated_at, VALUES(updated_at))`,
+		marketID,
+		event.MarketPublicKey,
+		creator,
+		event.Question,
+		event.YesPool,
+		event.NoPool,
+		event.TotalLiquidity,
+		event.EndTime,
+		event.TimestampMillis,
+		event.TimestampMillis,
+	)
+	if err != nil {
+		return err
+	}
+	if event.YesPool > 0 || event.NoPool > 0 {
+		if err := insertProbabilityPoint(ctx, tx, marketID, probability(event.YesPool, event.NoPool), event.TimestampMillis); err != nil {
+			return err
+		}
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(creator),
+		MarketID:   marketID,
+		Side:       "YES",
+		Action:     "CREATE",
+		Size:       event.TotalLiquidity * 1000,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
 }
 
 func indexTradeEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {

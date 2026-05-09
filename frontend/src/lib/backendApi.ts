@@ -17,6 +17,8 @@ export type CreateMarketPayload = {
   avatarUrl?: string;
   endTime: number;
   initialLiquidity?: number;
+  signature?: string;
+  status?: string;
 };
 
 export type TradePayload = {

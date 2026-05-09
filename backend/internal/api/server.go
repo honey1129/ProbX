@@ -29,7 +29,10 @@ type Store interface {
 }
 
 type TradeVerifier interface {
+	VerifyCreateMarket(ctx context.Context, req models.CreateMarketRequest) error
 	VerifyTrade(ctx context.Context, req models.TradeRequest) error
+	VerifyResolve(ctx context.Context, req models.ResolveMarketRequest) error
+	VerifyRedeem(ctx context.Context, req models.RedeemPositionRequest) error
 }
 
 type Options struct {
@@ -189,6 +192,12 @@ func (s *Server) createMarket(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := requestContext(r)
 	defer cancel()
+	if s.tradeVerifier != nil {
+		if err := s.tradeVerifier.VerifyCreateMarket(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
 	market, err := s.store.CreateMarket(ctx, req)
 	if err != nil {
 		writeStoreError(w, err)
@@ -258,7 +267,20 @@ func (s *Server) resolveMarket(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := requestContext(r)
 	defer cancel()
-	market, err := s.store.ResolveMarket(ctx, r.PathValue("id"), req)
+	marketID := r.PathValue("id")
+	if s.tradeVerifier != nil {
+		market, err := s.store.GetMarket(ctx, strings.TrimSpace(marketID))
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		req.MarketPublicKey = market.PublicKey
+		if err := s.tradeVerifier.VerifyResolve(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
+	market, err := s.store.ResolveMarket(ctx, marketID, req)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -274,12 +296,44 @@ func (s *Server) redeemPosition(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := requestContext(r)
 	defer cancel()
-	response, err := s.store.RedeemPosition(ctx, r.PathValue("id"), req)
+	positionID := r.PathValue("id")
+	if s.tradeVerifier != nil {
+		position, market, err := s.positionMarket(ctx, positionID, req.Owner)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		_ = position
+		req.MarketPublicKey = market.PublicKey
+		if err := s.tradeVerifier.VerifyRedeem(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
+	response, err := s.store.RedeemPosition(ctx, positionID, req)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) positionMarket(ctx context.Context, positionID string, owner string) (models.Position, models.Market, error) {
+	positions, err := s.store.ListPositions(ctx, owner)
+	if err != nil {
+		return models.Position{}, models.Market{}, err
+	}
+	for _, position := range positions {
+		if position.ID != positionID {
+			continue
+		}
+		market, err := s.store.GetMarket(ctx, position.MarketID)
+		if err != nil {
+			return models.Position{}, models.Market{}, err
+		}
+		return position, market, nil
+	}
+	return models.Position{}, models.Market{}, mysqlstore.ErrNotFound
 }
 
 func (s *Server) withCORS(next http.Handler) http.Handler {

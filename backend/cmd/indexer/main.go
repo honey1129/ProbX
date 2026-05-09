@@ -7,8 +7,11 @@ import (
 
 	"probx/backend/internal/chain"
 	"probx/backend/internal/config"
+	"probx/backend/internal/models"
 	"probx/backend/internal/mysqlstore"
 )
+
+const programEventsCursorName = "program_events"
 
 func main() {
 	cfg := config.Load()
@@ -53,12 +56,21 @@ func main() {
 		indexedPositions++
 	}
 
-	events, err := client.FetchRecentEvents(ctx, 200)
+	cursor, err := store.GetIndexerCursor(ctx, programEventsCursorName)
 	if err != nil {
-		log.Fatalf("fetch recent program events: %v", err)
+		log.Fatalf("load indexer cursor: %v", err)
+	}
+	events, signatures, err := client.FetchEvents(ctx, chain.EventFetchOptions{
+		Limit:          5000,
+		PageSize:       200,
+		UntilSignature: cursor.Signature,
+	})
+	if err != nil {
+		log.Fatalf("fetch program events: %v", err)
 	}
 	indexedEvents := 0
 	skippedEvents := 0
+	nextCursor := cursor
 	for _, event := range events {
 		inserted, err := store.IndexProgramEvent(ctx, event.Model())
 		if err != nil {
@@ -70,12 +82,24 @@ func main() {
 			skippedEvents++
 		}
 	}
+	if len(signatures) > 0 {
+		newest := signatures[0]
+		nextCursor = models.IndexerCursor{
+			Signature: newest.Signature,
+			Slot:      newest.Slot,
+		}
+		if err := store.SaveIndexerCursor(ctx, programEventsCursorName, nextCursor); err != nil {
+			log.Fatalf("save indexer cursor: %v", err)
+		}
+	}
 
 	log.Printf(
-		"indexed %d market account(s), %d position account(s), %d new event(s), %d duplicate event(s)",
+		"indexed %d market account(s), %d position account(s), %d new event(s), %d duplicate event(s), cursor=%q->%q",
 		len(markets),
 		indexedPositions,
 		indexedEvents,
 		skippedEvents,
+		cursor.Signature,
+		nextCursor.Signature,
 	)
 }

@@ -75,6 +75,12 @@ type ProgramEvent struct {
 	BlockTime       int64
 }
 
+type EventFetchOptions struct {
+	Limit          int
+	PageSize       int
+	UntilSignature string
+}
+
 func NewAccountClient(endpoint string, programID string, timeout time.Duration) (*AccountClient, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	programID = strings.TrimSpace(programID)
@@ -143,19 +149,29 @@ func (c *AccountClient) FetchPositions(ctx context.Context) ([]PositionAccount, 
 }
 
 func (c *AccountClient) FetchRecentEvents(ctx context.Context, limit int) ([]ProgramEvent, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 200
+	events, _, err := c.FetchEvents(ctx, EventFetchOptions{Limit: limit})
+	return events, err
+}
+
+func (c *AccountClient) FetchEvents(ctx context.Context, options EventFetchOptions) ([]ProgramEvent, []SignatureInfo, error) {
+	if options.Limit <= 0 || options.Limit > 5000 {
+		options.Limit = 500
 	}
-	signatures, err := c.fetchSignatures(ctx, limit)
+	if options.PageSize <= 0 || options.PageSize > 1000 {
+		options.PageSize = 200
+	}
+	signatures, err := c.fetchSignaturesUntil(ctx, options.Limit, options.PageSize, strings.TrimSpace(options.UntilSignature))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	events := []ProgramEvent{}
-	for _, item := range signatures {
+	ordered := append([]SignatureInfo{}, signatures...)
+	reverseSignatures(ordered)
+	for _, item := range ordered {
 		logs, err := c.fetchTransactionLogs(ctx, item.Signature)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for index, logLine := range logs.LogMessages() {
 			event, ok := DecodeProgramEvent(logLine)
@@ -169,20 +185,56 @@ func (c *AccountClient) FetchRecentEvents(ctx context.Context, limit int) ([]Pro
 			events = append(events, event)
 		}
 	}
-	return events, nil
+	return events, signatures, nil
 }
 
-func (c *AccountClient) fetchSignatures(ctx context.Context, limit int) ([]signatureInfo, error) {
+func (c *AccountClient) fetchSignatures(ctx context.Context, limit int) ([]SignatureInfo, error) {
+	return c.fetchSignaturesPage(ctx, limit, "", "")
+}
+
+func (c *AccountClient) fetchSignaturesUntil(ctx context.Context, limit int, pageSize int, until string) ([]SignatureInfo, error) {
+	signatures := []SignatureInfo{}
+	before := ""
+	for len(signatures) < limit {
+		remaining := limit - len(signatures)
+		nextLimit := pageSize
+		if remaining < nextLimit {
+			nextLimit = remaining
+		}
+		page, err := c.fetchSignaturesPage(ctx, nextLimit, before, until)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		signatures = append(signatures, page...)
+		before = page[len(page)-1].Signature
+		if len(page) < nextLimit {
+			break
+		}
+	}
+	return signatures, nil
+}
+
+func (c *AccountClient) fetchSignaturesPage(ctx context.Context, limit int, before string, until string) ([]SignatureInfo, error) {
+	options := map[string]any{
+		"limit":      limit,
+		"commitment": "confirmed",
+	}
+	if strings.TrimSpace(before) != "" {
+		options["before"] = strings.TrimSpace(before)
+	}
+	if strings.TrimSpace(until) != "" {
+		options["until"] = strings.TrimSpace(until)
+	}
 	payload := rpcRequest{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "getSignaturesForAddress",
 		Params: []any{
 			c.programID,
-			map[string]any{
-				"limit":      limit,
-				"commitment": "confirmed",
-			},
+			options,
 		},
 	}
 	body, err := json.Marshal(payload)
@@ -490,11 +542,11 @@ type programAccountsResponse struct {
 }
 
 type signatureResponse struct {
-	Result []signatureInfo `json:"result"`
+	Result []SignatureInfo `json:"result"`
 	Error  *rpcError       `json:"error"`
 }
 
-type signatureInfo struct {
+type SignatureInfo struct {
 	Signature string `json:"signature"`
 	Slot      uint64 `json:"slot"`
 	BlockTime int64  `json:"blockTime"`
@@ -632,6 +684,12 @@ func sideLabel(side uint8) string {
 
 func lamportsToSOL(value uint64) float64 {
 	return float64(value) / lamportsPerSOL
+}
+
+func reverseSignatures(values []SignatureInfo) {
+	for i, j := 0, len(values)-1; i < j; i, j = i+1, j-1 {
+		values[i], values[j] = values[j], values[i]
+	}
 }
 
 func base58Encode(input []byte) string {

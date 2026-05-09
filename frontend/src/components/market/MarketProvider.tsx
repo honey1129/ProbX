@@ -509,7 +509,9 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             avatarUrl: options?.avatarUrl,
             initialLiquidity: options?.initialLiquidity,
             creator,
-            publicKey
+            publicKey,
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
           });
           setMarkets((current) => upsertById(current, market));
           setError(null);

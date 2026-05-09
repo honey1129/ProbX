@@ -56,6 +56,8 @@ type CreateMarketRequest struct {
 	AvatarURL        string  `json:"avatarUrl"`
 	EndTime          int64   `json:"endTime"`
 	InitialLiquidity float64 `json:"initialLiquidity"`
+	Signature        string  `json:"signature"`
+	Status           string  `json:"status"`
 }
 
 type TradeRequest struct {
@@ -78,16 +80,18 @@ type TradeResponse struct {
 }
 
 type ResolveMarketRequest struct {
-	Resolver  string `json:"resolver"`
-	Outcome   int    `json:"outcome"`
-	Signature string `json:"signature"`
-	Status    string `json:"status"`
+	MarketPublicKey string `json:"-"`
+	Resolver        string `json:"resolver"`
+	Outcome         int    `json:"outcome"`
+	Signature       string `json:"signature"`
+	Status          string `json:"status"`
 }
 
 type RedeemPositionRequest struct {
-	Owner     string `json:"owner"`
-	Signature string `json:"signature"`
-	Status    string `json:"status"`
+	MarketPublicKey string `json:"-"`
+	Owner           string `json:"owner"`
+	Signature       string `json:"signature"`
+	Status          string `json:"status"`
 }
 
 type RedeemPositionResponse struct {
@@ -123,4 +127,9 @@ type IndexedEvent struct {
 	TotalLiquidity  float64
 	PriceAfter      float64
 	TimestampMillis int64
+}
+
+type IndexerCursor struct {
+	Signature string
+	Slot      uint64
 }

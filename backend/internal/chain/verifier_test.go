@@ -31,6 +31,42 @@ func TestVerifierAcceptsConfirmedProgramTransaction(t *testing.T) {
 	}
 }
 
+func TestVerifierAcceptsConfirmedCreateMarketTransaction(t *testing.T) {
+	verifier := testVerifier(t, map[string]any{
+		"result": successfulCreateMarketTransaction("sig_123", "creator_123", "program_123", "market_123", "Will SOL close above $250?", 1_893_456_000, 2_000_000_000),
+	})
+
+	err := verifier.VerifyCreateMarket(context.Background(), models.CreateMarketRequest{
+		Signature:        "sig_123",
+		Creator:          "creator_123",
+		PublicKey:        "market_123",
+		Question:         "Will SOL close above $250?",
+		EndTime:          1_893_456_000,
+		InitialLiquidity: 2,
+	})
+	if err != nil {
+		t.Fatalf("expected verification success, got %v", err)
+	}
+}
+
+func TestVerifierRejectsMismatchedCreateMarketInstruction(t *testing.T) {
+	verifier := testVerifier(t, map[string]any{
+		"result": successfulCreateMarketTransaction("sig_123", "creator_123", "program_123", "market_123", "Will SOL close above $250?", 1_893_456_000, 2_000_000_000),
+	})
+
+	err := verifier.VerifyCreateMarket(context.Background(), models.CreateMarketRequest{
+		Signature:        "sig_123",
+		Creator:          "creator_123",
+		PublicKey:        "market_123",
+		Question:         "Will ETH close above $5,000?",
+		EndTime:          1_893_456_000,
+		InitialLiquidity: 2,
+	})
+	if !errors.Is(err, ErrVerificationFailed) {
+		t.Fatalf("expected verification failure, got %v", err)
+	}
+}
+
 func TestVerifierRejectsMissingOwnerSigner(t *testing.T) {
 	verifier := testVerifier(t, map[string]any{
 		"result": successfulTransaction("sig_123", "someone_else", "program_123", "market_123", "buy_shares", 1_500_000_000, 1),
@@ -82,6 +118,68 @@ func TestVerifierAcceptsConfirmedSellTransaction(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected verification success, got %v", err)
+	}
+}
+
+func TestVerifierAcceptsConfirmedResolveTransaction(t *testing.T) {
+	verifier := testVerifier(t, map[string]any{
+		"result": successfulResolveTransaction("sig_123", "resolver_123", "program_123", "market_123", 1),
+	})
+
+	err := verifier.VerifyResolve(context.Background(), models.ResolveMarketRequest{
+		Signature:       "sig_123",
+		Resolver:        "resolver_123",
+		MarketPublicKey: "market_123",
+		Outcome:         1,
+	})
+	if err != nil {
+		t.Fatalf("expected verification success, got %v", err)
+	}
+}
+
+func TestVerifierRejectsMismatchedResolveInstruction(t *testing.T) {
+	verifier := testVerifier(t, map[string]any{
+		"result": successfulResolveTransaction("sig_123", "resolver_123", "program_123", "market_123", 1),
+	})
+
+	err := verifier.VerifyResolve(context.Background(), models.ResolveMarketRequest{
+		Signature:       "sig_123",
+		Resolver:        "resolver_123",
+		MarketPublicKey: "market_123",
+		Outcome:         0,
+	})
+	if !errors.Is(err, ErrVerificationFailed) {
+		t.Fatalf("expected verification failure, got %v", err)
+	}
+}
+
+func TestVerifierAcceptsConfirmedRedeemTransaction(t *testing.T) {
+	verifier := testVerifier(t, map[string]any{
+		"result": successfulRedeemTransaction("sig_123", "owner_123", "program_123", "market_123"),
+	})
+
+	err := verifier.VerifyRedeem(context.Background(), models.RedeemPositionRequest{
+		Signature:       "sig_123",
+		Owner:           "owner_123",
+		MarketPublicKey: "market_123",
+	})
+	if err != nil {
+		t.Fatalf("expected verification success, got %v", err)
+	}
+}
+
+func TestVerifierRejectsMismatchedRedeemInstruction(t *testing.T) {
+	verifier := testVerifier(t, map[string]any{
+		"result": successfulRedeemTransaction("sig_123", "owner_123", "program_123", "market_123"),
+	})
+
+	err := verifier.VerifyRedeem(context.Background(), models.RedeemPositionRequest{
+		Signature:       "sig_123",
+		Owner:           "owner_123",
+		MarketPublicKey: "different_market",
+	})
+	if !errors.Is(err, ErrVerificationFailed) {
+		t.Fatalf("expected verification failure, got %v", err)
 	}
 }
 
@@ -178,6 +276,108 @@ func successfulTransaction(signature string, owner string, programID string, mar
 	}
 }
 
+func successfulCreateMarketTransaction(signature string, creator string, programID string, market string, question string, endTime int64, initialLiquidity uint64) map[string]any {
+	return map[string]any{
+		"meta": map[string]any{
+			"err": nil,
+			"loadedAddresses": map[string]any{
+				"writable": []string{},
+				"readonly": []string{},
+			},
+			"innerInstructions": []any{},
+		},
+		"transaction": map[string]any{
+			"signatures": []string{signature},
+			"message": map[string]any{
+				"accountKeys": []map[string]any{
+					{"pubkey": creator, "signer": true},
+					{"pubkey": programID, "signer": false},
+				},
+				"instructions": []map[string]any{
+					{
+						"programId": programID,
+						"accounts":  []string{market, creator, "11111111111111111111111111111111"},
+						"data":      base58Encode(createMarketInstructionBytes(question, endTime, initialLiquidity)),
+					},
+				},
+			},
+		},
+	}
+}
+
+func successfulResolveTransaction(signature string, resolver string, programID string, market string, outcome uint8) map[string]any {
+	return map[string]any{
+		"meta": map[string]any{
+			"err": nil,
+			"loadedAddresses": map[string]any{
+				"writable": []string{},
+				"readonly": []string{},
+			},
+			"innerInstructions": []any{},
+		},
+		"transaction": map[string]any{
+			"signatures": []string{signature},
+			"message": map[string]any{
+				"accountKeys": []map[string]any{
+					{"pubkey": resolver, "signer": true},
+					{"pubkey": programID, "signer": false},
+				},
+				"instructions": []map[string]any{
+					{
+						"programId": programID,
+						"accounts":  []string{market, resolver},
+						"data":      base58Encode(resolveInstructionBytes(outcome)),
+					},
+				},
+			},
+		},
+	}
+}
+
+func successfulRedeemTransaction(signature string, owner string, programID string, market string) map[string]any {
+	return map[string]any{
+		"meta": map[string]any{
+			"err": nil,
+			"loadedAddresses": map[string]any{
+				"writable": []string{},
+				"readonly": []string{},
+			},
+			"innerInstructions": []any{},
+		},
+		"transaction": map[string]any{
+			"signatures": []string{signature},
+			"message": map[string]any{
+				"accountKeys": []map[string]any{
+					{"pubkey": owner, "signer": true},
+					{"pubkey": programID, "signer": false},
+				},
+				"instructions": []map[string]any{
+					{
+						"programId": programID,
+						"accounts":  []string{market, "position_123", owner},
+						"data":      base58Encode(redeemInstructionBytes("redeem_winnings")),
+					},
+				},
+			},
+		},
+	}
+}
+
+func createMarketInstructionBytes(question string, endTime int64, initialLiquidity uint64) []byte {
+	out := append([]byte{}, createMarketInstruction...)
+	questionLength := make([]byte, 4)
+	binary.LittleEndian.PutUint32(questionLength, uint32(len(question)))
+	out = append(out, questionLength...)
+	out = append(out, []byte(question)...)
+	endTimeBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(endTimeBytes, uint64(endTime))
+	out = append(out, endTimeBytes...)
+	liquidityBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(liquidityBytes, initialLiquidity)
+	out = append(out, liquidityBytes...)
+	return out
+}
+
 func tradeInstructionBytes(name string, amount uint64, side uint8) []byte {
 	var discriminator []byte
 	switch name {
@@ -195,4 +395,17 @@ func tradeInstructionBytes(name string, amount uint64, side uint8) []byte {
 	out = append(out, side)
 	out = append(out, make([]byte, 8)...)
 	return out
+}
+
+func resolveInstructionBytes(outcome uint8) []byte {
+	out := append([]byte{}, resolveMarketInstruction...)
+	out = append(out, outcome)
+	return out
+}
+
+func redeemInstructionBytes(name string) []byte {
+	if name == "claim_reward" {
+		return append([]byte{}, claimRewardInstruction...)
+	}
+	return append([]byte{}, redeemWinningsInstruction...)
 }

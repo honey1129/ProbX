@@ -231,6 +231,118 @@ func TestAccountClientFetchRecentEvents(t *testing.T) {
 	}
 }
 
+func TestAccountClientFetchEventsPaginatesUntilCursorAndReturnsOldestFirst(t *testing.T) {
+	raw := append([]byte{}, sharesBoughtEventDiscriminator...)
+	raw = append(raw, bytes.Repeat([]byte{15}, 32)...)
+	raw = append(raw, bytes.Repeat([]byte{16}, 32)...)
+	raw = append(raw, 1)
+	raw = appendU64(raw, 1_000_000_000)
+	raw = appendU64(raw, 500_000_000)
+	raw = appendU64(raw, 2_500_000_000)
+	raw = appendU64(raw, 1_500_000_000)
+	raw = appendU64(raw, 4_000_000_000)
+	raw = appendU64(raw, 625_000_000)
+
+	signaturePages := [][]map[string]any{
+		{
+			{"signature": "sig_new", "slot": 102, "blockTime": 1002},
+			{"signature": "sig_mid", "slot": 101, "blockTime": 1001},
+		},
+		{
+			{"signature": "sig_old", "slot": 100, "blockTime": 1000},
+		},
+	}
+	signatureCalls := 0
+	transactionCalls := 0
+	client := &AccountClient{
+		endpoint:  "http://solana.invalid",
+		programID: "program_123",
+		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var payload rpcRequest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			switch payload.Method {
+			case "getSignaturesForAddress":
+				if signatureCalls >= len(signaturePages) {
+					t.Fatalf("unexpected signature page request %d", signatureCalls+1)
+				}
+				options, ok := payload.Params[1].(map[string]any)
+				if !ok {
+					t.Fatalf("expected signature options map, got %+v", payload.Params[1])
+				}
+				if options["until"] != "sig_cursor" {
+					t.Fatalf("expected until cursor on page %d, got %+v", signatureCalls+1, options)
+				}
+				if signatureCalls == 0 {
+					if _, ok := options["before"]; ok {
+						t.Fatalf("did not expect before on first page: %+v", options)
+					}
+				} else if options["before"] != "sig_mid" {
+					t.Fatalf("expected before sig_mid on second page, got %+v", options)
+				}
+				page := signaturePages[signatureCalls]
+				signatureCalls++
+				return jsonResponse(t, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      payload.ID,
+					"result":  page,
+				}), nil
+			case "getTransaction":
+				if len(payload.Params) == 0 {
+					t.Fatalf("expected transaction signature param")
+				}
+				signature, ok := payload.Params[0].(string)
+				if !ok {
+					t.Fatalf("expected transaction signature string, got %+v", payload.Params[0])
+				}
+				expectedOrder := []string{"sig_old", "sig_mid", "sig_new"}
+				if transactionCalls >= len(expectedOrder) || signature != expectedOrder[transactionCalls] {
+					t.Fatalf("unexpected transaction order call=%d signature=%s", transactionCalls+1, signature)
+				}
+				transactionCalls++
+				return jsonResponse(t, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      payload.ID,
+					"result": map[string]any{
+						"slot":      200 + transactionCalls,
+						"blockTime": 3000 + transactionCalls,
+						"meta": map[string]any{
+							"logMessages": []string{
+								"Program data: " + base64.StdEncoding.EncodeToString(raw),
+							},
+						},
+					},
+				}), nil
+			default:
+				t.Fatalf("unexpected method %s", payload.Method)
+				return nil, nil
+			}
+		})},
+	}
+
+	events, signatures, err := client.FetchEvents(context.Background(), EventFetchOptions{
+		Limit:          3,
+		PageSize:       2,
+		UntilSignature: "sig_cursor",
+	})
+	if err != nil {
+		t.Fatalf("fetch paginated events: %v", err)
+	}
+	if signatureCalls != 2 {
+		t.Fatalf("expected 2 signature calls, got %d", signatureCalls)
+	}
+	if len(signatures) != 3 || signatures[0].Signature != "sig_new" || signatures[2].Signature != "sig_old" {
+		t.Fatalf("expected newest-first signatures, got %+v", signatures)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+	if events[0].Signature != "sig_old" || events[1].Signature != "sig_mid" || events[2].Signature != "sig_new" {
+		t.Fatalf("expected oldest-first events, got %+v", events)
+	}
+}
+
 func TestAccountClientFetchPositions(t *testing.T) {
 	positionRaw := positionAccountBytes(t, positionAccountFixture{
 		Owner:             bytes.Repeat([]byte{7}, 32),

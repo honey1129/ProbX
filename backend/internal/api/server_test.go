@@ -15,8 +15,11 @@ import (
 )
 
 type fakeStore struct {
-	market       models.Market
-	recordCalled bool
+	market        models.Market
+	createCalled  bool
+	recordCalled  bool
+	resolveCalled bool
+	redeemCalled  bool
 }
 
 func (f *fakeStore) Ping(ctx context.Context) error {
@@ -47,6 +50,7 @@ func (f *fakeStore) GetMarket(ctx context.Context, id string) (models.Market, er
 }
 
 func (f *fakeStore) CreateMarket(ctx context.Context, req models.CreateMarketRequest) (models.Market, error) {
+	f.createCalled = true
 	if strings.TrimSpace(req.Question) == "" {
 		return models.Market{}, mysqlstore.ErrInvalid
 	}
@@ -59,6 +63,11 @@ func (f *fakeStore) CreateMarket(ctx context.Context, req models.CreateMarketReq
 }
 
 func (f *fakeStore) ListPositions(ctx context.Context, owner string) ([]models.Position, error) {
+	if owner == "" || owner == "local" || owner == "owner_123" {
+		return []models.Position{
+			{ID: "pos_1", MarketID: f.market.ID, Side: "YES", Size: 1, EntryProbability: 0.5, CurrentProbability: 0.6, PnL: 10},
+		}, nil
+	}
 	return []models.Position{}, nil
 }
 
@@ -81,6 +90,7 @@ func (f *fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (m
 }
 
 func (f *fakeStore) ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error) {
+	f.resolveCalled = true
 	if marketID != f.market.ID {
 		return models.Market{}, mysqlstore.ErrNotFound
 	}
@@ -91,6 +101,7 @@ func (f *fakeStore) ResolveMarket(ctx context.Context, marketID string, req mode
 }
 
 func (f *fakeStore) RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error) {
+	f.redeemCalled = true
 	if positionID != "pos_1" {
 		return models.RedeemPositionResponse{}, mysqlstore.ErrNotFound
 	}
@@ -104,12 +115,30 @@ func (f *fakeStore) RedeemPosition(ctx context.Context, positionID string, req m
 }
 
 type fakeVerifier struct {
-	err   error
-	calls int
+	err          error
+	createCalls  int
+	calls        int
+	resolveCalls int
+	redeemCalls  int
+}
+
+func (f *fakeVerifier) VerifyCreateMarket(ctx context.Context, req models.CreateMarketRequest) error {
+	f.createCalls++
+	return f.err
 }
 
 func (f *fakeVerifier) VerifyTrade(ctx context.Context, req models.TradeRequest) error {
 	f.calls++
+	return f.err
+}
+
+func (f *fakeVerifier) VerifyResolve(ctx context.Context, req models.ResolveMarketRequest) error {
+	f.resolveCalls++
+	return f.err
+}
+
+func (f *fakeVerifier) VerifyRedeem(ctx context.Context, req models.RedeemPositionRequest) error {
+	f.redeemCalls++
 	return f.err
 }
 
@@ -286,6 +315,27 @@ func TestCreateMarketWithAvatarURL(t *testing.T) {
 	}
 }
 
+func TestCreateMarketVerifierBlocksInvalidCreation(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"question":"Will SOL close above $250?","creator":"creator_123","publicKey":"market_123","endTime":1893456000,"initialLiquidity":2,"signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.createCalls != 1 {
+		t.Fatalf("expected create verifier to be called once, got %d", verifier.createCalls)
+	}
+	if store.createCalled {
+		t.Fatalf("store should not create unverified market")
+	}
+}
+
 func TestRecordTradeVerifierBlocksInvalidTrade(t *testing.T) {
 	store := &fakeStore{market: testMarket()}
 	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
@@ -322,6 +372,48 @@ func TestRecordTradeVerifierUnavailable(t *testing.T) {
 	}
 	if store.recordCalled {
 		t.Fatalf("store should not record trade when verifier is unavailable")
+	}
+}
+
+func TestResolveMarketVerifierBlocksInvalidResolution(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"resolver":"resolver_123","outcome":1,"signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/resolve", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.resolveCalls != 1 {
+		t.Fatalf("expected resolve verifier to be called once, got %d", verifier.resolveCalls)
+	}
+	if store.resolveCalled {
+		t.Fatalf("store should not resolve unverified market")
+	}
+}
+
+func TestRedeemPositionVerifierBlocksInvalidRedemption(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"owner":"owner_123","signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/positions/pos_1/redeem", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.redeemCalls != 1 {
+		t.Fatalf("expected redeem verifier to be called once, got %d", verifier.redeemCalls)
+	}
+	if store.redeemCalled {
+		t.Fatalf("store should not redeem unverified position")
 	}
 }
 

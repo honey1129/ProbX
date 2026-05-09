@@ -22,9 +22,13 @@ var (
 )
 
 var (
-	buySharesInstruction  = instructionDiscriminator("buy_shares")
-	sellSharesInstruction = instructionDiscriminator("sell_shares")
-	placeBetInstruction   = instructionDiscriminator("place_bet")
+	buySharesInstruction      = instructionDiscriminator("buy_shares")
+	createMarketInstruction   = instructionDiscriminator("create_market")
+	sellSharesInstruction     = instructionDiscriminator("sell_shares")
+	placeBetInstruction       = instructionDiscriminator("place_bet")
+	resolveMarketInstruction  = instructionDiscriminator("resolve_market")
+	redeemWinningsInstruction = instructionDiscriminator("redeem_winnings")
+	claimRewardInstruction    = instructionDiscriminator("claim_reward")
 )
 
 type Verifier struct {
@@ -52,43 +56,84 @@ func NewVerifier(endpoint string, programID string, timeout time.Duration) (*Ver
 	}, nil
 }
 
-func (v *Verifier) VerifyTrade(ctx context.Context, req models.TradeRequest) error {
-	signature := strings.TrimSpace(req.Signature)
-	owner := strings.TrimSpace(req.Owner)
-	market := strings.TrimSpace(req.MarketPublicKey)
-	if signature == "" || signature == "indexed" || signature == "simulated" {
-		return fmt.Errorf("%w: confirmed Solana signature is required", ErrVerificationFailed)
-	}
-	if owner == "" || owner == "local" {
-		return fmt.Errorf("%w: wallet owner is required", ErrVerificationFailed)
-	}
-	if market == "" {
-		return fmt.Errorf("%w: market public key is required", ErrVerificationFailed)
-	}
-
-	tx, err := v.fetchTransaction(ctx, signature)
+func (v *Verifier) VerifyCreateMarket(ctx context.Context, req models.CreateMarketRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Creator, req.PublicKey, "creator")
 	if err != nil {
 		return err
 	}
-	if tx == nil {
-		return fmt.Errorf("%w: transaction not found or not confirmed", ErrVerificationFailed)
+	if !tx.matchesCreateMarketInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested market creation", ErrVerificationFailed)
 	}
-	if tx.Meta.hasError() {
-		return fmt.Errorf("%w: transaction has failed on-chain", ErrVerificationFailed)
-	}
-	if !tx.hasSignature(signature) {
-		return fmt.Errorf("%w: signature mismatch", ErrVerificationFailed)
-	}
-	if !tx.hasSigner(owner) {
-		return fmt.Errorf("%w: owner did not sign transaction", ErrVerificationFailed)
-	}
-	if !tx.referencesProgram(v.programID) {
-		return fmt.Errorf("%w: transaction does not reference ProbX program", ErrVerificationFailed)
+	return nil
+}
+
+func (v *Verifier) VerifyTrade(ctx context.Context, req models.TradeRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Owner, req.MarketPublicKey, "owner")
+	if err != nil {
+		return err
 	}
 	if !tx.matchesTradeInstruction(v.programID, req) {
 		return fmt.Errorf("%w: transaction does not match requested trade", ErrVerificationFailed)
 	}
 	return nil
+}
+
+func (v *Verifier) VerifyResolve(ctx context.Context, req models.ResolveMarketRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Resolver, req.MarketPublicKey, "resolver")
+	if err != nil {
+		return err
+	}
+	if !tx.matchesResolveInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested market resolution", ErrVerificationFailed)
+	}
+	return nil
+}
+
+func (v *Verifier) VerifyRedeem(ctx context.Context, req models.RedeemPositionRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Owner, req.MarketPublicKey, "owner")
+	if err != nil {
+		return err
+	}
+	if !tx.matchesRedeemInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested redemption", ErrVerificationFailed)
+	}
+	return nil
+}
+
+func (v *Verifier) verifyCommon(ctx context.Context, signature string, signer string, market string, signerLabel string) (*transactionResult, error) {
+	signature = strings.TrimSpace(signature)
+	signer = strings.TrimSpace(signer)
+	market = strings.TrimSpace(market)
+	if signature == "" || signature == "indexed" || signature == "simulated" {
+		return nil, fmt.Errorf("%w: confirmed Solana signature is required", ErrVerificationFailed)
+	}
+	if signer == "" || signer == "local" {
+		return nil, fmt.Errorf("%w: wallet %s is required", ErrVerificationFailed, signerLabel)
+	}
+	if market == "" {
+		return nil, fmt.Errorf("%w: market public key is required", ErrVerificationFailed)
+	}
+
+	tx, err := v.fetchTransaction(ctx, signature)
+	if err != nil {
+		return nil, err
+	}
+	if tx == nil {
+		return nil, fmt.Errorf("%w: transaction not found or not confirmed", ErrVerificationFailed)
+	}
+	if tx.Meta.hasError() {
+		return nil, fmt.Errorf("%w: transaction has failed on-chain", ErrVerificationFailed)
+	}
+	if !tx.hasSignature(signature) {
+		return nil, fmt.Errorf("%w: signature mismatch", ErrVerificationFailed)
+	}
+	if !tx.hasSigner(signer) {
+		return nil, fmt.Errorf("%w: %s did not sign transaction", ErrVerificationFailed, signerLabel)
+	}
+	if !tx.referencesProgram(v.programID) {
+		return nil, fmt.Errorf("%w: transaction does not reference ProbX program", ErrVerificationFailed)
+	}
+	return tx, nil
 }
 
 func (v *Verifier) fetchTransaction(ctx context.Context, signature string) (*transactionResult, error) {
@@ -206,9 +251,36 @@ func (t transactionResult) referencesProgram(programID string) bool {
 	return false
 }
 
+func (t transactionResult) matchesCreateMarketInstruction(programID string, req models.CreateMarketRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesCreateMarket(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
 func (t transactionResult) matchesTradeInstruction(programID string, req models.TradeRequest) bool {
 	for _, instruction := range t.tradeInstructions() {
 		if instruction.matchesTrade(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t transactionResult) matchesResolveInstruction(programID string, req models.ResolveMarketRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesResolve(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t transactionResult) matchesRedeemInstruction(programID string, req models.RedeemPositionRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesRedeem(programID, req) {
 			return true
 		}
 	}
@@ -282,12 +354,39 @@ type instruction struct {
 	Data      string   `json:"data"`
 }
 
+func (i instruction) matchesCreateMarket(programID string, req models.CreateMarketRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	if !i.hasAccountAt(0, strings.TrimSpace(req.PublicKey)) {
+		return false
+	}
+	if !i.hasAccountAt(1, strings.TrimSpace(req.Creator)) {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	decoded, ok := decodeCreateMarketInstruction(data)
+	if !ok {
+		return false
+	}
+	expectedLamports := uint64(math.Round(req.InitialLiquidity * lamportsPerSOL))
+	return decoded.question == strings.TrimSpace(req.Question) &&
+		decoded.endTime == req.EndTime &&
+		decoded.initialLiquidity == expectedLamports
+}
+
 func (i instruction) matchesTrade(programID string, req models.TradeRequest) bool {
 	if i.ProgramID != programID {
 		return false
 	}
 	market := strings.TrimSpace(req.MarketPublicKey)
-	if len(i.Accounts) == 0 || i.Accounts[0] != market {
+	if !i.hasAccountAt(0, market) {
+		return false
+	}
+	if !i.hasAccountAt(2, strings.TrimSpace(req.Owner)) {
 		return false
 	}
 	data, err := base58Decode(i.Data)
@@ -322,10 +421,85 @@ func (i instruction) matchesTrade(programID string, req models.TradeRequest) boo
 	return decoded.side == sideValue && decoded.amount == expectedLamports
 }
 
+func (i instruction) matchesResolve(programID string, req models.ResolveMarketRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	if req.Outcome != 0 && req.Outcome != 1 {
+		return false
+	}
+	if !i.hasAccountAt(0, strings.TrimSpace(req.MarketPublicKey)) {
+		return false
+	}
+	if !i.hasAccountAt(1, strings.TrimSpace(req.Resolver)) {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	outcome, ok := decodeResolveInstruction(data)
+	return ok && outcome == uint8(req.Outcome)
+}
+
+func (i instruction) matchesRedeem(programID string, req models.RedeemPositionRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	if !i.hasAccountAt(0, strings.TrimSpace(req.MarketPublicKey)) {
+		return false
+	}
+	owner := strings.TrimSpace(req.Owner)
+	if !i.hasAccountAt(2, owner) {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	return decodeRedeemInstruction(data)
+}
+
+func (i instruction) hasAccountAt(index int, value string) bool {
+	return value != "" && len(i.Accounts) > index && i.Accounts[index] == value
+}
+
+type createMarketInstructionData struct {
+	question         string
+	endTime          int64
+	initialLiquidity uint64
+}
+
 type tradeInstruction struct {
 	name   string
 	amount uint64
 	side   uint8
+}
+
+func decodeCreateMarketInstruction(data []byte) (createMarketInstructionData, bool) {
+	if len(data) < 28 || !bytes.Equal(data[:8], createMarketInstruction) {
+		return createMarketInstructionData{}, false
+	}
+	offset := 8
+	questionLength := int(binary.LittleEndian.Uint32(data[offset : offset+4]))
+	offset += 4
+	if questionLength < 0 || offset+questionLength+16 > len(data) {
+		return createMarketInstructionData{}, false
+	}
+	question := string(data[offset : offset+questionLength])
+	offset += questionLength
+	endTime := int64(binary.LittleEndian.Uint64(data[offset : offset+8]))
+	offset += 8
+	initialLiquidity := binary.LittleEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	if offset != len(data) {
+		return createMarketInstructionData{}, false
+	}
+	return createMarketInstructionData{
+		question:         question,
+		endTime:          endTime,
+		initialLiquidity: initialLiquidity,
+	}, true
 }
 
 func decodeTradeInstruction(data []byte) (tradeInstruction, bool) {
@@ -355,6 +529,21 @@ func decodeTradeInstruction(data []byte) (tradeInstruction, bool) {
 	default:
 		return tradeInstruction{}, false
 	}
+}
+
+func decodeResolveInstruction(data []byte) (uint8, bool) {
+	if len(data) != 9 || !bytes.Equal(data[:8], resolveMarketInstruction) {
+		return 0, false
+	}
+	return data[8], true
+}
+
+func decodeRedeemInstruction(data []byte) bool {
+	if len(data) != 8 {
+		return false
+	}
+	discriminator := data[:8]
+	return bytes.Equal(discriminator, redeemWinningsInstruction) || bytes.Equal(discriminator, claimRewardInstruction)
 }
 
 func instructionDiscriminator(name string) []byte {

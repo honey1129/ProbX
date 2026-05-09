@@ -329,6 +329,44 @@ func (s *Store) UpsertIndexedPosition(ctx context.Context, position models.Index
 	return tx.Commit()
 }
 
+func (s *Store) GetIndexerCursor(ctx context.Context, name string) (models.IndexerCursor, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return models.IndexerCursor{}, fmt.Errorf("%w: indexer cursor name is required", ErrInvalid)
+	}
+	var cursor models.IndexerCursor
+	row := s.db.QueryRowContext(ctx, `
+		SELECT cursor_signature, cursor_slot
+		FROM indexer_state
+		WHERE name = ?`, name)
+	err := row.Scan(&cursor.Signature, &cursor.Slot)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.IndexerCursor{}, nil
+	}
+	return cursor, err
+}
+
+func (s *Store) SaveIndexerCursor(ctx context.Context, name string, cursor models.IndexerCursor) error {
+	name = strings.TrimSpace(name)
+	cursor.Signature = strings.TrimSpace(cursor.Signature)
+	if name == "" {
+		return fmt.Errorf("%w: indexer cursor name is required", ErrInvalid)
+	}
+	if cursor.Signature == "" {
+		return fmt.Errorf("%w: indexer cursor signature is required", ErrInvalid)
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO indexer_state (name, cursor_signature, cursor_slot, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+		  cursor_signature = VALUES(cursor_signature),
+		  cursor_slot = VALUES(cursor_slot),
+		  updated_at = VALUES(updated_at)`,
+		name, cursor.Signature, cursor.Slot, nowMillis(),
+	)
+	return err
+}
+
 func (s *Store) IndexProgramEvent(ctx context.Context, event models.IndexedEvent) (bool, error) {
 	event.ID = strings.TrimSpace(event.ID)
 	event.Signature = strings.TrimSpace(event.Signature)
@@ -876,7 +914,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureColumn(ctx, db, "markets", "avatar_url", "MEDIUMTEXT NULL AFTER category"); err != nil {
 		return err
 	}
-	_, err := db.ExecContext(ctx, `
+	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS indexed_events (
 		  id VARCHAR(120) NOT NULL PRIMARY KEY,
 		  signature VARCHAR(128) NOT NULL,
@@ -886,6 +924,15 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		  UNIQUE KEY idx_indexed_events_signature_type (signature, event_type, id),
 		  KEY idx_indexed_events_slot (slot),
 		  KEY idx_indexed_events_created_at (created_at)
+		)`); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS indexer_state (
+		  name VARCHAR(64) NOT NULL PRIMARY KEY,
+		  cursor_signature VARCHAR(128) NOT NULL,
+		  cursor_slot BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		  updated_at BIGINT NOT NULL
 		)`)
 	return err
 }

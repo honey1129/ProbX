@@ -8,3 +8,10 @@ CREATE TABLE IF NOT EXISTS indexed_events (
   KEY idx_indexed_events_slot (slot),
   KEY idx_indexed_events_created_at (created_at)
 );
+
+CREATE TABLE IF NOT EXISTS indexer_state (
+  name VARCHAR(64) NOT NULL PRIMARY KEY,
+  cursor_signature VARCHAR(128) NOT NULL,
+  cursor_slot BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL
+);

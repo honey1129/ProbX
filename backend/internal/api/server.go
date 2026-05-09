@@ -24,6 +24,8 @@ type Store interface {
 	ListPositions(ctx context.Context, owner string) ([]models.Position, error)
 	ListActivity(ctx context.Context, marketID string, limit int) ([]models.AgentActivity, error)
 	RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error)
+	ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error)
+	RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error)
 }
 
 type TradeVerifier interface {
@@ -91,7 +93,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/markets", s.markets)
 	mux.HandleFunc("POST /api/markets", s.createMarket)
 	mux.HandleFunc("GET /api/markets/{id}", s.market)
+	mux.HandleFunc("POST /api/markets/{id}/resolve", s.resolveMarket)
 	mux.HandleFunc("GET /api/positions", s.positions)
+	mux.HandleFunc("POST /api/positions/{id}/redeem", s.redeemPosition)
 	mux.HandleFunc("GET /api/activity", s.activity)
 	mux.HandleFunc("POST /api/trades", s.recordTrade)
 	return s.withCORS(s.withLogging(mux))
@@ -224,6 +228,14 @@ func (s *Server) recordTrade(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := requestContext(r)
 	defer cancel()
+
+	market, err := s.store.GetMarket(ctx, strings.TrimSpace(req.MarketID))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	req.MarketPublicKey = market.PublicKey
+
 	if s.tradeVerifier != nil {
 		if err := s.tradeVerifier.VerifyTrade(ctx, req); err != nil {
 			writeVerificationError(w, err)
@@ -236,6 +248,38 @@ func (s *Server) recordTrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
+}
+
+func (s *Server) resolveMarket(w http.ResponseWriter, r *http.Request) {
+	var req models.ResolveMarketRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	market, err := s.store.ResolveMarket(ctx, r.PathValue("id"), req)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, market)
+}
+
+func (s *Server) redeemPosition(w http.ResponseWriter, r *http.Request) {
+	var req models.RedeemPositionRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	response, err := s.store.RedeemPosition(ctx, r.PathValue("id"), req)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) withCORS(next http.Handler) http.Handler {

@@ -80,6 +80,29 @@ func (f *fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (m
 	}, nil
 }
 
+func (f *fakeStore) ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error) {
+	if marketID != f.market.ID {
+		return models.Market{}, mysqlstore.ErrNotFound
+	}
+	next := f.market
+	next.Resolved = true
+	next.Outcome = &req.Outcome
+	return next, nil
+}
+
+func (f *fakeStore) RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error) {
+	if positionID != "pos_1" {
+		return models.RedeemPositionResponse{}, mysqlstore.ErrNotFound
+	}
+	position := models.Position{ID: positionID, MarketID: f.market.ID, Side: "YES", Size: 0, Resolved: true}
+	return models.RedeemPositionResponse{
+		Signature: "indexed",
+		Status:    "indexed",
+		Market:    f.market,
+		Position:  position,
+	}, nil
+}
+
 type fakeVerifier struct {
 	err   error
 	calls int
@@ -197,6 +220,48 @@ func TestRecordTrade(t *testing.T) {
 	}
 	if payload.Position.Size != 1.5 || payload.Activity.Action != "BUY" {
 		t.Fatalf("unexpected trade response: %+v", payload)
+	}
+}
+
+func TestResolveMarket(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"resolver":"local","outcome":1}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/resolve", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.Market
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Resolved || payload.Outcome == nil || *payload.Outcome != 1 {
+		t.Fatalf("unexpected resolved market: %+v", payload)
+	}
+}
+
+func TestRedeemPosition(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"owner":"local"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/positions/pos_1/redeem", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.RedeemPositionResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Position.ID != "pos_1" || payload.Position.Size != 0 {
+		t.Fatalf("unexpected redeem response: %+v", payload)
 	}
 }
 

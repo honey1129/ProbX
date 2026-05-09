@@ -54,6 +54,30 @@ func TestDecodeMarketAccount(t *testing.T) {
 	}
 }
 
+func TestDecodePositionAccount(t *testing.T) {
+	owner := bytes.Repeat([]byte{5}, 32)
+	market := bytes.Repeat([]byte{6}, 32)
+	raw := positionAccountBytes(t, positionAccountFixture{
+		Owner:             owner,
+		Market:            market,
+		YesAmountLamports: 1_250_000_000,
+		NoAmountLamports:  500_000_000,
+	})
+
+	account, err := DecodePositionAccount("position_pubkey", raw)
+	if err != nil {
+		t.Fatalf("decode position: %v", err)
+	}
+	if account.PublicKey != "position_pubkey" || account.Owner != base58Encode(owner) || account.MarketPublicKey != base58Encode(market) {
+		t.Fatalf("unexpected decoded position: %+v", account)
+	}
+
+	model := account.Model()
+	if model.YesAmount != 1.25 || model.NoAmount != 0.5 {
+		t.Fatalf("expected SOL-denominated model amounts, got %+v", model)
+	}
+}
+
 func TestAccountClientFetchMarkets(t *testing.T) {
 	marketRaw := marketAccountBytes(t, marketAccountFixture{
 		OnchainID:              7,
@@ -77,7 +101,7 @@ func TestAccountClientFetchMarkets(t *testing.T) {
 			if payload.Method != "getProgramAccounts" {
 				t.Fatalf("expected getProgramAccounts, got %s", payload.Method)
 			}
-			assertMarketDiscriminatorFilter(t, payload)
+			assertDiscriminatorFilter(t, payload, marketDiscriminator)
 			return jsonResponse(t, map[string]any{
 				"jsonrpc": "2.0",
 				"id":      payload.ID,
@@ -111,7 +135,57 @@ func TestAccountClientFetchMarkets(t *testing.T) {
 	}
 }
 
-func assertMarketDiscriminatorFilter(t *testing.T, payload rpcRequest) {
+func TestAccountClientFetchPositions(t *testing.T) {
+	positionRaw := positionAccountBytes(t, positionAccountFixture{
+		Owner:             bytes.Repeat([]byte{7}, 32),
+		Market:            bytes.Repeat([]byte{8}, 32),
+		YesAmountLamports: 2_000_000_000,
+		NoAmountLamports:  1_000_000_000,
+	})
+	otherRaw := []byte("not a position account")
+	client := &AccountClient{
+		endpoint:  "http://solana.invalid",
+		programID: "program_123",
+		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var payload rpcRequest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			assertDiscriminatorFilter(t, payload, positionDiscriminator)
+			return jsonResponse(t, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      payload.ID,
+				"result": []map[string]any{
+					{
+						"pubkey": "position_1",
+						"account": map[string]any{
+							"data": []string{base64.StdEncoding.EncodeToString(positionRaw), "base64"},
+						},
+					},
+					{
+						"pubkey": "other_1",
+						"account": map[string]any{
+							"data": []string{base64.StdEncoding.EncodeToString(otherRaw), "base64"},
+						},
+					},
+				},
+			}), nil
+		})},
+	}
+
+	positions, err := client.FetchPositions(context.Background())
+	if err != nil {
+		t.Fatalf("fetch positions: %v", err)
+	}
+	if len(positions) != 1 {
+		t.Fatalf("expected 1 position, got %d", len(positions))
+	}
+	if positions[0].PublicKey != "position_1" || positions[0].YesAmountLamports != 2_000_000_000 {
+		t.Fatalf("unexpected position: %+v", positions[0])
+	}
+}
+
+func assertDiscriminatorFilter(t *testing.T, payload rpcRequest, discriminator []byte) {
 	t.Helper()
 	if len(payload.Params) != 2 {
 		t.Fatalf("expected 2 params, got %+v", payload.Params)
@@ -132,7 +206,7 @@ func assertMarketDiscriminatorFilter(t *testing.T, payload rpcRequest) {
 	if !ok {
 		t.Fatalf("expected memcmp filter, got %+v", filter["memcmp"])
 	}
-	if memcmp["offset"] != float64(0) || memcmp["bytes"] != base58Encode(marketDiscriminator) {
+	if memcmp["offset"] != float64(0) || memcmp["bytes"] != base58Encode(discriminator) {
 		t.Fatalf("unexpected discriminator filter: %+v", memcmp)
 	}
 }
@@ -150,6 +224,13 @@ type marketAccountFixture struct {
 	EndTime                int64
 	Resolved               bool
 	Outcome                uint8
+}
+
+type positionAccountFixture struct {
+	Owner             []byte
+	Market            []byte
+	YesAmountLamports uint64
+	NoAmountLamports  uint64
 }
 
 func marketAccountBytes(t *testing.T, fixture marketAccountFixture) []byte {
@@ -172,6 +253,17 @@ func marketAccountBytes(t *testing.T, fixture marketAccountFixture) []byte {
 		buf.WriteByte(0)
 	}
 	buf.WriteByte(fixture.Outcome)
+	return buf.Bytes()
+}
+
+func positionAccountBytes(t *testing.T, fixture positionAccountFixture) []byte {
+	t.Helper()
+	buf := bytes.NewBuffer(nil)
+	buf.Write(positionDiscriminator)
+	buf.Write(fixture.Owner)
+	buf.Write(fixture.Market)
+	writeU64(t, buf, fixture.YesAmountLamports)
+	writeU64(t, buf, fixture.NoAmountLamports)
 	return buf.Bytes()
 }
 

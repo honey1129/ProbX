@@ -94,6 +94,7 @@ export function TradePanel({ market }: { market: Market }) {
 
   const validationMessage = useMemo(() => {
     if (market.resolved) return "This market is resolved.";
+    if (market.endTime <= Math.floor(Date.now() / 1000)) return "This market is closed.";
     if (backendEnabled && isLoading) return "Waiting for the ProbX API.";
     if (backendEnabled && error) return error;
     if (onchainEnabled && !connected) return "Connect a wallet to trade on-chain.";
@@ -105,7 +106,7 @@ export function TradePanel({ market }: { market: Market }) {
       return mode === "BUY" ? "Amount exceeds available SOL." : "Amount exceeds available shares.";
     }
     return null;
-  }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.resolved, mode, onchainEnabled, orderLimit, side]);
+  }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.endTime, market.resolved, mode, onchainEnabled, orderLimit, side]);
 
   const percentUsed = hasFiniteLimit && orderLimit > 0 ? Math.max(0, Math.min(100, (amountNumber / orderLimit) * 100 || 0)) : 0;
   const successStatus = status ? status.includes("updated") || status.includes("API") || status.includes("Tx") : false;

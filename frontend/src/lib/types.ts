@@ -35,7 +35,7 @@ export type AgentActivity = {
   agent: string;
   marketId: string;
   side: Side;
-  action: "BUY" | "SELL";
+  action: "BUY" | "SELL" | "RESOLVE";
   size: number;
   confidence: number;
   timestamp: number;

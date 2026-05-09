@@ -19,6 +19,7 @@ import (
 const lamportsPerSOL = 1_000_000_000
 
 var marketDiscriminator = accountDiscriminator("Market")
+var positionDiscriminator = accountDiscriminator("Position")
 
 type AccountClient struct {
 	endpoint  string
@@ -42,6 +43,14 @@ type MarketAccount struct {
 	Outcome                uint8
 }
 
+type PositionAccount struct {
+	PublicKey         string
+	Owner             string
+	MarketPublicKey   string
+	YesAmountLamports uint64
+	NoAmountLamports  uint64
+}
+
 func NewAccountClient(endpoint string, programID string, timeout time.Duration) (*AccountClient, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	programID = strings.TrimSpace(programID)
@@ -62,7 +71,7 @@ func NewAccountClient(endpoint string, programID string, timeout time.Duration) 
 }
 
 func (c *AccountClient) FetchMarkets(ctx context.Context) ([]MarketAccount, error) {
-	accounts, err := c.fetchProgramAccounts(ctx)
+	accounts, err := c.fetchProgramAccounts(ctx, marketDiscriminator)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +94,31 @@ func (c *AccountClient) FetchMarkets(ctx context.Context) ([]MarketAccount, erro
 	return markets, nil
 }
 
-func (c *AccountClient) fetchProgramAccounts(ctx context.Context) ([]programAccount, error) {
+func (c *AccountClient) FetchPositions(ctx context.Context) ([]PositionAccount, error) {
+	accounts, err := c.fetchProgramAccounts(ctx, positionDiscriminator)
+	if err != nil {
+		return nil, err
+	}
+
+	positions := make([]PositionAccount, 0, len(accounts))
+	for _, account := range accounts {
+		raw, err := account.Account.Data.Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("%w: decode account %s data: %v", ErrVerifierUnavailable, account.Pubkey, err)
+		}
+		if !bytes.HasPrefix(raw, positionDiscriminator) {
+			continue
+		}
+		position, err := DecodePositionAccount(account.Pubkey, raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: decode position account %s: %v", ErrVerifierUnavailable, account.Pubkey, err)
+		}
+		positions = append(positions, position)
+	}
+	return positions, nil
+}
+
+func (c *AccountClient) fetchProgramAccounts(ctx context.Context, discriminator []byte) ([]programAccount, error) {
 	payload := rpcRequest{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -99,7 +132,7 @@ func (c *AccountClient) fetchProgramAccounts(ctx context.Context) ([]programAcco
 					map[string]any{
 						"memcmp": map[string]any{
 							"offset": 0,
-							"bytes":  base58Encode(marketDiscriminator),
+							"bytes":  base58Encode(discriminator),
 						},
 					},
 				},
@@ -165,6 +198,27 @@ func DecodeMarketAccount(pubkey string, raw []byte) (MarketAccount, error) {
 	return market, nil
 }
 
+func DecodePositionAccount(pubkey string, raw []byte) (PositionAccount, error) {
+	reader := accountReader{raw: raw, offset: 0}
+	discriminator := reader.readBytes(8)
+	if reader.err != nil {
+		return PositionAccount{}, reader.err
+	}
+	if !bytes.Equal(discriminator, positionDiscriminator) {
+		return PositionAccount{}, fmt.Errorf("invalid Position discriminator")
+	}
+
+	position := PositionAccount{PublicKey: pubkey}
+	position.Owner = base58Encode(reader.readBytes(32))
+	position.MarketPublicKey = base58Encode(reader.readBytes(32))
+	position.YesAmountLamports = reader.readU64()
+	position.NoAmountLamports = reader.readU64()
+	if reader.err != nil {
+		return PositionAccount{}, reader.err
+	}
+	return position, nil
+}
+
 func (m MarketAccount) Model() models.Market {
 	var outcome *int
 	if m.Resolved {
@@ -182,6 +236,16 @@ func (m MarketAccount) Model() models.Market {
 		TotalLiquidity: lamportsToSOL(m.TotalLiquidityLamports),
 		Resolved:       m.Resolved,
 		Outcome:        outcome,
+	}
+}
+
+func (p PositionAccount) Model() models.IndexedPosition {
+	return models.IndexedPosition{
+		PublicKey:       p.PublicKey,
+		Owner:           p.Owner,
+		MarketPublicKey: p.MarketPublicKey,
+		YesAmount:       lamportsToSOL(p.YesAmountLamports),
+		NoAmount:        lamportsToSOL(p.NoAmountLamports),
 	}
 }
 
@@ -319,4 +383,36 @@ func base58Encode(input []byte) string {
 		out[i], out[j] = out[j], out[i]
 	}
 	return string(out)
+}
+
+func base58Decode(input string) ([]byte, error) {
+	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+	indexes := map[rune]int64{}
+	for i, char := range alphabet {
+		indexes[char] = int64(i)
+	}
+
+	value := big.NewInt(0)
+	base := big.NewInt(58)
+	for _, char := range input {
+		index, ok := indexes[char]
+		if !ok {
+			return nil, fmt.Errorf("invalid base58 character %q", char)
+		}
+		value.Mul(value, base)
+		value.Add(value, big.NewInt(index))
+	}
+
+	decoded := value.Bytes()
+	leadingZeroes := 0
+	for _, char := range input {
+		if char != rune(alphabet[0]) {
+			break
+		}
+		leadingZeroes++
+	}
+	if leadingZeroes > 0 {
+		decoded = append(make([]byte, leadingZeroes), decoded...)
+	}
+	return decoded, nil
 }

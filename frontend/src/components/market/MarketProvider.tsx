@@ -10,10 +10,11 @@ import {
   quoteBuyShares,
   quoteSellShares,
   redeemWinnings as redeemWinningsIx,
+  resolveMarket as resolveMarketIx,
   sellShares as sellSharesIx,
   type AnchorWalletLike
 } from "@/lib/anchorClient";
-import { createBackendMarket, fetchBootstrap, isBackendApiConfigured, recordBackendTrade } from "@/lib/backendApi";
+import { createBackendMarket, fetchBootstrap, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket } from "@/lib/backendApi";
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
@@ -31,6 +32,7 @@ type MarketContextValue = {
   buy: (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => Promise<string>;
   sell: (marketId: string, side: Side, sharesSol: number, options?: TradeOptions) => Promise<string>;
   redeem: (positionId: string) => Promise<string>;
+  resolve: (marketId: string, outcome: 0 | 1) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
   addLocalMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
 };
@@ -344,10 +346,6 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         throw new Error("This position is not on the winning side.");
       }
 
-      if (backendEnabled && !onchainEnabled) {
-        throw new Error("Redeem requires on-chain settlement to be enabled.");
-      }
-
       let signature = backendEnabled ? "indexed" : "local";
       if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
         signature = await redeemWinningsIx({
@@ -355,6 +353,26 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           wallet: wallet as AnchorWalletLike,
           market
         });
+      }
+
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
+        try {
+          const result = await redeemBackendPosition(positionId, {
+            owner: ownerId,
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
+          });
+          setMarkets((current) => upsertById(current, result.market));
+          setPositions((current) => upsertById(current, result.position));
+          setError(null);
+          return result.signature;
+        } catch (error) {
+          const message = errorMessage(error, "ProbX API redeem indexing failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
+        }
       }
 
       setMarkets((current) =>
@@ -381,7 +399,62 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [backendEnabled, connection, markets, onchainEnabled, positions, wallet]
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, positions, wallet]
+  );
+
+  const resolve = useCallback(
+    async (marketId: string, outcome: 0 | 1) => {
+      const market = markets.find((item) => item.id === marketId);
+      if (!market) throw new Error("Market not found");
+      if (market.resolved) throw new Error("Market is already resolved");
+      if (market.endTime > Math.floor(Date.now() / 1000)) throw new Error("Market has not ended yet.");
+
+      let signature = backendEnabled ? "indexed" : "local";
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        signature = await resolveMarketIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          market,
+          outcome
+        });
+      }
+
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
+        try {
+          const nextMarket = await resolveBackendMarket(marketId, {
+            resolver: ownerId,
+            outcome,
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
+          });
+          setMarkets((current) => upsertById(current, nextMarket));
+          setPositions((current) => current.map((position) => (position.marketId === marketId ? { ...position, resolved: true } : position)));
+          setError(null);
+          return signature;
+        } catch (error) {
+          const message = errorMessage(error, "ProbX API resolve indexing failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
+        }
+      }
+
+      setMarkets((current) =>
+        current.map((item) =>
+          item.id === marketId
+            ? {
+                ...item,
+                resolved: true,
+                outcome
+              }
+            : item
+        )
+      );
+      setPositions((current) => current.map((position) => (position.marketId === marketId ? { ...position, resolved: true } : position)));
+      return signature;
+    },
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
   );
 
   const addLocalMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
@@ -475,11 +548,12 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         buy,
         sell,
         redeem,
+        resolve,
         createMarket,
         addLocalMarket
       };
     },
-    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, createMarket, addLocalMarket]
+    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, addLocalMarket]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;

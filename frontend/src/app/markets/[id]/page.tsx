@@ -7,7 +7,7 @@ import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { formatPercent, formatPrice, formatSol, formatUsd, probability, timeRemaining } from "@/lib/format";
-import type { Side } from "@/lib/types";
+import type { Market, Side } from "@/lib/types";
 import { RouterLink as Link, useParams } from "@/router";
 
 const timeframes: ChartTimeframe[] = ["1H", "1D", "1W", "ALL"];
@@ -155,6 +155,8 @@ export default function MarketDetailPage() {
           <StatCard label="Current YES" value={formatPercent(yesProbability)} icon={<Bot size={16} />} />
         </section>
 
+        <ResolverPanel market={market} />
+
         <section className="terminal-panel flex min-h-0 flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <h2 className="font-black">Trade History</h2>
@@ -211,6 +213,77 @@ export default function MarketDetailPage() {
         <TradePanel market={market} />
       </aside>
     </div>
+  );
+}
+
+function ResolverPanel({ market }: { market: Market }) {
+  const { resolve, backendEnabled } = useMarkets();
+  const [pending, setPending] = useState<0 | 1 | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const hasEnded = market.endTime <= Math.floor(Date.now() / 1000);
+
+  if (!hasEnded && !market.resolved) return null;
+
+  async function submit(outcome: 0 | 1) {
+    setMessage(null);
+    setPending(outcome);
+    try {
+      const signature = await resolve(market.id, outcome);
+      setMessage(
+        signature === "local"
+          ? "Market resolved locally."
+          : signature === "indexed"
+            ? "Market resolved in ProbX API."
+            : `Resolve tx sent: ${signature.slice(0, 12)}...`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Resolve failed.");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  if (market.resolved) {
+    const outcome = market.outcome === 1 ? "YES" : "NO";
+    return (
+      <section className="terminal-panel flex items-center justify-between gap-4 p-4">
+        <div>
+          <h2 className="font-black">Resolution</h2>
+          <p className="mt-1 text-sm text-muted">This market is settled as {outcome}.</p>
+        </div>
+        <span className={outcome === "YES" ? "rounded-lg border border-yes/30 bg-yes/10 px-4 py-2 font-black text-yes" : "rounded-lg border border-no/30 bg-no/10 px-4 py-2 font-black text-no"}>
+          {outcome}
+        </span>
+      </section>
+    );
+  }
+
+  return (
+    <section className="terminal-panel grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-center">
+      <div>
+        <h2 className="font-black">Resolve Market</h2>
+        <p className="mt-1 text-sm text-muted">
+          {backendEnabled ? "Submit the final outcome to the ProbX API index." : "Set the final outcome for the local preview workspace."}
+        </p>
+        {message ? <p className="mt-2 text-sm text-slate-300">{message}</p> : null}
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={() => submit(1)}
+          disabled={pending !== null}
+          className="rounded-lg border border-yes/35 bg-yes/10 px-4 py-2 text-sm font-black text-yes transition hover:bg-yes/20 disabled:opacity-60"
+        >
+          {pending === 1 ? "Resolving..." : "Resolve YES"}
+        </button>
+        <button
+          onClick={() => submit(0)}
+          disabled={pending !== null}
+          className="rounded-lg border border-no/35 bg-no/10 px-4 py-2 text-sm font-black text-no transition hover:bg-no/20 disabled:opacity-60"
+        >
+          {pending === 0 ? "Resolving..." : "Resolve NO"}
+        </button>
+      </div>
+    </section>
   );
 }
 

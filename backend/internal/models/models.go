@@ -59,13 +59,14 @@ type CreateMarketRequest struct {
 }
 
 type TradeRequest struct {
-	MarketID  string  `json:"marketId"`
-	Owner     string  `json:"owner"`
-	Side      string  `json:"side"`
-	AmountSOL float64 `json:"amountSol"`
-	Action    string  `json:"action"`
-	Signature string  `json:"signature"`
-	Status    string  `json:"status"`
+	MarketID        string  `json:"marketId"`
+	MarketPublicKey string  `json:"-"`
+	Owner           string  `json:"owner"`
+	Side            string  `json:"side"`
+	AmountSOL       float64 `json:"amountSol"`
+	Action          string  `json:"action"`
+	Signature       string  `json:"signature"`
+	Status          string  `json:"status"`
 }
 
 type TradeResponse struct {
@@ -74,4 +75,32 @@ type TradeResponse struct {
 	Market    Market        `json:"market"`
 	Position  Position      `json:"position"`
 	Activity  AgentActivity `json:"activity"`
+}
+
+type ResolveMarketRequest struct {
+	Resolver  string `json:"resolver"`
+	Outcome   int    `json:"outcome"`
+	Signature string `json:"signature"`
+	Status    string `json:"status"`
+}
+
+type RedeemPositionRequest struct {
+	Owner     string `json:"owner"`
+	Signature string `json:"signature"`
+	Status    string `json:"status"`
+}
+
+type RedeemPositionResponse struct {
+	Signature string   `json:"signature"`
+	Status    string   `json:"status"`
+	Market    Market   `json:"market"`
+	Position  Position `json:"position"`
+}
+
+type IndexedPosition struct {
+	PublicKey       string
+	Owner           string
+	MarketPublicKey string
+	YesAmount       float64
+	NoAmount        float64
 }

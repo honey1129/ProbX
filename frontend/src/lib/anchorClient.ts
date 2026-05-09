@@ -56,6 +56,14 @@ const legacyIdl = {
       args: []
     },
     {
+      name: "resolve_market",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "resolver", isMut: false, isSigner: true }
+      ],
+      args: [{ name: "outcome", type: "u8" }]
+    },
+    {
       name: "place_bet",
       accounts: [
         { name: "market", isMut: true, isSigner: false },
@@ -220,6 +228,24 @@ export async function redeemWinnings(params: {
       market,
       position,
       owner
+    })
+    .rpc();
+}
+
+export async function resolveMarket(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+  outcome: 0 | 1;
+}) {
+  const program = getProgram(params.connection, params.wallet);
+  const market = new PublicKey(params.market.publicKey);
+
+  return program.methods
+    .resolveMarket(params.outcome)
+    .accounts({
+      market,
+      resolver: params.wallet.publicKey
     })
     .rpc();
 }

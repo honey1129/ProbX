@@ -21,7 +21,12 @@ export function PositionTable({ positions, markets, compact = false }: { positio
       setClaimed((current) => ({ ...current, [position.id]: true }));
       setMessages((current) => ({
         ...current,
-        [position.id]: signature === "local" ? "Marked claimed" : `Tx ${signature.slice(0, 8)}...`
+        [position.id]:
+          signature === "local"
+            ? "Marked claimed"
+            : signature === "indexed"
+              ? "Claim indexed"
+              : `Tx ${signature.slice(0, 8)}...`
       }));
     } catch (error) {
       setMessages((current) => ({

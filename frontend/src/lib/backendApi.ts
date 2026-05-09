@@ -37,6 +37,26 @@ export type TradeResult = {
   activity: AgentActivity;
 };
 
+export type ResolveMarketPayload = {
+  resolver: string;
+  outcome: 0 | 1;
+  signature?: string;
+  status?: string;
+};
+
+export type RedeemPositionPayload = {
+  owner: string;
+  signature?: string;
+  status?: string;
+};
+
+export type RedeemPositionResult = {
+  signature: string;
+  status: string;
+  market: Market;
+  position: Position;
+};
+
 export function isBackendApiConfigured() {
   return configuredApiUrl.length > 0;
 }
@@ -55,6 +75,20 @@ export async function createBackendMarket(payload: CreateMarketPayload) {
 
 export async function recordBackendTrade(payload: TradePayload) {
   return apiFetch<TradeResult>("/api/trades", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function resolveBackendMarket(marketId: string, payload: ResolveMarketPayload) {
+  return apiFetch<Market>(`/api/markets/${encodeURIComponent(marketId)}/resolve`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function redeemBackendPosition(positionId: string, payload: RedeemPositionPayload) {
+  return apiFetch<RedeemPositionResult>(`/api/positions/${encodeURIComponent(positionId)}/redeem`, {
     method: "POST",
     body: JSON.stringify(payload)
   });

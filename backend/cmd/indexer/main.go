@@ -40,5 +40,17 @@ func main() {
 		}
 		log.Printf("indexed market id=%s publicKey=%s question=%q", market.ID, market.PublicKey, market.Question)
 	}
-	log.Printf("indexed %d market account(s)", len(markets))
+
+	positions, err := client.FetchPositions(ctx)
+	if err != nil {
+		log.Fatalf("fetch on-chain positions: %v", err)
+	}
+	indexedPositions := 0
+	for _, account := range positions {
+		if err := store.UpsertIndexedPosition(ctx, account.Model()); err != nil {
+			log.Fatalf("upsert position %s: %v", account.PublicKey, err)
+		}
+		indexedPositions++
+	}
+	log.Printf("indexed %d market account(s), %d position account(s)", len(markets), indexedPositions)
 }

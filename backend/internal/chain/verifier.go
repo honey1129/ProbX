@@ -3,9 +3,12 @@ package chain
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +19,12 @@ import (
 var (
 	ErrVerificationFailed  = errors.New("transaction verification failed")
 	ErrVerifierUnavailable = errors.New("transaction verifier unavailable")
+)
+
+var (
+	buySharesInstruction  = instructionDiscriminator("buy_shares")
+	sellSharesInstruction = instructionDiscriminator("sell_shares")
+	placeBetInstruction   = instructionDiscriminator("place_bet")
 )
 
 type Verifier struct {
@@ -46,11 +55,15 @@ func NewVerifier(endpoint string, programID string, timeout time.Duration) (*Ver
 func (v *Verifier) VerifyTrade(ctx context.Context, req models.TradeRequest) error {
 	signature := strings.TrimSpace(req.Signature)
 	owner := strings.TrimSpace(req.Owner)
+	market := strings.TrimSpace(req.MarketPublicKey)
 	if signature == "" || signature == "indexed" || signature == "simulated" {
 		return fmt.Errorf("%w: confirmed Solana signature is required", ErrVerificationFailed)
 	}
 	if owner == "" || owner == "local" {
 		return fmt.Errorf("%w: wallet owner is required", ErrVerificationFailed)
+	}
+	if market == "" {
+		return fmt.Errorf("%w: market public key is required", ErrVerificationFailed)
 	}
 
 	tx, err := v.fetchTransaction(ctx, signature)
@@ -71,6 +84,9 @@ func (v *Verifier) VerifyTrade(ctx context.Context, req models.TradeRequest) err
 	}
 	if !tx.referencesProgram(v.programID) {
 		return fmt.Errorf("%w: transaction does not reference ProbX program", ErrVerificationFailed)
+	}
+	if !tx.matchesTradeInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested trade", ErrVerificationFailed)
 	}
 	return nil
 }
@@ -190,6 +206,23 @@ func (t transactionResult) referencesProgram(programID string) bool {
 	return false
 }
 
+func (t transactionResult) matchesTradeInstruction(programID string, req models.TradeRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesTrade(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t transactionResult) tradeInstructions() []instruction {
+	out := append([]instruction{}, t.Transaction.Message.Instructions...)
+	for _, group := range t.Meta.InnerInstructions {
+		out = append(out, group.Instructions...)
+	}
+	return out
+}
+
 type transactionMeta struct {
 	Err               json.RawMessage         `json:"err"`
 	LoadedAddresses   loadedAddresses         `json:"loadedAddresses"`
@@ -244,5 +277,87 @@ func (a *accountKey) UnmarshalJSON(data []byte) error {
 }
 
 type instruction struct {
-	ProgramID string `json:"programId"`
+	ProgramID string   `json:"programId"`
+	Accounts  []string `json:"accounts"`
+	Data      string   `json:"data"`
+}
+
+func (i instruction) matchesTrade(programID string, req models.TradeRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	market := strings.TrimSpace(req.MarketPublicKey)
+	if len(i.Accounts) == 0 || i.Accounts[0] != market {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	decoded, ok := decodeTradeInstruction(data)
+	if !ok {
+		return false
+	}
+
+	action := strings.ToUpper(strings.TrimSpace(req.Action))
+	if action == "" {
+		action = "BUY"
+	}
+	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	if side != "YES" && side != "NO" {
+		return false
+	}
+	sideValue := uint8(0)
+	if side == "YES" {
+		sideValue = 1
+	}
+
+	expectedLamports := uint64(math.Round(req.AmountSOL * lamportsPerSOL))
+	if action == "BUY" && decoded.name != "buy_shares" && decoded.name != "place_bet" {
+		return false
+	}
+	if action == "SELL" && decoded.name != "sell_shares" {
+		return false
+	}
+	return decoded.side == sideValue && decoded.amount == expectedLamports
+}
+
+type tradeInstruction struct {
+	name   string
+	amount uint64
+	side   uint8
+}
+
+func decodeTradeInstruction(data []byte) (tradeInstruction, bool) {
+	if len(data) < 17 {
+		return tradeInstruction{}, false
+	}
+	discriminator := data[:8]
+	switch {
+	case bytes.Equal(discriminator, buySharesInstruction):
+		return tradeInstruction{
+			name:   "buy_shares",
+			amount: binary.LittleEndian.Uint64(data[8:16]),
+			side:   data[16],
+		}, true
+	case bytes.Equal(discriminator, sellSharesInstruction):
+		return tradeInstruction{
+			name:   "sell_shares",
+			amount: binary.LittleEndian.Uint64(data[8:16]),
+			side:   data[16],
+		}, true
+	case bytes.Equal(discriminator, placeBetInstruction):
+		return tradeInstruction{
+			name:   "place_bet",
+			amount: binary.LittleEndian.Uint64(data[8:16]),
+			side:   data[16],
+		}, true
+	default:
+		return tradeInstruction{}, false
+	}
+}
+
+func instructionDiscriminator(name string) []byte {
+	hash := sha256.Sum256([]byte("global:" + name))
+	return hash[:8]
 }

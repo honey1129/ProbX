@@ -78,6 +78,36 @@ func TestDecodePositionAccount(t *testing.T) {
 	}
 }
 
+func TestDecodeSharesBoughtEvent(t *testing.T) {
+	market := bytes.Repeat([]byte{11}, 32)
+	owner := bytes.Repeat([]byte{12}, 32)
+	raw := append([]byte{}, sharesBoughtEventDiscriminator...)
+	raw = append(raw, market...)
+	raw = append(raw, owner...)
+	raw = append(raw, 1)
+	raw = appendU64(raw, 1_500_000_000)
+	raw = appendU64(raw, 600_000_000)
+	raw = appendU64(raw, 3_500_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 4_500_000_000)
+	raw = appendU64(raw, 636_363_636)
+
+	event, ok := DecodeProgramEvent("Program data: " + base64.StdEncoding.EncodeToString(raw))
+	if !ok {
+		t.Fatalf("expected event decode")
+	}
+	if event.Type != "SharesBought" || event.Action != "BUY" || event.Side != 1 {
+		t.Fatalf("unexpected event header: %+v", event)
+	}
+	if event.MarketPublicKey != base58Encode(market) || event.Owner != base58Encode(owner) {
+		t.Fatalf("unexpected event pubkeys: %+v", event)
+	}
+	model := event.Model()
+	if model.AmountSOL != 1.5 || model.Shares != 0.6 || model.Side != "YES" {
+		t.Fatalf("unexpected model: %+v", model)
+	}
+}
+
 func TestAccountClientFetchMarkets(t *testing.T) {
 	marketRaw := marketAccountBytes(t, marketAccountFixture{
 		OnchainID:              7,
@@ -132,6 +162,72 @@ func TestAccountClientFetchMarkets(t *testing.T) {
 	}
 	if markets[0].PublicKey != "market_1" || markets[0].OnchainID != 7 {
 		t.Fatalf("unexpected market: %+v", markets[0])
+	}
+}
+
+func TestAccountClientFetchRecentEvents(t *testing.T) {
+	raw := append([]byte{}, sharesSoldEventDiscriminator...)
+	raw = append(raw, bytes.Repeat([]byte{13}, 32)...)
+	raw = append(raw, bytes.Repeat([]byte{14}, 32)...)
+	raw = append(raw, 0)
+	raw = appendU64(raw, 500_000_000)
+	raw = appendU64(raw, 250_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 3_000_000_000)
+	raw = appendU64(raw, 4_000_000_000)
+	raw = appendU64(raw, 400_000_000)
+
+	call := 0
+	client := &AccountClient{
+		endpoint:  "http://solana.invalid",
+		programID: "program_123",
+		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			call++
+			var payload rpcRequest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if call == 1 {
+				if payload.Method != "getSignaturesForAddress" {
+					t.Fatalf("expected getSignaturesForAddress, got %s", payload.Method)
+				}
+				return jsonResponse(t, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      payload.ID,
+					"result": []map[string]any{
+						{"signature": "sig_1", "slot": 99, "blockTime": 1234},
+					},
+				}), nil
+			}
+			if payload.Method != "getTransaction" {
+				t.Fatalf("expected getTransaction, got %s", payload.Method)
+			}
+			return jsonResponse(t, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      payload.ID,
+				"result": map[string]any{
+					"slot":      99,
+					"blockTime": 1234,
+					"meta": map[string]any{
+						"logMessages": []string{
+							"Program log: Instruction: SellShares",
+							"Program data: " + base64.StdEncoding.EncodeToString(raw),
+						},
+					},
+				},
+			}), nil
+		})},
+	}
+
+	events, err := client.FetchRecentEvents(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("fetch events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].ID != "sig_1_1" || events[0].Signature != "sig_1" || events[0].Type != "SharesSold" {
+		t.Fatalf("unexpected event: %+v", events[0])
 	}
 }
 
@@ -280,6 +376,12 @@ func writeU64(t *testing.T, buf *bytes.Buffer, value uint64) {
 	if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
 		t.Fatalf("write u64: %v", err)
 	}
+}
+
+func appendU64(out []byte, value uint64) []byte {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, value)
+	return append(out, buf...)
 }
 
 func jsonResponse(t *testing.T, payload map[string]any) *http.Response {

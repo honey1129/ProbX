@@ -104,3 +104,23 @@ type IndexedPosition struct {
 	YesAmount       float64
 	NoAmount        float64
 }
+
+type IndexedEvent struct {
+	ID              string
+	Signature       string
+	Slot            uint64
+	Type            string
+	MarketPublicKey string
+	Owner           string
+	Side            string
+	Action          string
+	AmountSOL       float64
+	Shares          float64
+	PayoutSOL       float64
+	Outcome         *int
+	YesPool         float64
+	NoPool          float64
+	TotalLiquidity  float64
+	PriceAfter      float64
+	TimestampMillis int64
+}

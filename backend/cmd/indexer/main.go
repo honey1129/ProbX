@@ -52,5 +52,30 @@ func main() {
 		}
 		indexedPositions++
 	}
-	log.Printf("indexed %d market account(s), %d position account(s)", len(markets), indexedPositions)
+
+	events, err := client.FetchRecentEvents(ctx, 200)
+	if err != nil {
+		log.Fatalf("fetch recent program events: %v", err)
+	}
+	indexedEvents := 0
+	skippedEvents := 0
+	for _, event := range events {
+		inserted, err := store.IndexProgramEvent(ctx, event.Model())
+		if err != nil {
+			log.Fatalf("index event %s type=%s: %v", event.ID, event.Type, err)
+		}
+		if inserted {
+			indexedEvents++
+		} else {
+			skippedEvents++
+		}
+	}
+
+	log.Printf(
+		"indexed %d market account(s), %d position account(s), %d new event(s), %d duplicate event(s)",
+		len(markets),
+		indexedPositions,
+		indexedEvents,
+		skippedEvents,
+	)
 }

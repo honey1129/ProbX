@@ -329,6 +329,58 @@ func (s *Store) UpsertIndexedPosition(ctx context.Context, position models.Index
 	return tx.Commit()
 }
 
+func (s *Store) IndexProgramEvent(ctx context.Context, event models.IndexedEvent) (bool, error) {
+	event.ID = strings.TrimSpace(event.ID)
+	event.Signature = strings.TrimSpace(event.Signature)
+	event.Type = strings.TrimSpace(event.Type)
+	event.MarketPublicKey = strings.TrimSpace(event.MarketPublicKey)
+	event.Owner = strings.TrimSpace(event.Owner)
+	event.Side = strings.ToUpper(strings.TrimSpace(event.Side))
+	event.Action = strings.ToUpper(strings.TrimSpace(event.Action))
+	if event.ID == "" || event.Signature == "" || event.Type == "" || event.MarketPublicKey == "" {
+		return false, fmt.Errorf("%w: event id, signature, type, and marketPublicKey are required", ErrInvalid)
+	}
+	if event.TimestampMillis <= 0 {
+		event.TimestampMillis = nowMillis()
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer rollbackQuietly(tx)
+
+	inserted, err := insertIndexedEvent(ctx, tx, event)
+	if err != nil || !inserted {
+		return inserted, err
+	}
+
+	market, err := selectMarketByPublicKeyForUpdate(ctx, tx, event.MarketPublicKey)
+	if err != nil {
+		return false, err
+	}
+
+	switch event.Type {
+	case "SharesBought", "SharesSold":
+		if err := indexTradeEvent(ctx, tx, market, event); err != nil {
+			return false, err
+		}
+	case "MarketResolved":
+		if err := indexResolvedEvent(ctx, tx, market, event); err != nil {
+			return false, err
+		}
+	case "WinningsRedeemed":
+		if err := indexRedeemedEvent(ctx, tx, market, event); err != nil {
+			return false, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) ListPositions(ctx context.Context, owner string) ([]models.Position, error) {
 	owner = strings.TrimSpace(owner)
 	if owner == "" {
@@ -821,7 +873,21 @@ func scanMarket(row scanner) (models.Market, error) {
 }
 
 func ensureSchema(ctx context.Context, db *sql.DB) error {
-	return ensureColumn(ctx, db, "markets", "avatar_url", "MEDIUMTEXT NULL AFTER category")
+	if err := ensureColumn(ctx, db, "markets", "avatar_url", "MEDIUMTEXT NULL AFTER category"); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS indexed_events (
+		  id VARCHAR(120) NOT NULL PRIMARY KEY,
+		  signature VARCHAR(128) NOT NULL,
+		  slot BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		  event_type VARCHAR(32) NOT NULL,
+		  created_at BIGINT NOT NULL,
+		  UNIQUE KEY idx_indexed_events_signature_type (signature, event_type, id),
+		  KEY idx_indexed_events_slot (slot),
+		  KEY idx_indexed_events_created_at (created_at)
+		)`)
+	return err
 }
 
 func ensureColumn(ctx context.Context, db *sql.DB, tableName string, columnName string, definition string) error {
@@ -888,6 +954,129 @@ func scanActivity(row scanner) (models.AgentActivity, error) {
 		&item.Timestamp,
 	)
 	return item, err
+}
+
+func selectMarketByPublicKeyForUpdate(ctx context.Context, tx *sql.Tx, publicKey string) (models.Market, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+		       total_liquidity, volume_24h, participants, change_24h, end_time,
+		       resolved, outcome
+		FROM markets
+		WHERE public_key = ?
+		FOR UPDATE`, publicKey)
+	market, err := scanMarket(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Market{}, ErrNotFound
+	}
+	return market, err
+}
+
+func insertIndexedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEvent) (bool, error) {
+	result, err := tx.ExecContext(ctx, `
+		INSERT IGNORE INTO indexed_events (id, signature, slot, event_type, created_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		event.ID, event.Signature, event.Slot, event.Type, event.TimestampMillis,
+	)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
+}
+
+func indexTradeEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
+	if event.Side != "YES" && event.Side != "NO" {
+		return fmt.Errorf("%w: event side must be YES or NO", ErrInvalid)
+	}
+	size := event.AmountSOL
+	if event.Action == "SELL" && event.Shares > 0 {
+		size = event.Shares
+	}
+	price := probability(event.YesPool, event.NoPool)
+	if event.Side == "NO" {
+		price = 1 - price
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT IGNORE INTO trades (id, owner, market_id, side, amount_sol, price, signature, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
+		"evt_"+event.ID,
+		normalizeText(event.Owner, "unknown"),
+		market.ID,
+		event.Side,
+		size,
+		price,
+		event.Signature,
+		event.TimestampMillis,
+	)
+	if err != nil {
+		return err
+	}
+	if event.YesPool > 0 || event.NoPool > 0 {
+		if err := insertProbabilityPoint(ctx, tx, market.ID, probability(event.YesPool, event.NoPool), event.TimestampMillis); err != nil {
+			return err
+		}
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(event.Owner),
+		MarketID:   market.ID,
+		Side:       event.Side,
+		Action:     event.Action,
+		Size:       size * 1000,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
+}
+
+func indexResolvedEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
+	if event.Outcome == nil {
+		return fmt.Errorf("%w: resolved event outcome is required", ErrInvalid)
+	}
+	_, err := tx.ExecContext(ctx, `
+		UPDATE markets
+		SET resolved = TRUE, outcome = ?, updated_at = GREATEST(updated_at, ?)
+		WHERE id = ?`,
+		*event.Outcome, event.TimestampMillis, market.ID,
+	)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE positions
+		SET resolved = TRUE, updated_at = GREATEST(updated_at, ?)
+		WHERE market_id = ?`, event.TimestampMillis, market.ID)
+	if err != nil {
+		return err
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(event.Owner),
+		MarketID:   market.ID,
+		Side:       sideLabel(*event.Outcome),
+		Action:     "RESOLVE",
+		Size:       0,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
+}
+
+func indexRedeemedEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
+	if event.Outcome == nil {
+		return fmt.Errorf("%w: redeemed event outcome is required", ErrInvalid)
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(event.Owner),
+		MarketID:   market.ID,
+		Side:       sideLabel(*event.Outcome),
+		Action:     "REDEEM",
+		Size:       event.PayoutSOL * 1000,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
 }
 
 func upsertPosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, sharesOut float64, entryProbability float64, now int64) (int, error) {

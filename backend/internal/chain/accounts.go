@@ -20,6 +20,10 @@ const lamportsPerSOL = 1_000_000_000
 
 var marketDiscriminator = accountDiscriminator("Market")
 var positionDiscriminator = accountDiscriminator("Position")
+var sharesBoughtEventDiscriminator = eventDiscriminator("SharesBought")
+var sharesSoldEventDiscriminator = eventDiscriminator("SharesSold")
+var marketResolvedEventDiscriminator = eventDiscriminator("MarketResolved")
+var winningsRedeemedEventDiscriminator = eventDiscriminator("WinningsRedeemed")
 
 type AccountClient struct {
 	endpoint  string
@@ -49,6 +53,26 @@ type PositionAccount struct {
 	MarketPublicKey   string
 	YesAmountLamports uint64
 	NoAmountLamports  uint64
+}
+
+type ProgramEvent struct {
+	ID              string
+	Signature       string
+	Slot            uint64
+	Type            string
+	Action          string
+	MarketPublicKey string
+	Owner           string
+	Side            uint8
+	AmountLamports  uint64
+	SharesLamports  uint64
+	PayoutLamports  uint64
+	Outcome         *int
+	YesPoolLamports uint64
+	NoPoolLamports  uint64
+	TotalLiquidity  uint64
+	PriceAfter      uint64
+	BlockTime       int64
 }
 
 func NewAccountClient(endpoint string, programID string, timeout time.Duration) (*AccountClient, error) {
@@ -116,6 +140,124 @@ func (c *AccountClient) FetchPositions(ctx context.Context) ([]PositionAccount, 
 		positions = append(positions, position)
 	}
 	return positions, nil
+}
+
+func (c *AccountClient) FetchRecentEvents(ctx context.Context, limit int) ([]ProgramEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	signatures, err := c.fetchSignatures(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	events := []ProgramEvent{}
+	for _, item := range signatures {
+		logs, err := c.fetchTransactionLogs(ctx, item.Signature)
+		if err != nil {
+			return nil, err
+		}
+		for index, logLine := range logs.LogMessages() {
+			event, ok := DecodeProgramEvent(logLine)
+			if !ok {
+				continue
+			}
+			event.ID = fmt.Sprintf("%s_%d", item.Signature, index)
+			event.Signature = item.Signature
+			event.Slot = logs.Slot
+			event.BlockTime = logs.BlockTime
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
+func (c *AccountClient) fetchSignatures(ctx context.Context, limit int) ([]signatureInfo, error) {
+	payload := rpcRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "getSignaturesForAddress",
+		Params: []any{
+			c.programID,
+			map[string]any{
+				"limit":      limit,
+				"commitment": "confirmed",
+			},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal signature request: %v", ErrVerifierUnavailable, err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("%w: create signature request: %v", ErrVerifierUnavailable, err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	res, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("%w: Solana signature request failed: %v", ErrVerifierUnavailable, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("%w: Solana RPC returned HTTP %d", ErrVerifierUnavailable, res.StatusCode)
+	}
+
+	var rpc signatureResponse
+	if err := json.NewDecoder(res.Body).Decode(&rpc); err != nil {
+		return nil, fmt.Errorf("%w: decode signature response: %v", ErrVerifierUnavailable, err)
+	}
+	if rpc.Error != nil {
+		return nil, fmt.Errorf("%w: Solana RPC error %d: %s", ErrVerifierUnavailable, rpc.Error.Code, rpc.Error.Message)
+	}
+	return rpc.Result, nil
+}
+
+func (c *AccountClient) fetchTransactionLogs(ctx context.Context, signature string) (transactionLogs, error) {
+	payload := rpcRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "getTransaction",
+		Params: []any{
+			signature,
+			map[string]any{
+				"encoding":                       "json",
+				"commitment":                     "confirmed",
+				"maxSupportedTransactionVersion": 0,
+			},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return transactionLogs{}, fmt.Errorf("%w: marshal transaction request: %v", ErrVerifierUnavailable, err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return transactionLogs{}, fmt.Errorf("%w: create transaction request: %v", ErrVerifierUnavailable, err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	res, err := c.client.Do(httpReq)
+	if err != nil {
+		return transactionLogs{}, fmt.Errorf("%w: Solana transaction request failed: %v", ErrVerifierUnavailable, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return transactionLogs{}, fmt.Errorf("%w: Solana RPC returned HTTP %d", ErrVerifierUnavailable, res.StatusCode)
+	}
+
+	var rpc transactionLogsResponse
+	if err := json.NewDecoder(res.Body).Decode(&rpc); err != nil {
+		return transactionLogs{}, fmt.Errorf("%w: decode transaction response: %v", ErrVerifierUnavailable, err)
+	}
+	if rpc.Error != nil {
+		return transactionLogs{}, fmt.Errorf("%w: Solana RPC error %d: %s", ErrVerifierUnavailable, rpc.Error.Code, rpc.Error.Message)
+	}
+	if rpc.Result == nil {
+		return transactionLogs{}, nil
+	}
+	return *rpc.Result, nil
 }
 
 func (c *AccountClient) fetchProgramAccounts(ctx context.Context, discriminator []byte) ([]programAccount, error) {
@@ -219,6 +361,68 @@ func DecodePositionAccount(pubkey string, raw []byte) (PositionAccount, error) {
 	return position, nil
 }
 
+func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
+	const prefix = "Program data: "
+	if !strings.HasPrefix(logLine, prefix) {
+		return ProgramEvent{}, false
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(strings.TrimPrefix(logLine, prefix)))
+	if err != nil || len(raw) < 8 {
+		return ProgramEvent{}, false
+	}
+	reader := accountReader{raw: raw, offset: 0}
+	discriminator := reader.readBytes(8)
+	switch {
+	case bytes.Equal(discriminator, sharesBoughtEventDiscriminator):
+		event := ProgramEvent{Type: "SharesBought", Action: "BUY"}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Owner = base58Encode(reader.readBytes(32))
+		event.Side = reader.readU8()
+		event.AmountLamports = reader.readU64()
+		event.SharesLamports = reader.readU64()
+		event.YesPoolLamports = reader.readU64()
+		event.NoPoolLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
+		event.PriceAfter = reader.readU64()
+		return event, reader.err == nil
+	case bytes.Equal(discriminator, sharesSoldEventDiscriminator):
+		event := ProgramEvent{Type: "SharesSold", Action: "SELL"}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Owner = base58Encode(reader.readBytes(32))
+		event.Side = reader.readU8()
+		event.SharesLamports = reader.readU64()
+		event.AmountLamports = reader.readU64()
+		event.YesPoolLamports = reader.readU64()
+		event.NoPoolLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
+		event.PriceAfter = reader.readU64()
+		return event, reader.err == nil
+	case bytes.Equal(discriminator, marketResolvedEventDiscriminator):
+		event := ProgramEvent{Type: "MarketResolved", Action: "RESOLVE"}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Owner = base58Encode(reader.readBytes(32))
+		outcome := int(reader.readU8())
+		event.Outcome = &outcome
+		event.YesPoolLamports = reader.readU64()
+		event.NoPoolLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
+		reader.readU64()
+		reader.readU64()
+		return event, reader.err == nil
+	case bytes.Equal(discriminator, winningsRedeemedEventDiscriminator):
+		event := ProgramEvent{Type: "WinningsRedeemed", Action: "REDEEM"}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Owner = base58Encode(reader.readBytes(32))
+		outcome := int(reader.readU8())
+		event.Outcome = &outcome
+		event.PayoutLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
+		return event, reader.err == nil
+	default:
+		return ProgramEvent{}, false
+	}
+}
+
 func (m MarketAccount) Model() models.Market {
 	var outcome *int
 	if m.Resolved {
@@ -249,9 +453,70 @@ func (p PositionAccount) Model() models.IndexedPosition {
 	}
 }
 
+func (e ProgramEvent) Model() models.IndexedEvent {
+	var outcome *int
+	if e.Outcome != nil {
+		value := *e.Outcome
+		outcome = &value
+	}
+	timestamp := time.Now().UnixMilli()
+	if e.BlockTime > 0 {
+		timestamp = e.BlockTime * 1000
+	}
+	return models.IndexedEvent{
+		ID:              e.ID,
+		Signature:       e.Signature,
+		Slot:            e.Slot,
+		Type:            e.Type,
+		MarketPublicKey: e.MarketPublicKey,
+		Owner:           e.Owner,
+		Side:            sideLabel(e.Side),
+		Action:          e.Action,
+		AmountSOL:       lamportsToSOL(e.AmountLamports),
+		Shares:          lamportsToSOL(e.SharesLamports),
+		PayoutSOL:       lamportsToSOL(e.PayoutLamports),
+		Outcome:         outcome,
+		YesPool:         lamportsToSOL(e.YesPoolLamports),
+		NoPool:          lamportsToSOL(e.NoPoolLamports),
+		TotalLiquidity:  lamportsToSOL(e.TotalLiquidity),
+		PriceAfter:      float64(e.PriceAfter) / lamportsPerSOL,
+		TimestampMillis: timestamp,
+	}
+}
+
 type programAccountsResponse struct {
 	Result []programAccount `json:"result"`
 	Error  *rpcError        `json:"error"`
+}
+
+type signatureResponse struct {
+	Result []signatureInfo `json:"result"`
+	Error  *rpcError       `json:"error"`
+}
+
+type signatureInfo struct {
+	Signature string `json:"signature"`
+	Slot      uint64 `json:"slot"`
+	BlockTime int64  `json:"blockTime"`
+}
+
+type transactionLogsResponse struct {
+	Result *transactionLogs `json:"result"`
+	Error  *rpcError        `json:"error"`
+}
+
+type transactionLogs struct {
+	Slot      uint64              `json:"slot"`
+	BlockTime int64               `json:"blockTime"`
+	Meta      transactionLogsMeta `json:"meta"`
+}
+
+func (t transactionLogs) LogMessages() []string {
+	return t.Meta.LogMessages
+}
+
+type transactionLogsMeta struct {
+	LogMessages []string `json:"logMessages"`
 }
 
 type programAccount struct {
@@ -351,6 +616,18 @@ func (r *accountReader) readString() string {
 func accountDiscriminator(name string) []byte {
 	hash := sha256.Sum256([]byte("account:" + name))
 	return hash[:8]
+}
+
+func eventDiscriminator(name string) []byte {
+	hash := sha256.Sum256([]byte("event:" + name))
+	return hash[:8]
+}
+
+func sideLabel(side uint8) string {
+	if side == 1 {
+		return "YES"
+	}
+	return "NO"
 }
 
 func lamportsToSOL(value uint64) float64 {

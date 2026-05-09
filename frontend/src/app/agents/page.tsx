@@ -69,15 +69,15 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
-      <section className="grid grid-cols-4 gap-3">
+    <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-y-auto 2xl:overflow-hidden">
+      <section className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
         <AgentMetric icon={<Trophy size={18} />} label="Recorded Volume" value={formatUsd(totals.volume)} tone="yes" />
         <AgentMetric icon={<Zap size={18} />} label="Avg Confidence" value={formatPercent(totals.confidence, 0)} tone="purple" />
         <AgentMetric icon={<Radio size={18} />} label="Total Trades" value={totals.trades.toLocaleString()} tone="blue" />
         <AgentMetric icon={<Bot size={18} />} label="Active Markets" value={totals.activeMarkets.toString()} tone="purple" />
       </section>
 
-      <section className="grid min-h-0 grid-cols-[390px_minmax(0,1fr)_430px] gap-3">
+      <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.35fr)] 2xl:grid-cols-[clamp(360px,21vw,430px)_minmax(0,1fr)_clamp(380px,24vw,480px)]">
         <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <h1 className="text-xl font-black">Activity Feed</h1>
@@ -159,7 +159,7 @@ export default function AgentsPage() {
           </section>
         </main>
 
-        <aside className="grid h-full min-h-0 grid-rows-[1fr_auto] gap-3 overflow-hidden">
+        <aside className="grid h-full min-h-[560px] grid-rows-[1fr_auto] gap-3 overflow-hidden xl:col-span-2 2xl:col-span-1 2xl:min-h-0">
           <section className="terminal-panel overflow-y-auto p-4">
             <div className="mb-4 flex items-center gap-2">
               <BrainCircuit size={18} className="text-solBlue" />

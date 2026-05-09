@@ -103,7 +103,7 @@ export default function CreateMarketPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_430px] gap-3 overflow-hidden">
+    <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_clamp(360px,29vw,470px)] xl:overflow-hidden">
       <main className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-5">
         <div className="mb-6 flex items-center justify-between border-b border-line pb-4">
           <div>
@@ -186,7 +186,7 @@ export default function CreateMarketPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-3">
             <label className="grid gap-2">
               <span className="text-sm font-bold text-slate-200">Category</span>
               <select
@@ -228,7 +228,7 @@ export default function CreateMarketPage() {
             </label>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 rounded-lg border border-line bg-black/25 p-4">
+          <div className="grid grid-cols-1 gap-3 rounded-lg border border-line bg-black/25 p-4 2xl:grid-cols-3">
             <ChecklistItem label="Binary YES/NO market" />
             <ChecklistItem label="Creator becomes resolver" />
             <ChecklistItem label="Pool uses native SOL" />

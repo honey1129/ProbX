@@ -76,14 +76,14 @@ export default function PortfolioPage() {
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
-      <section className="grid grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
         <SummaryCard icon={<WalletCards size={18} />} label="Total Balance" value={formatSol(totalBalance)} tone="blue" />
         <SummaryCard icon={<BadgeDollarSign size={18} />} label="Unrealized PnL" value={formatSignedUsd(unrealized)} tone={unrealized >= 0 ? "yes" : "no"} />
         <SummaryCard icon={<Landmark size={18} />} label="Realized PnL" value={formatSignedUsd(realized)} tone={realized >= 0 ? "yes" : "no"} />
         <SummaryCard icon={<ArrowDownUp size={18} />} label="Win Rate" value={formatPercent(winRate)} tone="purple" />
       </section>
 
-      <section className="grid min-h-0 grid-cols-[minmax(0,1fr)_420px] gap-3">
+      <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_clamp(360px,28vw,460px)]">
         <article className="terminal-panel flex min-h-0 flex-col overflow-hidden p-4">
           <div className="mb-4 flex items-center justify-between">
             <div>

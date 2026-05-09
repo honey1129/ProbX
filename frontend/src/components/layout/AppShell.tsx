@@ -47,7 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-screen overflow-hidden bg-canvas text-slate-100">
       <header className="h-[60px] border-b border-line bg-black/80 backdrop-blur-xl">
-        <div className="mx-auto grid h-full max-w-[1720px] grid-cols-[250px_1fr_auto] items-center px-5">
+        <div className="grid h-full w-full grid-cols-[minmax(160px,auto)_1fr_auto] items-center gap-3 px-3 sm:px-4 2xl:px-6">
           <Link href="/" className="flex w-max items-center gap-3">
             <span className="probx-logo-mark" aria-hidden="true">
               <span className="probx-logo-slice slice-a" />
@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="text-[27px] font-black tracking-tight">ProbX</span>
           </Link>
 
-          <nav className="flex justify-center gap-7">
+          <nav className="hidden justify-center gap-2 md:flex xl:gap-5 2xl:gap-7">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const active = tab.href === "/" ? pathname === "/" || pathname.startsWith("/markets") : pathname.startsWith(tab.href);
@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`group flex h-9 items-center gap-2 rounded-lg border px-3.5 text-sm transition ${
+                  className={`group flex h-9 items-center gap-2 rounded-lg border px-3 text-sm transition xl:px-3.5 ${
                     active
                       ? "border-solPurple/70 bg-solPurple/20 text-white shadow-glow"
                       : "border-transparent text-slate-300 hover:border-solPurple/60 hover:bg-solPurple/15 hover:text-white hover:shadow-glow"
@@ -79,8 +79,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden h-10 items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-4 text-sm text-slate-200 lg:flex">
+          <div className="flex min-w-0 items-center justify-end gap-2 xl:gap-3">
+            <div className="hidden h-10 items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-slate-200 lg:flex xl:px-4">
               <span className={`h-2 w-2 rounded-full ${statusClass}`} />
               {statusLabel}
             </div>
@@ -89,7 +89,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto h-[calc(100vh-104px)] max-w-[1720px] overflow-x-hidden overflow-y-scroll px-2.5 py-2.5">
+      <main className="h-[calc(100vh-104px)] w-full overflow-x-hidden overflow-y-scroll px-2.5 py-2.5 2xl:px-4">
         {children}
       </main>
       <footer className="fixed bottom-2.5 left-2.5 right-2.5 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 shadow-[0_0_28px_rgba(49,185,255,0.10)] backdrop-blur-xl xl:block">

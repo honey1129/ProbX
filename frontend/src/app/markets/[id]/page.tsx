@@ -76,7 +76,7 @@ export default function MarketDetailPage() {
   const activePrice = chartSide === "YES" ? yesProbability : 1 - yesProbability;
 
   return (
-    <div className="grid min-h-full grid-cols-[minmax(0,1fr)_348px] gap-3">
+    <div className="grid min-h-full grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_clamp(330px,23vw,390px)]">
       <main className="grid min-h-0 gap-3">
         <section className="terminal-panel p-5">
           <div className="mb-4 flex items-start justify-between gap-5">
@@ -148,7 +148,7 @@ export default function MarketDetailPage() {
           <TradingViewKlineChart market={market} side={chartSide} timeframe={timeframe} />
         </section>
 
-        <section className="grid grid-cols-4 gap-3">
+        <section className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
           <StatCard label="Total Liquidity" value={formatSol(market.totalLiquidity)} icon={<Droplets size={16} />} />
           <StatCard label="24h Volume" value={`$${(market.volume24h / 1_000_000).toFixed(2)}M`} icon={<Radio size={16} />} />
           <StatCard label="Participants" value={market.participants.toLocaleString()} icon={<UsersRound size={16} />} />

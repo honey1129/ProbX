@@ -144,7 +144,7 @@ export default function MarketListPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[360px_minmax(520px,1fr)_348px] gap-2.5 overflow-hidden">
+    <div className="grid h-full min-h-0 grid-cols-1 gap-2.5 overflow-y-auto xl:grid-cols-[minmax(300px,0.78fr)_minmax(520px,1.55fr)] 2xl:grid-cols-[clamp(340px,19vw,420px)_minmax(560px,1fr)_clamp(330px,18vw,390px)] 2xl:overflow-hidden">
       <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
         <div className="border-b border-line px-3.5 pb-3 pt-3">
           <div className="mb-3 flex items-center gap-6 text-sm">
@@ -381,7 +381,7 @@ export default function MarketListPage() {
         </article>
       </section>
 
-      <aside className="h-full min-h-0 overflow-hidden">
+      <aside className="h-full min-h-[620px] overflow-hidden xl:col-span-2 2xl:col-span-1 2xl:min-h-0">
         {selected ? <TradePanel market={selected} /> : null}
       </aside>
     </div>

@@ -5,6 +5,7 @@ import type { ProbxPrediction } from "../target/types/probx_prediction";
 
 const SIDE_NO = 0;
 const SIDE_YES = 1;
+const OUTCOME_CANCELLED = 2;
 const PRICE_SCALE = new BN(1_000_000_000);
 const LAMPORTS_PER_SOL = web3.LAMPORTS_PER_SOL;
 
@@ -213,6 +214,120 @@ describe("probx_prediction", () => {
     } catch (error) {
       assert.match(String(error), /NoWinningPosition|no claimable/i);
     }
+  });
+
+  it("updates resolver, cancels a market, and refunds cancelled positions", async () => {
+    const refundUser = web3.Keypair.generate();
+    const nextResolver = web3.Keypair.generate();
+    await fund(refundUser.publicKey, 5 * LAMPORTS_PER_SOL);
+    await fund(nextResolver.publicKey, 1 * LAMPORTS_PER_SOL);
+
+    const endTime = new BN(Math.floor(Date.now() / 1000) + 60);
+    const initialLiquidity = new BN(2 * LAMPORTS_PER_SOL);
+    const [market] = web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("market"),
+        creator.toBuffer(),
+        endTime.toArrayLike(Buffer, "le", 8),
+      ],
+      program.programId
+    );
+    const [position] = web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("position"), market.toBuffer(), refundUser.publicKey.toBuffer()],
+      program.programId
+    );
+
+    await program.methods
+      .createMarket("Will this market be voided?", endTime, initialLiquidity)
+      .accounts({
+        market,
+        creator,
+        systemProgram: web3.SystemProgram.programId,
+      })
+      .rpc();
+
+    await program.methods
+      .setResolver(nextResolver.publicKey)
+      .accounts({
+        market,
+        resolver: creator,
+      })
+      .rpc();
+
+    let marketAccount = await program.account.market.fetch(market);
+    assert.ok(marketAccount.resolver.equals(nextResolver.publicKey));
+
+    const yesAmount = new BN(1 * LAMPORTS_PER_SOL);
+    await program.methods
+      .buyShares(yesAmount, SIDE_YES, new BN(0))
+      .accounts({
+        market,
+        position,
+        owner: refundUser.publicKey,
+        systemProgram: web3.SystemProgram.programId,
+      })
+      .signers([refundUser])
+      .rpc();
+
+    marketAccount = await program.account.market.fetch(market);
+    const noAmount = new BN(500_000_000);
+    await program.methods
+      .buyShares(noAmount, SIDE_NO, new BN(0))
+      .accounts({
+        market,
+        position,
+        owner: refundUser.publicKey,
+        systemProgram: web3.SystemProgram.programId,
+      })
+      .signers([refundUser])
+      .rpc();
+
+    const fundedPosition = await program.account.position.fetch(position);
+    const refundable = fundedPosition.yesAmount.add(fundedPosition.noAmount);
+    assert.isAbove(refundable.toNumber(), 0);
+
+    try {
+      await program.methods
+        .cancelMarket()
+        .accounts({
+          market,
+          resolver: creator,
+        })
+        .rpc();
+      assert.fail("previous resolver should not cancel after handoff");
+    } catch (error) {
+      assert.match(String(error), /UnauthorizedResolver|constraint/i);
+    }
+
+    await program.methods
+      .cancelMarket()
+      .accounts({
+        market,
+        resolver: nextResolver.publicKey,
+      })
+      .signers([nextResolver])
+      .rpc();
+
+    marketAccount = await program.account.market.fetch(market);
+    assert.equal(marketAccount.resolved, true);
+    assert.equal(marketAccount.outcome, OUTCOME_CANCELLED);
+
+    const before = await provider.connection.getBalance(refundUser.publicKey);
+    await program.methods
+      .refundCancelled()
+      .accounts({
+        market,
+        position,
+        owner: refundUser.publicKey,
+      })
+      .signers([refundUser])
+      .rpc();
+    const after = await provider.connection.getBalance(refundUser.publicKey);
+    assert.isAbove(after - before, refundable.toNumber() - 10_000);
+
+    const refundedPosition = await program.account.position.fetch(position);
+    assert.equal(refundedPosition.yesAmount.toString(), "0");
+    assert.equal(refundedPosition.noAmount.toString(), "0");
   });
 });
 

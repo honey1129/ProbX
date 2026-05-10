@@ -46,6 +46,9 @@ func TestDecodeMarketAccount(t *testing.T) {
 	if model.ID != "market_pubkey" || model.PublicKey != "market_pubkey" {
 		t.Fatalf("unexpected model ids: %+v", model)
 	}
+	if model.Resolver != base58Encode(resolver) {
+		t.Fatalf("expected model resolver, got %+v", model)
+	}
 	if model.YesPool != 3 || model.NoPool != 1 || model.TotalLiquidity != 4 {
 		t.Fatalf("expected SOL-denominated model pools, got %+v", model)
 	}
@@ -109,6 +112,58 @@ func TestDecodeMarketCreatedEvent(t *testing.T) {
 	model := event.Model()
 	if model.OnchainID != 77 || model.Question != event.Question || model.TotalLiquidity != 2 {
 		t.Fatalf("unexpected model: %+v", model)
+	}
+}
+
+func TestDecodeMarketGovernanceEvents(t *testing.T) {
+	market := bytes.Repeat([]byte{19}, 32)
+	previous := bytes.Repeat([]byte{20}, 32)
+	next := bytes.Repeat([]byte{21}, 32)
+	rawResolver := append([]byte{}, marketResolverUpdatedEventDiscriminator...)
+	rawResolver = append(rawResolver, market...)
+	rawResolver = append(rawResolver, previous...)
+	rawResolver = append(rawResolver, next...)
+
+	event, ok := DecodeProgramEvent("Program data: " + base64.StdEncoding.EncodeToString(rawResolver))
+	if !ok {
+		t.Fatalf("expected resolver event decode")
+	}
+	if event.Type != "MarketResolverUpdated" || event.Action != "SET_RESOLVER" || event.NewResolver != base58Encode(next) {
+		t.Fatalf("unexpected resolver event: %+v", event)
+	}
+
+	resolver := bytes.Repeat([]byte{22}, 32)
+	rawCancel := append([]byte{}, marketCancelledEventDiscriminator...)
+	rawCancel = append(rawCancel, market...)
+	rawCancel = append(rawCancel, resolver...)
+	rawCancel = appendU64(rawCancel, 2_000_000_000)
+	rawCancel = appendU64(rawCancel, 3_000_000_000)
+	rawCancel = appendU64(rawCancel, 4_000_000_000)
+	rawCancel = appendU64(rawCancel, 1_000_000_000)
+	rawCancel = appendU64(rawCancel, 500_000_000)
+
+	event, ok = DecodeProgramEvent("Program data: " + base64.StdEncoding.EncodeToString(rawCancel))
+	if !ok {
+		t.Fatalf("expected cancel event decode")
+	}
+	if event.Type != "MarketCancelled" || event.Action != "CANCEL" || event.Outcome == nil || *event.Outcome != 2 || event.TotalLiquidity != 4_000_000_000 {
+		t.Fatalf("unexpected cancel event: %+v", event)
+	}
+
+	owner := bytes.Repeat([]byte{23}, 32)
+	rawRefund := append([]byte{}, refundRedeemedEventDiscriminator...)
+	rawRefund = append(rawRefund, market...)
+	rawRefund = append(rawRefund, owner...)
+	rawRefund = appendU64(rawRefund, 750_000_000)
+	rawRefund = appendU64(rawRefund, 3_250_000_000)
+
+	event, ok = DecodeProgramEvent("Program data: " + base64.StdEncoding.EncodeToString(rawRefund))
+	if !ok {
+		t.Fatalf("expected refund event decode")
+	}
+	model := event.Model()
+	if model.Type != "RefundRedeemed" || model.Action != "REFUND" || model.Side != "VOID" || model.PayoutSOL != 0.75 {
+		t.Fatalf("unexpected refund model: %+v", model)
 	}
 }
 

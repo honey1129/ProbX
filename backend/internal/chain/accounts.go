@@ -25,7 +25,10 @@ var sharesBoughtEventDiscriminator = eventDiscriminator("SharesBought")
 var sharesSoldEventDiscriminator = eventDiscriminator("SharesSold")
 var betPlacedEventDiscriminator = eventDiscriminator("BetPlaced")
 var marketResolvedEventDiscriminator = eventDiscriminator("MarketResolved")
+var marketResolverUpdatedEventDiscriminator = eventDiscriminator("MarketResolverUpdated")
+var marketCancelledEventDiscriminator = eventDiscriminator("MarketCancelled")
 var winningsRedeemedEventDiscriminator = eventDiscriminator("WinningsRedeemed")
+var refundRedeemedEventDiscriminator = eventDiscriminator("RefundRedeemed")
 
 type AccountClient struct {
 	endpoint  string
@@ -68,6 +71,8 @@ type ProgramEvent struct {
 	MarketPublicKey  string
 	Owner            string
 	Resolver         string
+	PreviousResolver string
+	NewResolver      string
 	Question         string
 	EndTime          int64
 	Side             uint8
@@ -508,12 +513,37 @@ func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
 		reader.readU64()
 		reader.readU64()
 		return event, reader.err == nil
+	case bytes.Equal(discriminator, marketResolverUpdatedEventDiscriminator):
+		event := ProgramEvent{Type: "MarketResolverUpdated", Action: "SET_RESOLVER", Side: 2}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.PreviousResolver = base58Encode(reader.readBytes(32))
+		event.NewResolver = base58Encode(reader.readBytes(32))
+		return event, reader.err == nil
+	case bytes.Equal(discriminator, marketCancelledEventDiscriminator):
+		event := ProgramEvent{Type: "MarketCancelled", Action: "CANCEL", Side: 2}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Resolver = base58Encode(reader.readBytes(32))
+		cancelled := 2
+		event.Outcome = &cancelled
+		event.YesPoolLamports = reader.readU64()
+		event.NoPoolLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
+		reader.readU64()
+		reader.readU64()
+		return event, reader.err == nil
 	case bytes.Equal(discriminator, winningsRedeemedEventDiscriminator):
 		event := ProgramEvent{Type: "WinningsRedeemed", Action: "REDEEM"}
 		event.MarketPublicKey = base58Encode(reader.readBytes(32))
 		event.Owner = base58Encode(reader.readBytes(32))
 		outcome := int(reader.readU8())
 		event.Outcome = &outcome
+		event.PayoutLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
+		return event, reader.err == nil
+	case bytes.Equal(discriminator, refundRedeemedEventDiscriminator):
+		event := ProgramEvent{Type: "RefundRedeemed", Action: "REFUND", Side: 2}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Owner = base58Encode(reader.readBytes(32))
 		event.PayoutLamports = reader.readU64()
 		event.TotalLiquidity = reader.readU64()
 		return event, reader.err == nil
@@ -532,6 +562,7 @@ func (m MarketAccount) Model() models.Market {
 		ID:             m.PublicKey,
 		PublicKey:      m.PublicKey,
 		Creator:        m.Creator,
+		Resolver:       m.Resolver,
 		EndTime:        m.EndTime,
 		Question:       m.Question,
 		YesPool:        lamportsToSOL(m.YesPoolLamports),
@@ -572,6 +603,8 @@ func (e ProgramEvent) Model() models.IndexedEvent {
 		MarketPublicKey:  e.MarketPublicKey,
 		Owner:            e.Owner,
 		Resolver:         e.Resolver,
+		PreviousResolver: e.PreviousResolver,
+		NewResolver:      e.NewResolver,
 		Question:         e.Question,
 		EndTime:          e.EndTime,
 		Side:             sideLabel(e.Side),
@@ -728,6 +761,9 @@ func eventDiscriminator(name string) []byte {
 }
 
 func sideLabel(side uint8) string {
+	if side == 2 {
+		return "VOID"
+	}
 	if side == 1 {
 		return "YES"
 	}

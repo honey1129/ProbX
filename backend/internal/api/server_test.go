@@ -15,11 +15,14 @@ import (
 )
 
 type fakeStore struct {
-	market        models.Market
-	createCalled  bool
-	recordCalled  bool
-	resolveCalled bool
-	redeemCalled  bool
+	market            models.Market
+	createCalled      bool
+	recordCalled      bool
+	setResolverCalled bool
+	cancelCalled      bool
+	resolveCalled     bool
+	redeemCalled      bool
+	refundCalled      bool
 }
 
 func (f *fakeStore) Ping(ctx context.Context) error {
@@ -142,6 +145,28 @@ func (f *fakeStore) ResolveMarket(ctx context.Context, marketID string, req mode
 	return next, nil
 }
 
+func (f *fakeStore) SetMarketResolver(ctx context.Context, marketID string, req models.SetMarketResolverRequest) (models.Market, error) {
+	f.setResolverCalled = true
+	if marketID != f.market.ID {
+		return models.Market{}, mysqlstore.ErrNotFound
+	}
+	next := f.market
+	next.Resolver = req.NewResolver
+	return next, nil
+}
+
+func (f *fakeStore) CancelMarket(ctx context.Context, marketID string, req models.CancelMarketRequest) (models.Market, error) {
+	f.cancelCalled = true
+	if marketID != f.market.ID {
+		return models.Market{}, mysqlstore.ErrNotFound
+	}
+	next := f.market
+	outcome := 2
+	next.Resolved = true
+	next.Outcome = &outcome
+	return next, nil
+}
+
 func (f *fakeStore) RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error) {
 	f.redeemCalled = true
 	if positionID != "pos_1" {
@@ -156,12 +181,29 @@ func (f *fakeStore) RedeemPosition(ctx context.Context, positionID string, req m
 	}, nil
 }
 
+func (f *fakeStore) RefundPosition(ctx context.Context, positionID string, req models.RefundPositionRequest) (models.RedeemPositionResponse, error) {
+	f.refundCalled = true
+	if positionID != "pos_1" {
+		return models.RedeemPositionResponse{}, mysqlstore.ErrNotFound
+	}
+	position := models.Position{ID: positionID, MarketID: f.market.ID, Side: "YES", Size: 0, Resolved: true}
+	return models.RedeemPositionResponse{
+		Signature: "indexed",
+		Status:    "indexed",
+		Market:    f.market,
+		Position:  position,
+	}, nil
+}
+
 type fakeVerifier struct {
-	err          error
-	createCalls  int
-	calls        int
-	resolveCalls int
-	redeemCalls  int
+	err              error
+	createCalls      int
+	calls            int
+	setResolverCalls int
+	cancelCalls      int
+	resolveCalls     int
+	redeemCalls      int
+	refundCalls      int
 }
 
 func (f *fakeVerifier) VerifyCreateMarket(ctx context.Context, req models.CreateMarketRequest) error {
@@ -179,8 +221,23 @@ func (f *fakeVerifier) VerifyResolve(ctx context.Context, req models.ResolveMark
 	return f.err
 }
 
+func (f *fakeVerifier) VerifySetResolver(ctx context.Context, req models.SetMarketResolverRequest) error {
+	f.setResolverCalls++
+	return f.err
+}
+
+func (f *fakeVerifier) VerifyCancel(ctx context.Context, req models.CancelMarketRequest) error {
+	f.cancelCalls++
+	return f.err
+}
+
 func (f *fakeVerifier) VerifyRedeem(ctx context.Context, req models.RedeemPositionRequest) error {
 	f.redeemCalls++
+	return f.err
+}
+
+func (f *fakeVerifier) VerifyRefund(ctx context.Context, req models.RefundPositionRequest) error {
+	f.refundCalls++
 	return f.err
 }
 
@@ -368,6 +425,48 @@ func TestResolveMarket(t *testing.T) {
 	}
 }
 
+func TestSetMarketResolver(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"actor":"local","newResolver":"resolver_456"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/resolver", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.Market
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Resolver != "resolver_456" {
+		t.Fatalf("unexpected resolver update: %+v", payload)
+	}
+}
+
+func TestCancelMarket(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"resolver":"local"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/cancel", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.Market
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Resolved || payload.Outcome == nil || *payload.Outcome != 2 {
+		t.Fatalf("unexpected cancelled market: %+v", payload)
+	}
+}
+
 func TestRedeemPosition(t *testing.T) {
 	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
 	body := strings.NewReader(`{"owner":"local"}`)
@@ -386,6 +485,27 @@ func TestRedeemPosition(t *testing.T) {
 	}
 	if payload.Position.ID != "pos_1" || payload.Position.Size != 0 {
 		t.Fatalf("unexpected redeem response: %+v", payload)
+	}
+}
+
+func TestRefundPosition(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"owner":"local"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/positions/pos_1/refund", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.RedeemPositionResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Position.ID != "pos_1" || payload.Position.Size != 0 {
+		t.Fatalf("unexpected refund response: %+v", payload)
 	}
 }
 
@@ -525,6 +645,48 @@ func TestResolveMarketVerifierBlocksInvalidResolution(t *testing.T) {
 	}
 }
 
+func TestSetResolverVerifierBlocksInvalidUpdate(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"actor":"resolver_123","newResolver":"resolver_456","signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/resolver", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.setResolverCalls != 1 {
+		t.Fatalf("expected set resolver verifier to be called once, got %d", verifier.setResolverCalls)
+	}
+	if store.setResolverCalled {
+		t.Fatalf("store should not update resolver for unverified transaction")
+	}
+}
+
+func TestCancelMarketVerifierBlocksInvalidCancellation(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"resolver":"resolver_123","signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/cancel", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.cancelCalls != 1 {
+		t.Fatalf("expected cancel verifier to be called once, got %d", verifier.cancelCalls)
+	}
+	if store.cancelCalled {
+		t.Fatalf("store should not cancel unverified market")
+	}
+}
+
 func TestRedeemPositionVerifierBlocksInvalidRedemption(t *testing.T) {
 	store := &fakeStore{market: testMarket()}
 	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
@@ -543,6 +705,27 @@ func TestRedeemPositionVerifierBlocksInvalidRedemption(t *testing.T) {
 	}
 	if store.redeemCalled {
 		t.Fatalf("store should not redeem unverified position")
+	}
+}
+
+func TestRefundPositionVerifierBlocksInvalidRefund(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"owner":"owner_123","signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/positions/pos_1/refund", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.refundCalls != 1 {
+		t.Fatalf("expected refund verifier to be called once, got %d", verifier.refundCalls)
+	}
+	if store.refundCalled {
+		t.Fatalf("store should not refund unverified position")
 	}
 }
 
@@ -593,6 +776,7 @@ func testMarket() models.Market {
 		ID:                 "fed-rates",
 		PublicKey:          "market-public-key",
 		Creator:            "creator",
+		Resolver:           "creator",
 		EndTime:            1_893_456_000,
 		Question:           "Will rates be cut?",
 		Category:           "Politics",

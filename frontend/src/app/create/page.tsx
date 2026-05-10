@@ -26,6 +26,7 @@ export default function CreateMarketPage() {
       id: "preview",
       publicKey: "11111111111111111111111111111111",
       creator: "preview",
+      resolver: "preview",
       endTime: Math.floor(new Date(endTime).getTime() / 1000),
       question: question.trim() || "Market question preview",
       category,

@@ -73,7 +73,7 @@ func (s *Store) Bootstrap(ctx context.Context, owner string) (models.Bootstrap, 
 
 func (s *Store) ListMarkets(ctx context.Context) ([]models.Market, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
@@ -99,7 +99,7 @@ func (s *Store) ListMarkets(ctx context.Context) ([]models.Market, error) {
 
 func (s *Store) GetMarket(ctx context.Context, id string) (models.Market, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
@@ -154,11 +154,11 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO markets (
-			id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+			id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 			total_liquidity, volume_24h, participants, change_24h, end_time,
 			resolved, outcome, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
-		req.ID, req.PublicKey, req.Creator, req.Question, req.Category, nullableString(req.AvatarURL),
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
+		req.ID, req.PublicKey, req.Creator, req.Creator, req.Question, req.Category, nullableString(req.AvatarURL),
 		yesPool, noPool, req.InitialLiquidity, req.EndTime, now, now,
 	)
 	if err != nil {
@@ -211,6 +211,7 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 	market.ID = normalizeText(market.ID, market.PublicKey)
 	market.PublicKey = strings.TrimSpace(market.PublicKey)
 	market.Creator = normalizeText(market.Creator, "unknown")
+	market.Resolver = normalizeText(market.Resolver, market.Creator)
 	market.Question = strings.TrimSpace(market.Question)
 	market.AvatarURL = strings.TrimSpace(market.AvatarURL)
 	if rawCategory != "" {
@@ -260,11 +261,11 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO markets (
-				id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+				id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 				total_liquidity, volume_24h, participants, change_24h, end_time,
 				resolved, outcome, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, ?, ?)`,
-			market.ID, market.PublicKey, market.Creator, market.Question, market.Category, nullableString(market.AvatarURL),
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, ?, ?)`,
+			market.ID, market.PublicKey, market.Creator, market.Resolver, market.Question, market.Category, nullableString(market.AvatarURL),
 			market.YesPool, market.NoPool, market.TotalLiquidity, market.EndTime,
 			market.Resolved, nullableInt(market.Outcome), now, now,
 		)
@@ -290,11 +291,11 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 	change24h := probability(market.YesPool, market.NoPool) - probability(existing.YesPool, existing.NoPool)
 	_, err = tx.ExecContext(ctx, `
 		UPDATE markets
-		SET creator = ?, question = ?, category = ?, avatar_url = COALESCE(?, avatar_url), yes_pool = ?, no_pool = ?,
+		SET creator = ?, resolver = ?, question = ?, category = ?, avatar_url = COALESCE(?, avatar_url), yes_pool = ?, no_pool = ?,
 		    total_liquidity = ?, change_24h = ?, end_time = ?, resolved = ?,
 		    outcome = ?, updated_at = ?
 		WHERE id = ?`,
-		market.Creator, market.Question, market.Category, nullableString(market.AvatarURL), market.YesPool, market.NoPool,
+		market.Creator, market.Resolver, market.Question, market.Category, nullableString(market.AvatarURL), market.YesPool, market.NoPool,
 		market.TotalLiquidity, change24h, market.EndTime, market.Resolved,
 		nullableInt(market.Outcome), now, market.ID,
 	)
@@ -491,12 +492,24 @@ func (s *Store) IndexProgramEvent(ctx context.Context, event models.IndexedEvent
 		if err := indexTradeEvent(ctx, tx, market, event); err != nil {
 			return false, err
 		}
+	case "MarketResolverUpdated":
+		if err := indexResolverUpdatedEvent(ctx, tx, market, event); err != nil {
+			return false, err
+		}
+	case "MarketCancelled":
+		if err := indexCancelledEvent(ctx, tx, market, event); err != nil {
+			return false, err
+		}
 	case "MarketResolved":
 		if err := indexResolvedEvent(ctx, tx, market, event); err != nil {
 			return false, err
 		}
 	case "WinningsRedeemed":
 		if err := indexRedeemedEvent(ctx, tx, market, event); err != nil {
+			return false, err
+		}
+	case "RefundRedeemed":
+		if err := indexRefundedEvent(ctx, tx, market, event); err != nil {
 			return false, err
 		}
 	}
@@ -702,7 +715,7 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 	defer rollbackQuietly(tx)
 
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
@@ -850,7 +863,7 @@ func (s *Store) ResolveMarket(ctx context.Context, marketID string, req models.R
 	defer rollbackQuietly(tx)
 
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
@@ -865,6 +878,9 @@ func (s *Store) ResolveMarket(ctx context.Context, marketID string, req models.R
 	}
 	if market.Resolved {
 		return models.Market{}, fmt.Errorf("%w: market is already resolved", ErrInvalid)
+	}
+	if err := requireResolverAuthority(req.Resolver, market); err != nil {
+		return models.Market{}, err
 	}
 	if market.EndTime > time.Now().Unix() {
 		return models.Market{}, fmt.Errorf("%w: market has not ended", ErrInvalid)
@@ -892,6 +908,125 @@ func (s *Store) ResolveMarket(ctx context.Context, marketID string, req models.R
 		MarketID:   market.ID,
 		Side:       sideLabel(req.Outcome),
 		Action:     "RESOLVE",
+		Size:       0,
+		Confidence: 100,
+		Timestamp:  now,
+	}
+	if err := insertActivity(ctx, tx, activity); err != nil {
+		return models.Market{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Market{}, err
+	}
+	return s.GetMarket(ctx, market.ID)
+}
+
+func (s *Store) SetMarketResolver(ctx context.Context, marketID string, req models.SetMarketResolverRequest) (models.Market, error) {
+	marketID = strings.TrimSpace(marketID)
+	req.Actor = normalizeText(req.Actor, "local")
+	req.NewResolver = strings.TrimSpace(req.NewResolver)
+	req.Status = normalizeText(req.Status, "indexed")
+	req.Signature = normalizeText(req.Signature, "indexed")
+	if marketID == "" {
+		return models.Market{}, fmt.Errorf("%w: market id is required", ErrInvalid)
+	}
+	if req.NewResolver == "" || req.NewResolver == "local" {
+		return models.Market{}, fmt.Errorf("%w: newResolver is required", ErrInvalid)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.Market{}, err
+	}
+	defer rollbackQuietly(tx)
+
+	market, err := selectMarketByIDForUpdate(ctx, tx, marketID)
+	if err != nil {
+		return models.Market{}, err
+	}
+	if err := requireResolverAuthority(req.Actor, market); err != nil {
+		return models.Market{}, err
+	}
+	if market.Resolved {
+		return models.Market{}, fmt.Errorf("%w: market is already resolved", ErrInvalid)
+	}
+
+	now := nowMillis()
+	_, err = tx.ExecContext(ctx, `
+		UPDATE markets
+		SET resolver = ?, updated_at = ?
+		WHERE id = ?`, req.NewResolver, now, market.ID)
+	if err != nil {
+		return models.Market{}, err
+	}
+
+	activity := models.AgentActivity{
+		ID:         newID("act"),
+		Agent:      shortAgentName(req.Actor),
+		MarketID:   market.ID,
+		Side:       "VOID",
+		Action:     "SET_RESOLVER",
+		Size:       0,
+		Confidence: 100,
+		Timestamp:  now,
+	}
+	if err := insertActivity(ctx, tx, activity); err != nil {
+		return models.Market{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Market{}, err
+	}
+	return s.GetMarket(ctx, market.ID)
+}
+
+func (s *Store) CancelMarket(ctx context.Context, marketID string, req models.CancelMarketRequest) (models.Market, error) {
+	marketID = strings.TrimSpace(marketID)
+	req.Resolver = normalizeText(req.Resolver, "local")
+	req.Status = normalizeText(req.Status, "indexed")
+	req.Signature = normalizeText(req.Signature, "indexed")
+	if marketID == "" {
+		return models.Market{}, fmt.Errorf("%w: market id is required", ErrInvalid)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.Market{}, err
+	}
+	defer rollbackQuietly(tx)
+
+	market, err := selectMarketByIDForUpdate(ctx, tx, marketID)
+	if err != nil {
+		return models.Market{}, err
+	}
+	if market.Resolved {
+		return models.Market{}, fmt.Errorf("%w: market is already resolved", ErrInvalid)
+	}
+	if err := requireResolverAuthority(req.Resolver, market); err != nil {
+		return models.Market{}, err
+	}
+
+	now := nowMillis()
+	_, err = tx.ExecContext(ctx, `
+		UPDATE markets
+		SET resolved = TRUE, outcome = 2, updated_at = ?
+		WHERE id = ?`, now, market.ID)
+	if err != nil {
+		return models.Market{}, err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE positions
+		SET resolved = TRUE, updated_at = ?
+		WHERE market_id = ?`, now, market.ID)
+	if err != nil {
+		return models.Market{}, err
+	}
+
+	activity := models.AgentActivity{
+		ID:         newID("act"),
+		Agent:      shortAgentName(req.Resolver),
+		MarketID:   market.ID,
+		Side:       "VOID",
+		Action:     "CANCEL",
 		Size:       0,
 		Confidence: 100,
 		Timestamp:  now,
@@ -958,6 +1093,9 @@ func (s *Store) RedeemPosition(ctx context.Context, positionID string, req model
 	if !marketResolved || !outcome.Valid {
 		return models.RedeemPositionResponse{}, fmt.Errorf("%w: market is not resolved", ErrInvalid)
 	}
+	if outcome.Int64 == 2 {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: market is cancelled; refund this position instead", ErrInvalid)
+	}
 	if position.Size <= 0 {
 		return models.RedeemPositionResponse{}, fmt.Errorf("%w: position has no claimable size", ErrInvalid)
 	}
@@ -997,6 +1135,139 @@ func (s *Store) RedeemPosition(ctx context.Context, positionID string, req model
 		Market:    market,
 		Position:  position,
 	}, nil
+}
+
+func (s *Store) RefundPosition(ctx context.Context, positionID string, req models.RefundPositionRequest) (models.RedeemPositionResponse, error) {
+	positionID = strings.TrimSpace(positionID)
+	req.Owner = normalizeText(req.Owner, "local")
+	req.Status = normalizeText(req.Status, "indexed")
+	req.Signature = normalizeText(req.Signature, "indexed")
+	if positionID == "" {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: position id is required", ErrInvalid)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	defer rollbackQuietly(tx)
+
+	position, _, err := s.refundCancelledPosition(ctx, tx, positionID, req)
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+
+	market, err := s.GetMarket(ctx, position.MarketID)
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	position.Size = 0
+	position.PnL = 0
+	position.Resolved = true
+	return models.RedeemPositionResponse{
+		Signature: req.Signature,
+		Status:    req.Status,
+		Market:    market,
+		Position:  position,
+	}, nil
+}
+
+func (s *Store) refundCancelledPosition(ctx context.Context, tx *sql.Tx, positionID string, req models.RefundPositionRequest) (models.Position, float64, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT p.id, p.market_id, p.side, p.size, p.entry_probability,
+		       CASE WHEN p.side = 'YES'
+		         THEN IF((m.yes_pool + m.no_pool) <= 0, 0, m.yes_pool / (m.yes_pool + m.no_pool))
+		         ELSE IF((m.yes_pool + m.no_pool) <= 0, 0, m.no_pool / (m.yes_pool + m.no_pool))
+		       END AS current_probability,
+		       p.resolved,
+		       m.resolved, m.outcome
+		FROM positions p
+		JOIN markets m ON m.id = p.market_id
+		WHERE p.id = ? AND p.owner = ?
+		FOR UPDATE`, positionID, req.Owner)
+	var (
+		position       models.Position
+		marketResolved bool
+		outcome        sql.NullInt64
+	)
+	err := row.Scan(
+		&position.ID,
+		&position.MarketID,
+		&position.Side,
+		&position.Size,
+		&position.EntryProbability,
+		&position.CurrentProbability,
+		&position.Resolved,
+		&marketResolved,
+		&outcome,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Position{}, 0, ErrNotFound
+	}
+	if err != nil {
+		return models.Position{}, 0, err
+	}
+	if !marketResolved || !outcome.Valid || outcome.Int64 != 2 {
+		return models.Position{}, 0, fmt.Errorf("%w: market is not cancelled", ErrInvalid)
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, size
+		FROM positions
+		WHERE owner = ? AND market_id = ?
+		FOR UPDATE`, req.Owner, position.MarketID)
+	if err != nil {
+		return models.Position{}, 0, err
+	}
+	refundable := 0.0
+	for rows.Next() {
+		var id string
+		var size float64
+		if err := rows.Scan(&id, &size); err != nil {
+			_ = rows.Close()
+			return models.Position{}, 0, err
+		}
+		_ = id
+		refundable += size
+	}
+	if err := rows.Close(); err != nil {
+		return models.Position{}, 0, err
+	}
+	if refundable <= 0 {
+		return models.Position{}, 0, fmt.Errorf("%w: position has no refundable size", ErrInvalid)
+	}
+
+	now := nowMillis()
+	_, err = tx.ExecContext(ctx, `
+		UPDATE positions
+		SET size = 0, pnl = 0, resolved = TRUE, updated_at = ?
+		WHERE owner = ? AND market_id = ?`, now, req.Owner, position.MarketID)
+	if err != nil {
+		return models.Position{}, 0, err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE markets
+		SET total_liquidity = GREATEST(total_liquidity - ?, 0), updated_at = ?
+		WHERE id = ?`, refundable, now, position.MarketID)
+	if err != nil {
+		return models.Position{}, 0, err
+	}
+	if err := insertActivity(ctx, tx, models.AgentActivity{
+		ID:         newID("act"),
+		Agent:      shortAgentName(req.Owner),
+		MarketID:   position.MarketID,
+		Side:       "VOID",
+		Action:     "REFUND",
+		Size:       refundable * 1000,
+		Confidence: 100,
+		Timestamp:  now,
+	}); err != nil {
+		return models.Position{}, 0, err
+	}
+	return position, refundable, nil
 }
 
 func (s *Store) getPosition(ctx context.Context, owner string, marketID string, side string) (models.Position, error) {
@@ -1066,6 +1337,7 @@ func scanMarket(row scanner) (models.Market, error) {
 		&market.ID,
 		&market.PublicKey,
 		&market.Creator,
+		&market.Resolver,
 		&market.Question,
 		&market.Category,
 		&avatarURL,
@@ -1085,6 +1357,9 @@ func scanMarket(row scanner) (models.Market, error) {
 	if avatarURL.Valid {
 		market.AvatarURL = avatarURL.String
 	}
+	if strings.TrimSpace(market.Resolver) == "" {
+		market.Resolver = market.Creator
+	}
 	if outcome.Valid {
 		value := int(outcome.Int64)
 		market.Outcome = &value
@@ -1096,7 +1371,16 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureColumn(ctx, db, "markets", "avatar_url", "MEDIUMTEXT NULL AFTER category"); err != nil {
 		return err
 	}
+	if err := ensureColumn(ctx, db, "markets", "resolver", "VARCHAR(96) NOT NULL DEFAULT '' AFTER creator"); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE markets SET resolver = creator WHERE resolver = ''"); err != nil {
+		return err
+	}
 	if err := ensureColumn(ctx, db, "trades", "action", "VARCHAR(12) NOT NULL DEFAULT 'BUY' AFTER side"); err != nil {
+		return err
+	}
+	if err := ensureIndex(ctx, db, "markets", "idx_markets_resolver", "CREATE INDEX idx_markets_resolver ON markets (resolver)"); err != nil {
 		return err
 	}
 	if err := ensureIndex(ctx, db, "trades", "idx_trades_signature", "CREATE INDEX idx_trades_signature ON trades (signature)"); err != nil {
@@ -1232,12 +1516,27 @@ func scanTrade(row scanner) (models.Trade, error) {
 
 func selectMarketByPublicKeyForUpdate(ctx context.Context, tx *sql.Tx, publicKey string) (models.Market, error) {
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 		       total_liquidity, volume_24h, participants, change_24h, end_time,
 		       resolved, outcome
 		FROM markets
 		WHERE public_key = ?
 		FOR UPDATE`, publicKey)
+	market, err := scanMarket(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.Market{}, ErrNotFound
+	}
+	return market, err
+}
+
+func selectMarketByIDForUpdate(ctx context.Context, tx *sql.Tx, marketID string) (models.Market, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
+		       total_liquidity, volume_24h, participants, change_24h, end_time,
+		       resolved, outcome
+		FROM markets
+		WHERE id = ?
+		FOR UPDATE`, marketID)
 	market, err := scanMarket(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.Market{}, ErrNotFound
@@ -1276,12 +1575,13 @@ func indexCreatedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEven
 	creator := normalizeText(event.Owner, "unknown")
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO markets (
-			id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
+			id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 			total_liquidity, volume_24h, participants, change_24h, end_time,
 			resolved, outcome, created_at, updated_at
-		) VALUES (?, ?, ?, ?, 'Crypto', NULL, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, 'Crypto', NULL, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)
 		ON DUPLICATE KEY UPDATE
 		  creator = VALUES(creator),
+		  resolver = VALUES(resolver),
 		  question = VALUES(question),
 		  yes_pool = VALUES(yes_pool),
 		  no_pool = VALUES(no_pool),
@@ -1291,6 +1591,7 @@ func indexCreatedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEven
 		marketID,
 		event.MarketPublicKey,
 		creator,
+		normalizeText(event.Resolver, creator),
 		event.Question,
 		event.YesPool,
 		event.NoPool,
@@ -1426,6 +1727,67 @@ func indexedTradeID(event models.IndexedEvent) string {
 	return "evt_" + event.ID
 }
 
+func indexResolverUpdatedEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
+	newResolver := normalizeText(event.NewResolver, "")
+	if newResolver == "" {
+		return fmt.Errorf("%w: resolver update event newResolver is required", ErrInvalid)
+	}
+	_, err := tx.ExecContext(ctx, `
+		UPDATE markets
+		SET resolver = ?, updated_at = GREATEST(updated_at, ?)
+		WHERE id = ?`,
+		newResolver,
+		event.TimestampMillis,
+		market.ID,
+	)
+	if err != nil {
+		return err
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(event.PreviousResolver),
+		MarketID:   market.ID,
+		Side:       "VOID",
+		Action:     "SET_RESOLVER",
+		Size:       0,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
+}
+
+func indexCancelledEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
+	outcome := 2
+	_, err := tx.ExecContext(ctx, `
+		UPDATE markets
+		SET resolved = TRUE, outcome = ?, total_liquidity = ?, updated_at = GREATEST(updated_at, ?)
+		WHERE id = ?`,
+		outcome,
+		event.TotalLiquidity,
+		event.TimestampMillis,
+		market.ID,
+	)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE positions
+		SET resolved = TRUE, updated_at = GREATEST(updated_at, ?)
+		WHERE market_id = ?`, event.TimestampMillis, market.ID)
+	if err != nil {
+		return err
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(event.Resolver),
+		MarketID:   market.ID,
+		Side:       "VOID",
+		Action:     "CANCEL",
+		Size:       0,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
+}
+
 func indexResolvedEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
 	if event.Outcome == nil {
 		return fmt.Errorf("%w: resolved event outcome is required", ErrInvalid)
@@ -1468,6 +1830,45 @@ func indexRedeemedEvent(ctx context.Context, tx *sql.Tx, market models.Market, e
 		MarketID:   market.ID,
 		Side:       sideLabel(*event.Outcome),
 		Action:     "REDEEM",
+		Size:       event.PayoutSOL * 1000,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
+}
+
+func indexRefundedEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
+	owner := normalizeText(event.Owner, "")
+	if owner == "" {
+		return fmt.Errorf("%w: refunded event owner is required", ErrInvalid)
+	}
+	_, err := tx.ExecContext(ctx, `
+		UPDATE positions
+		SET size = 0, pnl = 0, resolved = TRUE, updated_at = GREATEST(updated_at, ?)
+		WHERE owner = ? AND market_id = ?`,
+		event.TimestampMillis,
+		owner,
+		market.ID,
+	)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE markets
+		SET total_liquidity = ?, updated_at = GREATEST(updated_at, ?)
+		WHERE id = ?`,
+		event.TotalLiquidity,
+		event.TimestampMillis,
+		market.ID,
+	)
+	if err != nil {
+		return err
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(owner),
+		MarketID:   market.ID,
+		Side:       "VOID",
+		Action:     "REFUND",
 		Size:       event.PayoutSOL * 1000,
 		Confidence: 100,
 		Timestamp:  event.TimestampMillis,
@@ -1700,7 +2101,24 @@ func shortAgentName(owner string) string {
 	return owner[:6]
 }
 
+func requireResolverAuthority(actor string, market models.Market) error {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return fmt.Errorf("%w: resolver is required", ErrInvalid)
+	}
+	if actor == "local" {
+		return nil
+	}
+	if actor == strings.TrimSpace(market.Resolver) {
+		return nil
+	}
+	return fmt.Errorf("%w: only the market resolver can perform this action", ErrInvalid)
+}
+
 func sideLabel(outcome int) string {
+	if outcome == 2 {
+		return "VOID"
+	}
 	if outcome == 1 {
 		return "YES"
 	}

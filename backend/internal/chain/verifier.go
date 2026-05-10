@@ -22,13 +22,16 @@ var (
 )
 
 var (
-	buySharesInstruction      = instructionDiscriminator("buy_shares")
-	createMarketInstruction   = instructionDiscriminator("create_market")
-	sellSharesInstruction     = instructionDiscriminator("sell_shares")
-	placeBetInstruction       = instructionDiscriminator("place_bet")
-	resolveMarketInstruction  = instructionDiscriminator("resolve_market")
-	redeemWinningsInstruction = instructionDiscriminator("redeem_winnings")
-	claimRewardInstruction    = instructionDiscriminator("claim_reward")
+	buySharesInstruction       = instructionDiscriminator("buy_shares")
+	createMarketInstruction    = instructionDiscriminator("create_market")
+	sellSharesInstruction      = instructionDiscriminator("sell_shares")
+	placeBetInstruction        = instructionDiscriminator("place_bet")
+	resolveMarketInstruction   = instructionDiscriminator("resolve_market")
+	setResolverInstruction     = instructionDiscriminator("set_resolver")
+	cancelMarketInstruction    = instructionDiscriminator("cancel_market")
+	redeemWinningsInstruction  = instructionDiscriminator("redeem_winnings")
+	refundCancelledInstruction = instructionDiscriminator("refund_cancelled")
+	claimRewardInstruction     = instructionDiscriminator("claim_reward")
 )
 
 type Verifier struct {
@@ -89,6 +92,28 @@ func (v *Verifier) VerifyResolve(ctx context.Context, req models.ResolveMarketRe
 	return nil
 }
 
+func (v *Verifier) VerifySetResolver(ctx context.Context, req models.SetMarketResolverRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Actor, req.MarketPublicKey, "resolver")
+	if err != nil {
+		return err
+	}
+	if !tx.matchesSetResolverInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested resolver update", ErrVerificationFailed)
+	}
+	return nil
+}
+
+func (v *Verifier) VerifyCancel(ctx context.Context, req models.CancelMarketRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Resolver, req.MarketPublicKey, "resolver")
+	if err != nil {
+		return err
+	}
+	if !tx.matchesCancelInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested market cancellation", ErrVerificationFailed)
+	}
+	return nil
+}
+
 func (v *Verifier) VerifyRedeem(ctx context.Context, req models.RedeemPositionRequest) error {
 	tx, err := v.verifyCommon(ctx, req.Signature, req.Owner, req.MarketPublicKey, "owner")
 	if err != nil {
@@ -96,6 +121,17 @@ func (v *Verifier) VerifyRedeem(ctx context.Context, req models.RedeemPositionRe
 	}
 	if !tx.matchesRedeemInstruction(v.programID, req) {
 		return fmt.Errorf("%w: transaction does not match requested redemption", ErrVerificationFailed)
+	}
+	return nil
+}
+
+func (v *Verifier) VerifyRefund(ctx context.Context, req models.RefundPositionRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Owner, req.MarketPublicKey, "owner")
+	if err != nil {
+		return err
+	}
+	if !tx.matchesRefundInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested refund", ErrVerificationFailed)
 	}
 	return nil
 }
@@ -278,9 +314,36 @@ func (t transactionResult) matchesResolveInstruction(programID string, req model
 	return false
 }
 
+func (t transactionResult) matchesSetResolverInstruction(programID string, req models.SetMarketResolverRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesSetResolver(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t transactionResult) matchesCancelInstruction(programID string, req models.CancelMarketRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesCancel(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
 func (t transactionResult) matchesRedeemInstruction(programID string, req models.RedeemPositionRequest) bool {
 	for _, instruction := range t.tradeInstructions() {
 		if instruction.matchesRedeem(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t transactionResult) matchesRefundInstruction(programID string, req models.RefundPositionRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesRefund(programID, req) {
 			return true
 		}
 	}
@@ -460,6 +523,66 @@ func (i instruction) matchesRedeem(programID string, req models.RedeemPositionRe
 	return decodeRedeemInstruction(data)
 }
 
+func (i instruction) matchesSetResolver(programID string, req models.SetMarketResolverRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	if !i.hasAccountAt(0, strings.TrimSpace(req.MarketPublicKey)) {
+		return false
+	}
+	if !i.hasAccountAt(1, strings.TrimSpace(req.Actor)) {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	newResolver, ok := decodeSetResolverInstruction(data)
+	if !ok {
+		return false
+	}
+	expected, err := base58Decode(strings.TrimSpace(req.NewResolver))
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(newResolver, expected)
+}
+
+func (i instruction) matchesCancel(programID string, req models.CancelMarketRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	if !i.hasAccountAt(0, strings.TrimSpace(req.MarketPublicKey)) {
+		return false
+	}
+	if !i.hasAccountAt(1, strings.TrimSpace(req.Resolver)) {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	return decodeCancelInstruction(data)
+}
+
+func (i instruction) matchesRefund(programID string, req models.RefundPositionRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	if !i.hasAccountAt(0, strings.TrimSpace(req.MarketPublicKey)) {
+		return false
+	}
+	owner := strings.TrimSpace(req.Owner)
+	if !i.hasAccountAt(2, owner) {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	return decodeRefundInstruction(data)
+}
+
 func (i instruction) hasAccountAt(index int, value string) bool {
 	return value != "" && len(i.Accounts) > index && i.Accounts[index] == value
 }
@@ -538,12 +661,27 @@ func decodeResolveInstruction(data []byte) (uint8, bool) {
 	return data[8], true
 }
 
+func decodeSetResolverInstruction(data []byte) ([]byte, bool) {
+	if len(data) != 40 || !bytes.Equal(data[:8], setResolverInstruction) {
+		return nil, false
+	}
+	return data[8:40], true
+}
+
+func decodeCancelInstruction(data []byte) bool {
+	return len(data) == 8 && bytes.Equal(data[:8], cancelMarketInstruction)
+}
+
 func decodeRedeemInstruction(data []byte) bool {
 	if len(data) != 8 {
 		return false
 	}
 	discriminator := data[:8]
 	return bytes.Equal(discriminator, redeemWinningsInstruction) || bytes.Equal(discriminator, claimRewardInstruction)
+}
+
+func decodeRefundInstruction(data []byte) bool {
+	return len(data) == 8 && bytes.Equal(data[:8], refundCancelledInstruction)
 }
 
 func instructionDiscriminator(name string) []byte {

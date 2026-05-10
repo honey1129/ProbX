@@ -5,16 +5,19 @@ import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   buyShares as buySharesIx,
+  cancelMarket as cancelMarketIx,
   createMarket as createMarketIx,
   getMarketPda,
   quoteBuyShares,
   quoteSellShares,
+  refundCancelled as refundCancelledIx,
   redeemWinnings as redeemWinningsIx,
   resolveMarket as resolveMarketIx,
   sellShares as sellSharesIx,
+  setMarketResolver as setMarketResolverIx,
   type AnchorWalletLike
 } from "@/lib/anchorClient";
-import { createBackendMarket, fetchBootstrap, fetchIndexedEvents, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket, updateBackendMarketMetadata } from "@/lib/backendApi";
+import { cancelBackendMarket, createBackendMarket, fetchBootstrap, fetchIndexedEvents, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, refundBackendPosition, resolveBackendMarket, setBackendMarketResolver, updateBackendMarketMetadata } from "@/lib/backendApi";
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
@@ -32,7 +35,10 @@ type MarketContextValue = {
   buy: (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => Promise<string>;
   sell: (marketId: string, side: Side, sharesSol: number, options?: TradeOptions) => Promise<string>;
   redeem: (positionId: string) => Promise<string>;
+  refund: (positionId: string) => Promise<string>;
   resolve: (marketId: string, outcome: 0 | 1) => Promise<string>;
+  cancelMarket: (marketId: string) => Promise<string>;
+  setMarketResolver: (marketId: string, newResolver: string) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
   updateMarketMetadata: (marketId: string, metadata: MarketMetadataInput) => Promise<Market>;
   addLocalMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
@@ -48,6 +54,7 @@ type CreateMarketOptions = {
   avatarUrl?: string;
   publicKey?: string;
   creator?: string;
+  resolver?: string;
 };
 
 type TradeOptions = {
@@ -69,7 +76,7 @@ type TradeConfirmationOptions = {
 };
 
 type ActionConfirmationOptions = {
-  eventType: "MarketCreated" | "MarketResolved" | "WinningsRedeemed";
+  eventType: "MarketCreated" | "MarketResolved" | "WinningsRedeemed" | "MarketResolverUpdated" | "MarketCancelled" | "RefundRedeemed";
   marketId?: string;
   attempts?: number;
   intervalMs?: number;
@@ -109,7 +116,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     fetchBootstrap(ownerId)
       .then((payload) => {
         if (cancelled) return;
-        setMarkets(payload.markets);
+        setMarkets(payload.markets.map(normalizeMarket));
         setPositions(payload.positions);
         setActivity(payload.activity);
         setApiReady(true);
@@ -207,7 +214,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             status: signature === "indexed" ? "indexed" : "sent"
           });
 
-          setMarkets((current) => upsertById(current, result.market));
+          setMarkets((current) => upsertById(current, normalizeMarket(result.market)));
           setPositions((current) => upsertById(current, result.position));
           setActivity((current) => [result.activity, ...current.filter((item) => item.id !== result.activity.id)].slice(0, 40));
           setError(null);
@@ -308,7 +315,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             status: signature === "indexed" ? "indexed" : "sent"
           });
 
-          setMarkets((current) => upsertById(current, result.market));
+          setMarkets((current) => upsertById(current, normalizeMarket(result.market)));
           setPositions((current) => upsertById(current, result.position));
           setActivity((current) => [result.activity, ...current.filter((item) => item.id !== result.activity.id)].slice(0, 40));
           setError(null);
@@ -364,6 +371,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (!position) throw new Error("Position not found");
       const market = markets.find((item) => item.id === position.marketId);
       if (!market) throw new Error("Market not found");
+      if (market.outcome === 2) throw new Error("This market was cancelled. Use refund instead.");
 
       const winningSide = market.outcome === 1 ? "YES" : market.outcome === 0 ? "NO" : position.side;
       if (market.resolved && position.side !== winningSide) {
@@ -387,7 +395,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             signature,
             status: signature === "indexed" ? "indexed" : "sent"
           });
-          setMarkets((current) => upsertById(current, result.market));
+          setMarkets((current) => upsertById(current, normalizeMarket(result.market)));
           setPositions((current) => upsertById(current, result.position));
           setError(null);
           return result.signature;
@@ -426,6 +434,84 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, positions, wallet]
   );
 
+  const refund = useCallback(
+    async (positionId: string) => {
+      const position = positions.find((item) => item.id === positionId);
+      if (!position) throw new Error("Position not found");
+      const market = markets.find((item) => item.id === position.marketId);
+      if (!market) throw new Error("Market not found");
+      if (!market.resolved || market.outcome !== 2) throw new Error("Market is not cancelled.");
+
+      let signature = backendEnabled ? "indexed" : "local";
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        signature = await refundCancelledIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          market
+        });
+      }
+
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
+        try {
+          const result = await refundBackendPosition(positionId, {
+            owner: ownerId,
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
+          });
+          setMarkets((current) => upsertById(current, normalizeMarket(result.market)));
+          setPositions((current) =>
+            current.map((item) =>
+              item.marketId === result.position.marketId
+                ? {
+                    ...item,
+                    size: item.id === result.position.id ? result.position.size : 0,
+                    pnl: 0,
+                    resolved: true
+                  }
+                : item
+            )
+          );
+          setError(null);
+          return result.signature;
+        } catch (error) {
+          const message = errorMessage(error, "ProbX API refund indexing failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
+        }
+      }
+
+      const refundable = positions
+        .filter((item) => item.marketId === market.id && item.size > 0)
+        .reduce((total, item) => total + item.size, 0);
+      setMarkets((current) =>
+        current.map((item) =>
+          item.id === market.id
+            ? {
+                ...item,
+                totalLiquidity: Math.max(0, item.totalLiquidity - refundable)
+              }
+            : item
+        )
+      );
+      setPositions((current) =>
+        current.map((item) =>
+          item.marketId === market.id
+            ? {
+                ...item,
+                size: 0,
+                pnl: 0,
+                resolved: true
+              }
+            : item
+        )
+      );
+      return signature;
+    },
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, positions, wallet]
+  );
+
   const resolve = useCallback(
     async (marketId: string, outcome: 0 | 1) => {
       const market = markets.find((item) => item.id === marketId);
@@ -452,7 +538,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             signature,
             status: signature === "indexed" ? "indexed" : "sent"
           });
-          setMarkets((current) => upsertById(current, nextMarket));
+          setMarkets((current) => upsertById(current, normalizeMarket(nextMarket)));
           setPositions((current) => current.map((position) => (position.marketId === marketId ? { ...position, resolved: true } : position)));
           setError(null);
           return signature;
@@ -481,6 +567,111 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
   );
 
+  const cancelMarket = useCallback(
+    async (marketId: string) => {
+      const market = markets.find((item) => item.id === marketId);
+      if (!market) throw new Error("Market not found");
+      if (market.resolved) throw new Error("Market is already resolved");
+
+      let signature = backendEnabled ? "indexed" : "local";
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        signature = await cancelMarketIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          market
+        });
+      }
+
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
+        try {
+          const nextMarket = await cancelBackendMarket(marketId, {
+            resolver: ownerId,
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
+          });
+          setMarkets((current) => upsertById(current, normalizeMarket(nextMarket)));
+          setPositions((current) => current.map((position) => (position.marketId === marketId ? { ...position, resolved: true } : position)));
+          setError(null);
+          return signature;
+        } catch (error) {
+          const message = errorMessage(error, "ProbX API cancel indexing failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
+        }
+      }
+
+      setMarkets((current) =>
+        current.map((item) =>
+          item.id === marketId
+            ? {
+                ...item,
+                resolved: true,
+                outcome: 2
+              }
+            : item
+        )
+      );
+      setPositions((current) => current.map((position) => (position.marketId === marketId ? { ...position, resolved: true } : position)));
+      return signature;
+    },
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+  );
+
+  const setMarketResolver = useCallback(
+    async (marketId: string, newResolver: string) => {
+      const market = markets.find((item) => item.id === marketId);
+      if (!market) throw new Error("Market not found");
+      if (market.resolved) throw new Error("Market is already resolved");
+      const trimmedResolver = newResolver.trim();
+      if (!trimmedResolver) throw new Error("New resolver is required.");
+
+      let signature = backendEnabled ? "indexed" : "local";
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        signature = await setMarketResolverIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          market,
+          newResolver: trimmedResolver
+        });
+      }
+
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
+        try {
+          const nextMarket = await setBackendMarketResolver(marketId, {
+            actor: ownerId,
+            newResolver: trimmedResolver,
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
+          });
+          setMarkets((current) => upsertById(current, normalizeMarket(nextMarket)));
+          setError(null);
+          return signature;
+        } catch (error) {
+          const message = errorMessage(error, "ProbX API resolver update failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
+        }
+      }
+
+      setMarkets((current) =>
+        current.map((item) =>
+          item.id === marketId
+            ? {
+                ...item,
+                resolver: trimmedResolver
+              }
+            : item
+        )
+      );
+      return signature;
+    },
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+  );
+
   const addLocalMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
     const initialLiquidity = Math.max(0.01, options?.initialLiquidity ?? 1);
     setMarkets((current) => [
@@ -488,6 +679,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         id: `created-${Date.now()}`,
         publicKey: options?.publicKey ?? "11111111111111111111111111111111",
         creator: options?.creator ?? "11111111111111111111111111111111",
+        resolver: options?.resolver ?? options?.creator ?? "11111111111111111111111111111111",
         endTime,
         question,
         category: options?.category ?? "Crypto",
@@ -537,7 +729,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             signature,
             status: signature === "indexed" ? "indexed" : "sent"
           });
-          setMarkets((current) => upsertById(current, market));
+          setMarkets((current) => upsertById(current, normalizeMarket(market)));
           setError(null);
           return signature;
         } catch (error) {
@@ -551,6 +743,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       addLocalMarket(question, endTime, {
         ...options,
         creator,
+        resolver: creator,
         publicKey
       });
       return signature;
@@ -584,7 +777,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
         try {
           const updated = await updateBackendMarketMetadata(marketId, signedPayload);
-          setMarkets((current) => upsertById(current, updated));
+          setMarkets((current) => upsertById(current, normalizeMarket(updated)));
           setError(null);
           return updated;
         } catch (error) {
@@ -595,7 +788,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       }
 
       const updated = { ...market, category: metadata.category, avatarUrl: avatarUrl || undefined };
-      setMarkets((current) => upsertById(current, updated));
+      setMarkets((current) => upsertById(current, normalizeMarket(updated)));
       return updated;
     },
     [apiReady, backendEnabled, error, markets, ownerId, wallet.publicKey, wallet.signMessage]
@@ -687,7 +880,10 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         buy,
         sell,
         redeem,
+        refund,
         resolve,
+        cancelMarket,
+        setMarketResolver,
         createMarket,
         updateMarketMetadata,
         addLocalMarket,
@@ -695,7 +891,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         waitForActionConfirmation
       };
     },
-    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, updateMarketMetadata, addLocalMarket, waitForTradeConfirmation, waitForActionConfirmation]
+    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, refund, resolve, cancelMarket, setMarketResolver, createMarket, updateMarketMetadata, addLocalMarket, waitForTradeConfirmation, waitForActionConfirmation]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;
@@ -711,6 +907,13 @@ function upsertById<T extends { id: string }>(items: T[], next: T) {
   const exists = items.some((item) => item.id === next.id);
   if (!exists) return [next, ...items];
   return items.map((item) => (item.id === next.id ? next : item));
+}
+
+function normalizeMarket(market: Market): Market {
+  return {
+    ...market,
+    resolver: market.resolver || market.creator
+  };
 }
 
 function bnToSol(value: { toString: () => string }) {

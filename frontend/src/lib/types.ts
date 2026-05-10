@@ -1,9 +1,12 @@
 export type Side = "YES" | "NO";
+export type Outcome = 0 | 1 | 2;
+export type ActivitySide = Side | "VOID";
 
 export type Market = {
   id: string;
   publicKey: string;
   creator: string;
+  resolver: string;
   endTime: number;
   question: string;
   category: "Crypto" | "Politics" | "Sports" | "On-chain" | "Tech" | "Macro";
@@ -15,7 +18,7 @@ export type Market = {
   participants: number;
   change24h: number;
   resolved?: boolean;
-  outcome?: 0 | 1;
+  outcome?: Outcome;
   probabilityHistory: number[];
 };
 
@@ -34,8 +37,8 @@ export type AgentActivity = {
   id: string;
   agent: string;
   marketId: string;
-  side: Side;
-  action: "BUY" | "SELL" | "CREATE" | "RESOLVE" | "REDEEM";
+  side: ActivitySide;
+  action: "BUY" | "SELL" | "CREATE" | "RESOLVE" | "REDEEM" | "CANCEL" | "REFUND" | "SET_RESOLVER";
   size: number;
   confidence: number;
   timestamp: number;

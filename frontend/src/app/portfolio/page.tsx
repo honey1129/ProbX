@@ -9,7 +9,7 @@ import { useMarkets } from "@/components/market/MarketProvider";
 import { PositionTable } from "@/components/portfolio/PositionTable";
 import { fetchTrades } from "@/lib/backendApi";
 import { formatPercent, formatPrice, formatSol, probability, relativeTime } from "@/lib/format";
-import type { AgentActivity, Position, Trade } from "@/lib/types";
+import type { AgentActivity, Position, Side, Trade } from "@/lib/types";
 
 type SortKey = "pnl" | "size" | "market";
 type MainTab = "positions" | "trades";
@@ -414,6 +414,6 @@ function shortSignature(signature: string) {
   return `${signature.slice(0, 8)}...${signature.slice(-6)}`;
 }
 
-function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL" } {
-  return item.action === "BUY" || item.action === "SELL";
+function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL"; side: Side } {
+  return (item.action === "BUY" || item.action === "SELL") && (item.side === "YES" || item.side === "NO");
 }

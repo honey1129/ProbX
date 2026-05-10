@@ -64,6 +64,31 @@ const legacyIdl = {
       args: [{ name: "outcome", type: "u8" }]
     },
     {
+      name: "set_resolver",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "resolver", isMut: false, isSigner: true }
+      ],
+      args: [{ name: "newResolver", type: "publicKey" }]
+    },
+    {
+      name: "cancel_market",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "resolver", isMut: false, isSigner: true }
+      ],
+      args: []
+    },
+    {
+      name: "refund_cancelled",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "position", isMut: true, isSigner: false },
+        { name: "owner", isMut: true, isSigner: true }
+      ],
+      args: []
+    },
+    {
       name: "place_bet",
       accounts: [
         { name: "market", isMut: true, isSigner: false },
@@ -232,6 +257,26 @@ export async function redeemWinnings(params: {
     .rpc();
 }
 
+export async function refundCancelled(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+}) {
+  const program = getProgram(params.connection, params.wallet);
+  const owner = params.wallet.publicKey;
+  const market = new PublicKey(params.market.publicKey);
+  const position = getPositionPda(market, owner);
+
+  return program.methods
+    .refundCancelled()
+    .accounts({
+      market,
+      position,
+      owner
+    })
+    .rpc();
+}
+
 export async function resolveMarket(params: {
   connection: web3.Connection;
   wallet: AnchorWalletLike;
@@ -243,6 +288,41 @@ export async function resolveMarket(params: {
 
   return program.methods
     .resolveMarket(params.outcome)
+    .accounts({
+      market,
+      resolver: params.wallet.publicKey
+    })
+    .rpc();
+}
+
+export async function setMarketResolver(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+  newResolver: string;
+}) {
+  const program = getProgram(params.connection, params.wallet);
+  const market = new PublicKey(params.market.publicKey);
+
+  return program.methods
+    .setResolver(new PublicKey(params.newResolver))
+    .accounts({
+      market,
+      resolver: params.wallet.publicKey
+    })
+    .rpc();
+}
+
+export async function cancelMarket(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+}) {
+  const program = getProgram(params.connection, params.wallet);
+  const market = new PublicKey(params.market.publicKey);
+
+  return program.methods
+    .cancelMarket()
     .accounts({
       market,
       resolver: params.wallet.publicKey

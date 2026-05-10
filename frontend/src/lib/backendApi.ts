@@ -110,6 +110,19 @@ export type ResolveMarketPayload = {
   status?: string;
 };
 
+export type SetMarketResolverPayload = {
+  actor: string;
+  newResolver: string;
+  signature?: string;
+  status?: string;
+};
+
+export type CancelMarketPayload = {
+  resolver: string;
+  signature?: string;
+  status?: string;
+};
+
 export type RedeemPositionPayload = {
   owner: string;
   signature?: string;
@@ -122,6 +135,8 @@ export type RedeemPositionResult = {
   market: Market;
   position: Position;
 };
+
+export type RefundPositionPayload = RedeemPositionPayload;
 
 export function isBackendApiConfigured() {
   return configuredApiUrl.length > 0;
@@ -186,8 +201,29 @@ export async function resolveBackendMarket(marketId: string, payload: ResolveMar
   });
 }
 
+export async function setBackendMarketResolver(marketId: string, payload: SetMarketResolverPayload) {
+  return apiFetch<Market>(`/api/markets/${encodeURIComponent(marketId)}/resolver`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function cancelBackendMarket(marketId: string, payload: CancelMarketPayload) {
+  return apiFetch<Market>(`/api/markets/${encodeURIComponent(marketId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function redeemBackendPosition(positionId: string, payload: RedeemPositionPayload) {
   return apiFetch<RedeemPositionResult>(`/api/positions/${encodeURIComponent(positionId)}/redeem`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function refundBackendPosition(positionId: string, payload: RefundPositionPayload) {
+  return apiFetch<RedeemPositionResult>(`/api/positions/${encodeURIComponent(positionId)}/refund`, {
     method: "POST",
     body: JSON.stringify(payload)
   });

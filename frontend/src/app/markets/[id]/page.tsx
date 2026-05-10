@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, ImagePlus, Loader2, Pencil, Radio, RefreshCw, Save, UsersRound, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, ImagePlus, Loader2, Pencil, Radio, RefreshCw, Save, ShieldAlert, UsersRound, X } from "lucide-react";
 import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
@@ -327,12 +327,16 @@ export default function MarketDetailPage() {
 }
 
 function ResolverPanel({ market }: { market: Market }) {
-  const { resolve, waitForActionConfirmation, backendEnabled } = useMarkets();
-  const [pending, setPending] = useState<0 | 1 | null>(null);
+  const { resolve, cancelMarket, setMarketResolver, waitForActionConfirmation, backendEnabled } = useMarkets();
+  const { publicKey } = useWallet();
+  const [pending, setPending] = useState<0 | 1 | "cancel" | "resolver" | null>(null);
+  const [newResolver, setNewResolver] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const hasEnded = market.endTime <= Math.floor(Date.now() / 1000);
+  const walletKey = publicKey?.toBase58() ?? "";
+  const canGovern = !backendEnabled || walletKey === market.resolver;
 
-  if (!hasEnded && !market.resolved) return null;
+  if (!canGovern && !hasEnded && !market.resolved) return null;
 
   async function submit(outcome: 0 | 1) {
     setMessage(null);
@@ -363,15 +367,69 @@ function ResolverPanel({ market }: { market: Market }) {
     }
   }
 
+  async function submitCancel() {
+    setMessage(null);
+    setPending("cancel");
+    try {
+      const signature = await cancelMarket(market.id);
+      if (signature !== "local" && signature !== "indexed") {
+        setMessage(`Cancel tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
+        const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketCancelled", marketId: market.id });
+        setMessage(
+          confirmation === "confirmed"
+            ? `Cancel confirmed and indexed: ${signature.slice(0, 12)}...`
+            : confirmation === "timeout"
+              ? `Cancel tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
+              : "Market cancelled in ProbX API."
+        );
+        return;
+      }
+      setMessage(signature === "local" ? "Market cancelled locally." : "Market cancelled in ProbX API.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Cancel failed.");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function submitResolver() {
+    setMessage(null);
+    setPending("resolver");
+    try {
+      const signature = await setMarketResolver(market.id, newResolver);
+      if (signature !== "local" && signature !== "indexed") {
+        setMessage(`Resolver tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
+        const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketResolverUpdated", marketId: market.id });
+        setMessage(
+          confirmation === "confirmed"
+            ? `Resolver updated and indexed: ${signature.slice(0, 12)}...`
+            : confirmation === "timeout"
+              ? `Resolver tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
+              : "Resolver updated in ProbX API."
+        );
+        setNewResolver("");
+        return;
+      }
+      setMessage(signature === "local" ? "Resolver updated locally." : "Resolver updated in ProbX API.");
+      setNewResolver("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Resolver update failed.");
+    } finally {
+      setPending(null);
+    }
+  }
+
   if (market.resolved) {
-    const outcome = market.outcome === 1 ? "YES" : "NO";
+    const outcome = market.outcome === 2 ? "VOID" : market.outcome === 1 ? "YES" : "NO";
     return (
       <section className="terminal-panel flex items-center justify-between gap-4 p-4">
         <div>
           <h2 className="font-black">Resolution</h2>
-          <p className="mt-1 text-sm text-muted">This market is settled as {outcome}.</p>
+          <p className="mt-1 text-sm text-muted">
+            {outcome === "VOID" ? "This market was cancelled. Positions can be refunded." : `This market is settled as ${outcome}.`}
+          </p>
         </div>
-        <span className={outcome === "YES" ? "rounded-lg border border-yes/30 bg-yes/10 px-4 py-2 font-black text-yes" : "rounded-lg border border-no/30 bg-no/10 px-4 py-2 font-black text-no"}>
+        <span className={outcome === "YES" ? "rounded-lg border border-yes/30 bg-yes/10 px-4 py-2 font-black text-yes" : outcome === "NO" ? "rounded-lg border border-no/30 bg-no/10 px-4 py-2 font-black text-no" : "rounded-lg border border-line bg-white/5 px-4 py-2 font-black text-slate-200"}>
           {outcome}
         </span>
       </section>
@@ -381,27 +439,62 @@ function ResolverPanel({ market }: { market: Market }) {
   return (
     <section className="terminal-panel grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-center">
       <div>
-        <h2 className="font-black">Resolve Market</h2>
+        <h2 className="font-black">Settlement Governance</h2>
         <p className="mt-1 text-sm text-muted">
-          {backendEnabled ? "Submit the final outcome to the ProbX API index." : "Set the final outcome for the local preview workspace."}
+          Current resolver: <span className="font-mono text-slate-300">{market.resolver ? `${market.resolver.slice(0, 6)}...${market.resolver.slice(-4)}` : "creator"}</span>
         </p>
         {message ? <p className="mt-2 text-sm text-slate-300">{message}</p> : null}
       </div>
-      <div className="flex gap-2">
-        <button
-          onClick={() => submit(1)}
-          disabled={pending !== null}
-          className="rounded-lg border border-yes/35 bg-yes/10 px-4 py-2 text-sm font-black text-yes transition hover:bg-yes/20 disabled:opacity-60"
-        >
-          {pending === 1 ? "Resolving..." : "Resolve YES"}
-        </button>
-        <button
-          onClick={() => submit(0)}
-          disabled={pending !== null}
-          className="rounded-lg border border-no/35 bg-no/10 px-4 py-2 text-sm font-black text-no transition hover:bg-no/20 disabled:opacity-60"
-        >
-          {pending === 0 ? "Resolving..." : "Resolve NO"}
-        </button>
+      <div className="grid gap-2">
+        {canGovern ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            {hasEnded ? (
+              <>
+                <button
+                  onClick={() => submit(1)}
+                  disabled={pending !== null}
+                  className="rounded-lg border border-yes/35 bg-yes/10 px-4 py-2 text-sm font-black text-yes transition hover:bg-yes/20 disabled:opacity-60"
+                >
+                  {pending === 1 ? "Resolving..." : "Resolve YES"}
+                </button>
+                <button
+                  onClick={() => submit(0)}
+                  disabled={pending !== null}
+                  className="rounded-lg border border-no/35 bg-no/10 px-4 py-2 text-sm font-black text-no transition hover:bg-no/20 disabled:opacity-60"
+                >
+                  {pending === 0 ? "Resolving..." : "Resolve NO"}
+                </button>
+              </>
+            ) : null}
+            <button
+              onClick={submitCancel}
+              disabled={pending !== null}
+              className="inline-flex items-center gap-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-4 py-2 text-sm font-black text-amber-200 transition hover:bg-amber-300/20 disabled:opacity-60"
+            >
+              {pending === "cancel" ? <Loader2 size={14} className="animate-spin" /> : <ShieldAlert size={14} />}
+              {pending === "cancel" ? "Cancelling..." : "Cancel / Void"}
+            </button>
+          </div>
+        ) : null}
+        {canGovern ? (
+          <div className="flex min-w-0 gap-2">
+            <input
+              value={newResolver}
+              onChange={(event) => setNewResolver(event.target.value)}
+              className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
+              placeholder="New resolver public key"
+            />
+            <button
+              onClick={submitResolver}
+              disabled={pending !== null || !newResolver.trim()}
+              className="rounded-lg border border-solBlue/35 bg-solBlue/10 px-4 py-2 text-sm font-black text-solBlue transition hover:bg-solBlue/20 disabled:opacity-60"
+            >
+              {pending === "resolver" ? "Updating..." : "Set Resolver"}
+            </button>
+          </div>
+        ) : (
+          <p className="text-right text-sm text-muted">{hasEnded ? "Connect the resolver wallet to settle this market." : "Resolver controls settlement after close."}</p>
+        )}
       </div>
     </section>
   );
@@ -532,6 +625,6 @@ function MarketStatePanel({ icon, eyebrow, title, message, action }: { icon: Rea
   );
 }
 
-function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL" } {
-  return item.action === "BUY" || item.action === "SELL";
+function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL"; side: Side } {
+  return (item.action === "BUY" || item.action === "SELL") && (item.side === "YES" || item.side === "NO");
 }

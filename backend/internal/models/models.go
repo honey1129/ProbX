@@ -6,6 +6,7 @@ type Market struct {
 	ID                 string    `json:"id"`
 	PublicKey          string    `json:"publicKey"`
 	Creator            string    `json:"creator"`
+	Resolver           string    `json:"resolver"`
 	EndTime            int64     `json:"endTime"`
 	Question           string    `json:"question"`
 	Category           string    `json:"category"`
@@ -126,6 +127,21 @@ type ResolveMarketRequest struct {
 	Status          string `json:"status"`
 }
 
+type SetMarketResolverRequest struct {
+	MarketPublicKey string `json:"-"`
+	Actor           string `json:"actor"`
+	NewResolver     string `json:"newResolver"`
+	Signature       string `json:"signature"`
+	Status          string `json:"status"`
+}
+
+type CancelMarketRequest struct {
+	MarketPublicKey string `json:"-"`
+	Resolver        string `json:"resolver"`
+	Signature       string `json:"signature"`
+	Status          string `json:"status"`
+}
+
 type RedeemPositionRequest struct {
 	MarketPublicKey string `json:"-"`
 	Owner           string `json:"owner"`
@@ -138,6 +154,13 @@ type RedeemPositionResponse struct {
 	Status    string   `json:"status"`
 	Market    Market   `json:"market"`
 	Position  Position `json:"position"`
+}
+
+type RefundPositionRequest struct {
+	MarketPublicKey string `json:"-"`
+	Owner           string `json:"owner"`
+	Signature       string `json:"signature"`
+	Status          string `json:"status"`
 }
 
 type IndexedPosition struct {
@@ -158,6 +181,8 @@ type IndexedEvent struct {
 	MarketPublicKey  string
 	Owner            string
 	Resolver         string
+	PreviousResolver string
+	NewResolver      string
 	Question         string
 	EndTime          int64
 	Side             string

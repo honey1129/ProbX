@@ -31,15 +31,21 @@ type Store interface {
 	GetIndexerCursor(ctx context.Context, name string) (models.IndexerCursor, error)
 	ListIndexedEvents(ctx context.Context, filter models.IndexedEventFilter) ([]models.IndexedEventRecord, error)
 	RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error)
+	SetMarketResolver(ctx context.Context, marketID string, req models.SetMarketResolverRequest) (models.Market, error)
+	CancelMarket(ctx context.Context, marketID string, req models.CancelMarketRequest) (models.Market, error)
 	ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error)
 	RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error)
+	RefundPosition(ctx context.Context, positionID string, req models.RefundPositionRequest) (models.RedeemPositionResponse, error)
 }
 
 type TradeVerifier interface {
 	VerifyCreateMarket(ctx context.Context, req models.CreateMarketRequest) error
 	VerifyTrade(ctx context.Context, req models.TradeRequest) error
+	VerifySetResolver(ctx context.Context, req models.SetMarketResolverRequest) error
+	VerifyCancel(ctx context.Context, req models.CancelMarketRequest) error
 	VerifyResolve(ctx context.Context, req models.ResolveMarketRequest) error
 	VerifyRedeem(ctx context.Context, req models.RedeemPositionRequest) error
+	VerifyRefund(ctx context.Context, req models.RefundPositionRequest) error
 }
 
 type Options struct {
@@ -104,9 +110,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/markets", s.createMarket)
 	mux.HandleFunc("GET /api/markets/{id}", s.market)
 	mux.HandleFunc("PATCH /api/markets/{id}/metadata", s.updateMarketMetadata)
+	mux.HandleFunc("POST /api/markets/{id}/resolver", s.setMarketResolver)
+	mux.HandleFunc("POST /api/markets/{id}/cancel", s.cancelMarket)
 	mux.HandleFunc("POST /api/markets/{id}/resolve", s.resolveMarket)
 	mux.HandleFunc("GET /api/positions", s.positions)
 	mux.HandleFunc("POST /api/positions/{id}/redeem", s.redeemPosition)
+	mux.HandleFunc("POST /api/positions/{id}/refund", s.refundPosition)
 	mux.HandleFunc("GET /api/activity", s.activity)
 	mux.HandleFunc("GET /api/trades", s.trades)
 	mux.HandleFunc("GET /api/indexed-events", s.indexedEvents)
@@ -383,6 +392,64 @@ func (s *Server) resolveMarket(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, market)
 }
 
+func (s *Server) setMarketResolver(w http.ResponseWriter, r *http.Request) {
+	var req models.SetMarketResolverRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	marketID := r.PathValue("id")
+	if s.tradeVerifier != nil {
+		market, err := s.store.GetMarket(ctx, strings.TrimSpace(marketID))
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		req.MarketPublicKey = market.PublicKey
+		if err := s.tradeVerifier.VerifySetResolver(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
+	market, err := s.store.SetMarketResolver(ctx, marketID, req)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, market)
+}
+
+func (s *Server) cancelMarket(w http.ResponseWriter, r *http.Request) {
+	var req models.CancelMarketRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	marketID := r.PathValue("id")
+	if s.tradeVerifier != nil {
+		market, err := s.store.GetMarket(ctx, strings.TrimSpace(marketID))
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		req.MarketPublicKey = market.PublicKey
+		if err := s.tradeVerifier.VerifyCancel(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
+	market, err := s.store.CancelMarket(ctx, marketID, req)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, market)
+}
+
 func (s *Server) redeemPosition(w http.ResponseWriter, r *http.Request) {
 	var req models.RedeemPositionRequest
 	if err := readJSON(r, &req); err != nil {
@@ -406,6 +473,36 @@ func (s *Server) redeemPosition(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	response, err := s.store.RedeemPosition(ctx, positionID, req)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) refundPosition(w http.ResponseWriter, r *http.Request) {
+	var req models.RefundPositionRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	positionID := r.PathValue("id")
+	if s.tradeVerifier != nil {
+		position, market, err := s.positionMarket(ctx, positionID, req.Owner)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		_ = position
+		req.MarketPublicKey = market.PublicKey
+		if err := s.tradeVerifier.VerifyRefund(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
+	response, err := s.store.RefundPosition(ctx, positionID, req)
 	if err != nil {
 		writeStoreError(w, err)
 		return

@@ -7,7 +7,7 @@ import type { Market, Position } from "@/lib/types";
 import { RouterLink as Link } from "@/router";
 
 export function PositionTable({ positions, markets, compact = false }: { positions: Position[]; markets: Market[]; compact?: boolean }) {
-  const { redeem, waitForActionConfirmation } = useMarkets();
+  const { redeem, refund, waitForActionConfirmation } = useMarkets();
   const [claimed, setClaimed] = useState<Record<string, boolean>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<Record<string, string>>({});
@@ -17,14 +17,16 @@ export function PositionTable({ positions, markets, compact = false }: { positio
     setMessages((current) => ({ ...current, [position.id]: "" }));
     setPending((current) => ({ ...current, [position.id]: true }));
     try {
-      const signature = await redeem(position.id);
+      const market = markets.find((item) => item.id === position.marketId);
+      const isCancelled = Boolean(market?.resolved && market.outcome === 2);
+      const signature = isCancelled ? await refund(position.id) : await redeem(position.id);
       if (signature !== "local" && signature !== "indexed") {
         setMessages((current) => ({
           ...current,
           [position.id]: `Tx ${signature.slice(0, 8)}... waiting for indexer`
         }));
         const confirmation = await waitForActionConfirmation(signature, {
-          eventType: "WinningsRedeemed",
+          eventType: isCancelled ? "RefundRedeemed" : "WinningsRedeemed",
           marketId: position.marketId
         });
         setClaimed((current) => ({ ...current, [position.id]: true }));
@@ -32,7 +34,7 @@ export function PositionTable({ positions, markets, compact = false }: { positio
           ...current,
           [position.id]:
             confirmation === "confirmed"
-              ? `Claim confirmed: ${signature.slice(0, 8)}...`
+              ? `${isCancelled ? "Refund" : "Claim"} confirmed: ${signature.slice(0, 8)}...`
               : `Tx ${signature.slice(0, 8)}... indexer still catching up`
         }));
         return;
@@ -42,13 +44,17 @@ export function PositionTable({ positions, markets, compact = false }: { positio
         ...current,
         [position.id]:
           signature === "local"
-            ? "Marked claimed"
-            : "Claim indexed"
+            ? isCancelled
+              ? "Marked refunded"
+              : "Marked claimed"
+            : isCancelled
+              ? "Refund indexed"
+              : "Claim indexed"
       }));
     } catch (error) {
       setMessages((current) => ({
         ...current,
-        [position.id]: error instanceof Error ? error.message : "Claim failed"
+        [position.id]: error instanceof Error ? error.message : "Action failed"
       }));
     } finally {
       setPending((current) => ({ ...current, [position.id]: false }));
@@ -81,9 +87,10 @@ export function PositionTable({ positions, markets, compact = false }: { positio
           {positions.map((position) => {
             const market = markets.find((item) => item.id === position.marketId);
             const pnlClass = position.pnl >= 0 ? "text-yes" : "text-no";
+            const isCancelled = Boolean(market?.resolved && market.outcome === 2);
             const winningSide = market?.outcome === 1 ? "YES" : market?.outcome === 0 ? "NO" : position.side;
             const isResolved = Boolean(position.resolved || market?.resolved);
-            const isWinning = !market?.resolved || position.side === winningSide;
+            const isWinning = isCancelled || !market?.resolved || position.side === winningSide;
             const isClaimed = claimed[position.id] || position.size <= 0;
             return (
               <tr key={position.id} className="border-t border-line bg-slate-950/35 transition hover:bg-slate-900/60">
@@ -109,7 +116,7 @@ export function PositionTable({ positions, markets, compact = false }: { positio
                         disabled={isClaimed || pending[position.id]}
                         className="rounded border border-yes/40 bg-yes/10 px-3 py-1 text-xs font-bold text-yes transition hover:bg-yes/20 disabled:border-line disabled:bg-white/5 disabled:text-muted"
                       >
-                        {pending[position.id] ? "Claiming" : isClaimed ? "Claimed" : "Claim"}
+                        {pending[position.id] ? (isCancelled ? "Refunding" : "Claiming") : isClaimed ? (isCancelled ? "Refunded" : "Claimed") : isCancelled ? "Refund" : "Claim"}
                       </button>
                     ) : isResolved ? (
                       <span className="text-xs text-muted">Lost</span>

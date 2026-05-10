@@ -5,6 +5,7 @@ declare_id!("4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL");
 
 pub const SIDE_NO: u8 = 0;
 pub const SIDE_YES: u8 = 1;
+pub const OUTCOME_CANCELLED: u8 = 2;
 pub const PRICE_SCALE: u64 = 1_000_000_000;
 
 #[program]
@@ -217,6 +218,46 @@ pub mod probx_prediction {
         Ok(())
     }
 
+    pub fn set_resolver(ctx: Context<SetResolver>, new_resolver: Pubkey) -> Result<()> {
+        require!(
+            new_resolver != Pubkey::default(),
+            PredictionError::InvalidResolver
+        );
+
+        let market = &mut ctx.accounts.market;
+        let previous_resolver = market.resolver;
+        market.resolver = new_resolver;
+
+        emit!(MarketResolverUpdated {
+            market: market.key(),
+            previous_resolver,
+            new_resolver,
+        });
+
+        Ok(())
+    }
+
+    pub fn cancel_market(ctx: Context<CancelMarket>) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+
+        require!(!market.resolved, PredictionError::MarketAlreadyResolved);
+
+        market.outcome = OUTCOME_CANCELLED;
+        market.resolved = true;
+
+        emit!(MarketCancelled {
+            market: market.key(),
+            resolver: ctx.accounts.resolver.key(),
+            yes_pool: market.yes_pool,
+            no_pool: market.no_pool,
+            total_liquidity: market.total_liquidity,
+            yes_shares: market.yes_shares,
+            no_shares: market.no_shares,
+        });
+
+        Ok(())
+    }
+
     /// Backwards-compatible name for older clients. Prefer redeem_winnings.
     pub fn claim_reward(ctx: Context<RedeemWinnings>) -> Result<()> {
         redeem_winnings_impl(ctx)
@@ -224,6 +265,66 @@ pub mod probx_prediction {
 
     pub fn redeem_winnings(ctx: Context<RedeemWinnings>) -> Result<()> {
         redeem_winnings_impl(ctx)
+    }
+
+    pub fn refund_cancelled(ctx: Context<RefundCancelled>) -> Result<()> {
+        let payout = {
+            let market = &mut ctx.accounts.market;
+            let position = &mut ctx.accounts.position;
+
+            require!(market.resolved, PredictionError::MarketNotResolved);
+            require!(
+                market.outcome == OUTCOME_CANCELLED,
+                PredictionError::MarketNotCancelled
+            );
+
+            let refundable = position
+                .yes_amount
+                .checked_add(position.no_amount)
+                .ok_or(PredictionError::MathOverflow)?;
+            require!(refundable > 0, PredictionError::NoRefundablePosition);
+            require!(
+                market.total_liquidity >= refundable,
+                PredictionError::InsufficientMarketLamports
+            );
+
+            if position.yes_amount > 0 {
+                market.yes_shares = market
+                    .yes_shares
+                    .checked_sub(position.yes_amount)
+                    .ok_or(PredictionError::MathOverflow)?;
+            }
+            if position.no_amount > 0 {
+                market.no_shares = market
+                    .no_shares
+                    .checked_sub(position.no_amount)
+                    .ok_or(PredictionError::MathOverflow)?;
+            }
+
+            position.yes_amount = 0;
+            position.no_amount = 0;
+            market.total_liquidity = market
+                .total_liquidity
+                .checked_sub(refundable)
+                .ok_or(PredictionError::MathOverflow)?;
+
+            refundable
+        };
+
+        transfer_from_market(
+            &ctx.accounts.market.to_account_info(),
+            &ctx.accounts.owner.to_account_info(),
+            payout,
+        )?;
+
+        emit!(RefundRedeemed {
+            market: ctx.accounts.market.key(),
+            owner: ctx.accounts.owner.key(),
+            payout,
+            total_liquidity: ctx.accounts.market.total_liquidity,
+        });
+
+        Ok(())
     }
 }
 
@@ -333,6 +434,10 @@ fn redeem_winnings_impl(ctx: Context<RedeemWinnings>) -> Result<()> {
     require!(
         ctx.accounts.market.resolved,
         PredictionError::MarketNotResolved
+    );
+    require!(
+        ctx.accounts.market.outcome != OUTCOME_CANCELLED,
+        PredictionError::MarketCancelled
     );
 
     let payout = {
@@ -499,7 +604,67 @@ pub struct ResolveMarket<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetResolver<'info> {
+    #[account(
+        mut,
+        has_one = resolver @ PredictionError::UnauthorizedResolver,
+        seeds = [
+            Market::SEED_PREFIX,
+            market.creator.as_ref(),
+            &market.end_time.to_le_bytes(),
+        ],
+        bump
+    )]
+    pub market: Account<'info, Market>,
+    pub resolver: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CancelMarket<'info> {
+    #[account(
+        mut,
+        has_one = resolver @ PredictionError::UnauthorizedResolver,
+        seeds = [
+            Market::SEED_PREFIX,
+            market.creator.as_ref(),
+            &market.end_time.to_le_bytes(),
+        ],
+        bump
+    )]
+    pub market: Account<'info, Market>,
+    pub resolver: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct RedeemWinnings<'info> {
+    #[account(
+        mut,
+        seeds = [
+            Market::SEED_PREFIX,
+            market.creator.as_ref(),
+            &market.end_time.to_le_bytes(),
+        ],
+        bump
+    )]
+    pub market: Account<'info, Market>,
+    #[account(
+        mut,
+        seeds = [
+            Position::SEED_PREFIX,
+            market.key().as_ref(),
+            owner.key().as_ref(),
+        ],
+        bump,
+        has_one = owner @ PredictionError::InvalidPositionOwner,
+        has_one = market @ PredictionError::InvalidPositionMarket
+    )]
+    pub position: Account<'info, Position>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RefundCancelled<'info> {
     #[account(
         mut,
         seeds = [
@@ -811,10 +976,36 @@ pub struct MarketResolved {
 }
 
 #[event]
+pub struct MarketResolverUpdated {
+    pub market: Pubkey,
+    pub previous_resolver: Pubkey,
+    pub new_resolver: Pubkey,
+}
+
+#[event]
+pub struct MarketCancelled {
+    pub market: Pubkey,
+    pub resolver: Pubkey,
+    pub yes_pool: u64,
+    pub no_pool: u64,
+    pub total_liquidity: u64,
+    pub yes_shares: u64,
+    pub no_shares: u64,
+}
+
+#[event]
 pub struct WinningsRedeemed {
     pub market: Pubkey,
     pub owner: Pubkey,
     pub outcome: u8,
+    pub payout: u64,
+    pub total_liquidity: u64,
+}
+
+#[event]
+pub struct RefundRedeemed {
+    pub market: Pubkey,
+    pub owner: Pubkey,
     pub payout: u64,
     pub total_liquidity: u64,
 }
@@ -837,14 +1028,22 @@ pub enum PredictionError {
     MarketAlreadyResolved,
     #[msg("Only the market resolver can perform this action.")]
     UnauthorizedResolver,
+    #[msg("Resolver public key is invalid.")]
+    InvalidResolver,
     #[msg("Market has not reached its end time.")]
     MarketNotEnded,
     #[msg("Market has not been resolved.")]
     MarketNotResolved,
+    #[msg("Market was cancelled and must be refunded.")]
+    MarketCancelled,
+    #[msg("Market is not cancelled.")]
+    MarketNotCancelled,
     #[msg("Initial liquidity must be greater than zero.")]
     InvalidInitialLiquidity,
     #[msg("Position has no claimable winning shares.")]
     NoWinningPosition,
+    #[msg("Position has no refundable shares.")]
+    NoRefundablePosition,
     #[msg("Math overflow.")]
     MathOverflow,
     #[msg("Insufficient market lamports.")]

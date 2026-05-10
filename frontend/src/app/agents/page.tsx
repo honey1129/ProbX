@@ -7,11 +7,11 @@ import { PnLChart } from "@/components/charts/ProbabilityChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { formatPercent, formatUsd, probability } from "@/lib/format";
-import type { AgentActivity } from "@/lib/types";
+import type { ActivitySide, AgentActivity } from "@/lib/types";
 
 export default function AgentsPage() {
   const { markets, activity, isLoading, error, backendEnabled, refresh } = useMarkets();
-  const [feedFilter, setFeedFilter] = useState<"ALL" | "YES" | "NO">("ALL");
+  const [feedFilter, setFeedFilter] = useState<"ALL" | ActivitySide>("ALL");
   const [selectedAgent, setSelectedAgent] = useState("");
 
   const agentStats = useMemo(() => deriveAgentStats(activity), [activity]);
@@ -83,12 +83,13 @@ export default function AgentsPage() {
             <h1 className="text-xl font-black">Activity Feed</h1>
             <select
               value={feedFilter}
-              onChange={(event) => setFeedFilter(event.target.value as "ALL" | "YES" | "NO")}
+              onChange={(event) => setFeedFilter(event.target.value as "ALL" | ActivitySide)}
               className="h-8 rounded-md border border-line bg-black/35 px-2 text-xs font-bold outline-none"
             >
               <option value="ALL">All Agents</option>
               <option value="YES">YES Trades</option>
               <option value="NO">NO Trades</option>
+              <option value="VOID">Governance</option>
             </select>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -225,7 +226,7 @@ function deriveAgentStats(activity: AgentActivity[]): DerivedAgentStats[] {
     .map(([name, items]) => {
       const yes = items.filter((item) => item.side === "YES").reduce((sum, item) => sum + item.size, 0);
       const no = items.filter((item) => item.side === "NO").reduce((sum, item) => sum + item.size, 0);
-      const volume = yes + no;
+      const volume = items.reduce((sum, item) => sum + item.size, 0);
       const avgConfidence = Math.round(items.reduce((sum, item) => sum + item.confidence, 0) / Math.max(1, items.length));
       const flow = yes > no ? "YES flow" : no > yes ? "NO flow" : "Balanced flow";
       return { name, flow, volume, avgConfidence, trades: items.length };

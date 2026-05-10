@@ -543,6 +543,200 @@
       ]
     },
     {
+      "name": "set_resolver",
+      "discriminator": [
+        137,
+        108,
+        27,
+        51,
+        202,
+        16,
+        33,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver",
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_resolver",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "cancel_market",
+      "discriminator": [
+        205,
+        121,
+        84,
+        210,
+        222,
+        71,
+        150,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver",
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refund_cancelled",
+      "discriminator": [
+        103,
+        244,
+        158,
+        83,
+        225,
+        80,
+        56,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          },
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "sell_shares",
       "discriminator": [
         184,
@@ -710,6 +904,32 @@
       ]
     },
     {
+      "name": "MarketResolverUpdated",
+      "discriminator": [
+        30,
+        136,
+        55,
+        168,
+        197,
+        235,
+        110,
+        194
+      ]
+    },
+    {
+      "name": "MarketCancelled",
+      "discriminator": [
+        139,
+        163,
+        33,
+        168,
+        19,
+        180,
+        81,
+        170
+      ]
+    },
+    {
       "name": "SharesBought",
       "discriminator": [
         240,
@@ -746,6 +966,19 @@
         236,
         63,
         99
+      ]
+    },
+    {
+      "name": "RefundRedeemed",
+      "discriminator": [
+        174,
+        244,
+        248,
+        10,
+        12,
+        200,
+        13,
+        0
       ]
     }
   ],
@@ -792,61 +1025,81 @@
     },
     {
       "code": 6008,
+      "name": "InvalidResolver",
+      "msg": "Resolver public key is invalid."
+    },
+    {
+      "code": 6009,
       "name": "MarketNotEnded",
       "msg": "Market has not reached its end time."
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "MarketNotResolved",
       "msg": "Market has not been resolved."
     },
     {
-      "code": 6010,
+      "code": 6011,
+      "name": "MarketCancelled",
+      "msg": "Market was cancelled and must be refunded."
+    },
+    {
+      "code": 6012,
+      "name": "MarketNotCancelled",
+      "msg": "Market is not cancelled."
+    },
+    {
+      "code": 6013,
       "name": "InvalidInitialLiquidity",
       "msg": "Initial liquidity must be greater than zero."
     },
     {
-      "code": 6011,
+      "code": 6014,
       "name": "NoWinningPosition",
       "msg": "Position has no claimable winning shares."
     },
     {
-      "code": 6012,
+      "code": 6015,
+      "name": "NoRefundablePosition",
+      "msg": "Position has no refundable shares."
+    },
+    {
+      "code": 6016,
       "name": "MathOverflow",
       "msg": "Math overflow."
     },
     {
-      "code": 6013,
+      "code": 6017,
       "name": "InsufficientMarketLamports",
       "msg": "Insufficient market lamports."
     },
     {
-      "code": 6014,
+      "code": 6018,
       "name": "InvalidPositionOwner",
       "msg": "Invalid position owner."
     },
     {
-      "code": 6015,
+      "code": 6019,
       "name": "InvalidPositionMarket",
       "msg": "Invalid position market."
     },
     {
-      "code": 6016,
+      "code": 6020,
       "name": "SlippageExceeded",
       "msg": "Trade output is below the requested slippage limit."
     },
     {
-      "code": 6017,
+      "code": 6021,
       "name": "InsufficientShares",
       "msg": "Position does not have enough shares."
     },
     {
-      "code": 6018,
+      "code": 6022,
       "name": "InsufficientLiquidity",
       "msg": "AMM pool has insufficient liquidity."
     },
     {
-      "code": 6019,
+      "code": 6023,
       "name": "AmountTooSmall",
       "msg": "Amount is too small for the AMM pool."
     }
@@ -1038,6 +1291,62 @@
       }
     },
     {
+      "name": "MarketResolverUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_resolver",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_resolver",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "resolver",
+            "type": "pubkey"
+          },
+          {
+            "name": "yes_pool",
+            "type": "u64"
+          },
+          {
+            "name": "no_pool",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "yes_shares",
+            "type": "u64"
+          },
+          {
+            "name": "no_shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Position",
       "type": {
         "kind": "struct",
@@ -1165,6 +1474,30 @@
           {
             "name": "outcome",
             "type": "u8"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RefundRedeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
           },
           {
             "name": "payout",

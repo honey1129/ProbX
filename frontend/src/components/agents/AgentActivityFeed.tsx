@@ -37,7 +37,7 @@ export function AgentActivityFeed({ activity, markets }: { activity: AgentActivi
                 <b className="text-slate-100">{item.agent}</b>
                 <span className="text-xs text-muted">{age}</span>
               </div>
-              <span className={item.side === "YES" ? "agent-tag yes" : "agent-tag no"}>
+              <span className={item.side === "YES" ? "agent-tag yes" : item.side === "NO" ? "agent-tag no" : "agent-tag"}>
                 {item.action} {item.side}
               </span>
               <p className="truncate text-xs text-muted">{market?.question ?? "Unknown market"}</p>

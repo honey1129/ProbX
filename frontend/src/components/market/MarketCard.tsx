@@ -10,6 +10,7 @@ import { RouterLink as Link } from "@/router";
 
 export function MarketCard({ market }: { market: Market }) {
   const p = probability(market);
+  const isCancelled = Boolean(market.resolved && market.outcome === 2);
   const positive = market.change24h >= 0;
   const no = 1 - p;
   const sparkPoints = toSparkPoints(market.probabilityHistory);
@@ -38,13 +39,13 @@ export function MarketCard({ market }: { market: Market }) {
               <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
                 <span>{market.category}</span>
                 <span>/</span>
-                <span>{marketSubtitle(market)}</span>
+                <span>{isCancelled ? "Void" : marketSubtitle(market)}</span>
               </div>
             </div>
             <div className="grid shrink-0 justify-items-end gap-1">
               <Star size={14} className="text-muted transition group-hover:text-violet-200" />
               <span className="inline-flex items-center gap-1 rounded-full border border-line bg-black/25 px-2 py-0.5 text-[10px] text-muted">
-                <Clock3 size={10} /> {timeRemaining(market.endTime)}
+                <Clock3 size={10} /> {isCancelled ? "Cancelled" : timeRemaining(market.endTime)}
               </span>
             </div>
           </div>

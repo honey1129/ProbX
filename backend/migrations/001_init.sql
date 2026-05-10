@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS markets (
   id VARCHAR(96) NOT NULL PRIMARY KEY,
   public_key VARCHAR(96) NOT NULL,
   creator VARCHAR(96) NOT NULL,
+  resolver VARCHAR(96) NOT NULL,
   question VARCHAR(280) NOT NULL,
   category VARCHAR(32) NOT NULL,
   avatar_url MEDIUMTEXT NULL,
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS markets (
   updated_at BIGINT NOT NULL,
   UNIQUE KEY idx_markets_public_key (public_key),
   KEY idx_markets_end_time (end_time),
+  KEY idx_markets_resolver (resolver),
   KEY idx_markets_category (category)
 );
 

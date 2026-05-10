@@ -93,6 +93,7 @@ export function TradePanel({ market }: { market: Market }) {
   }, [amountNumber, nextNoPool, nextYesPool, p, side]);
 
   const validationMessage = useMemo(() => {
+    if (market.resolved && market.outcome === 2) return "This market is cancelled.";
     if (market.resolved) return "This market is resolved.";
     if (market.endTime <= Math.floor(Date.now() / 1000)) return "This market is closed.";
     if (backendEnabled && isLoading) return "Waiting for the ProbX API.";
@@ -106,7 +107,7 @@ export function TradePanel({ market }: { market: Market }) {
       return mode === "BUY" ? "Amount exceeds available SOL." : "Amount exceeds available shares.";
     }
     return null;
-  }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.endTime, market.resolved, mode, onchainEnabled, orderLimit, side]);
+  }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.endTime, market.outcome, market.resolved, mode, onchainEnabled, orderLimit, side]);
 
   const percentUsed = hasFiniteLimit && orderLimit > 0 ? Math.max(0, Math.min(100, (amountNumber / orderLimit) * 100 || 0)) : 0;
   const successStatus = status ? status.includes("updated") || status.includes("API") || status.includes("Tx") || status.includes("saved") : false;
@@ -429,6 +430,7 @@ function MarketInfo({ market }: { market: Market }) {
         <div className="grid gap-2 text-xs">
           <CodeRow label="Market" value={market.publicKey} />
           <CodeRow label="Creator" value={market.creator} />
+          <CodeRow label="Resolver" value={market.resolver} />
         </div>
       </div>
 

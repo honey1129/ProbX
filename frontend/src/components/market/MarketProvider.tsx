@@ -22,6 +22,7 @@ import {
 import { cancelBackendMarket, createBackendMarket, fetchBootstrap, fetchIndexedEvents, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, refundBackendPosition, resolveBackendMarket, setBackendMarketResolver, updateBackendMarketMetadata, withdrawBackendResidual } from "@/lib/backendApi";
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
 
 type MarketContextValue = {
@@ -88,7 +89,8 @@ type ActionConfirmationOptions = {
 export function MarketProvider({ children }: { children: ReactNode }) {
   const { connection } = useConnection();
   const wallet = useWallet();
-  const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
+  const onchainEnabled = runtimeConfig.enableOnchain;
   const backendEnabled = isBackendApiConfigured();
   const ownerId = wallet.publicKey?.toBase58() ?? "local";
   const [apiReady, setApiReady] = useState(false);

@@ -131,9 +131,15 @@ PROBX_INDEXER_EVENT_LIMIT=5000
 
 ```bash
 NEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899
+NEXT_PUBLIC_SOLANA_CLUSTER=localnet
 NEXT_PUBLIC_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 NEXT_PUBLIC_ENABLE_ONCHAIN=false
 NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_TESTNET_HOSTS=test.probx.site
+NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL=https://api.testnet.solana.com
+NEXT_PUBLIC_TESTNET_API_URL=https://test-api.probx.site
+NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+NEXT_PUBLIC_TESTNET_ENABLE_ONCHAIN=true
 NEXT_PUBLIC_X_URL=
 NEXT_PUBLIC_DISCORD_URL=
 NEXT_PUBLIC_TELEGRAM_URL=
@@ -141,6 +147,8 @@ NEXT_PUBLIC_GITHUB_URL=https://github.com/honey1129/ProbX
 ```
 
 `NEXT_PUBLIC_API_URL` 为空时，前端会进入本地预览模式。设置为 Go API 地址后，前端会通过 MySQL 索引读写市场、持仓和交易活动；API 加载、空数据和错误会在页面上明确展示。
+
+当访问域名匹配 `NEXT_PUBLIC_TESTNET_HOSTS`，例如 `test.probx.site`，前端会在运行时自动切到测试网模式：RPC 使用 `NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL`，API 使用 `NEXT_PUBLIC_TESTNET_API_URL`，Explorer 链接使用 Solana testnet，页面顶部会显示 Testnet 标识。测试网用户需要在钱包切换到 Solana Testnet，并通过 Solana Faucet 获取测试 SOL。
 
 Vite 配置会继续读取现有的 `NEXT_PUBLIC_*` 变量，方便从旧前端平滑迁移；也支持对应的 `VITE_*` 别名。
 
@@ -325,6 +333,8 @@ git pull
 PROBX_HTTP_ADDR=:8081
 PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true
 PROBX_CORS_ORIGINS=http://185.214.135.24:3001
+PROBX_SOLANA_RPC_URL=https://api.devnet.solana.com
+PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 PROBX_TRADE_VERIFICATION=confirmed
 PROBX_MEDIA_DIR=data/media
 PROBX_PUBLIC_BASE_URL=https://api.probx.site
@@ -334,8 +344,26 @@ PROBX_INDEXER_EVENT_LIMIT=5000
 
 ```bash
 # frontend/.env.local
-NEXT_PUBLIC_API_URL=http://185.214.135.24:8081
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_CLUSTER=devnet
+NEXT_PUBLIC_API_URL=https://api.probx.site
 NEXT_PUBLIC_ENABLE_ONCHAIN=true
+NEXT_PUBLIC_TESTNET_HOSTS=test.probx.site
+NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL=https://api.testnet.solana.com
+NEXT_PUBLIC_TESTNET_API_URL=https://test-api.probx.site
+NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+NEXT_PUBLIC_TESTNET_ENABLE_ONCHAIN=true
+```
+
+如果单独部署测试网 API/indexer，可以复制一套后端环境到另一台进程/域名，关键差异是：
+
+```bash
+PROBX_HTTP_ADDR=:8082
+PROBX_CORS_ORIGINS=https://test.probx.site
+PROBX_SOLANA_RPC_URL=https://api.testnet.solana.com
+PROBX_PROGRAM_ID=<testnet 上部署的 ProbX program id>
+PROBX_PUBLIC_BASE_URL=https://test-api.probx.site
+PROBX_TRADE_VERIFICATION=confirmed
 ```
 
 手动执行一次部署：

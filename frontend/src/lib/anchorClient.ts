@@ -3,17 +3,18 @@
 import { AnchorProvider, BN, Idl, Program, web3 } from "@project-serum/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Buffer } from "buffer";
+import { getRuntimeConfig } from "./runtimeConfig";
 import type { Market, Side } from "./types";
 
 if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
 }
 
-const DEFAULT_PROGRAM_ID = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL";
+export function getProgramId() {
+  return new PublicKey(getRuntimeConfig().programId);
+}
 
-export const PROGRAM_ID = new PublicKey(
-  process.env.NEXT_PUBLIC_PROBX_PROGRAM_ID?.trim() || DEFAULT_PROGRAM_ID
-);
+export const PROGRAM_ID = getProgramId();
 
 const legacyIdl = {
   version: "0.1.0",
@@ -140,23 +141,23 @@ export function getProgram(connection: web3.Connection, wallet: AnchorWalletLike
     commitment: "confirmed",
     preflightCommitment: "confirmed"
   });
-  return new Program(legacyIdl, PROGRAM_ID, provider);
+  return new Program(legacyIdl, getProgramId(), provider);
 }
 
 export function getPositionPda(market: PublicKey, owner: PublicKey) {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("position"), market.toBuffer(), owner.toBuffer()],
-    PROGRAM_ID
+    getProgramId()
   )[0];
 }
 
 export function getProtocolConfigPda() {
-  return PublicKey.findProgramAddressSync([Buffer.from("protocol_config")], PROGRAM_ID)[0];
+  return PublicKey.findProgramAddressSync([Buffer.from("protocol_config")], getProgramId())[0];
 }
 
 export function getMarketPda(creator: PublicKey, endTime: number) {
   const endTimeBytes = new BN(endTime).toArrayLike(Buffer, "le", 8);
-  return PublicKey.findProgramAddressSync([Buffer.from("market"), creator.toBuffer(), endTimeBytes], PROGRAM_ID)[0];
+  return PublicKey.findProgramAddressSync([Buffer.from("market"), creator.toBuffer(), endTimeBytes], getProgramId())[0];
 }
 
 export async function placeBet(params: {

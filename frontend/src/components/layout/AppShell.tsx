@@ -7,6 +7,7 @@ import { WalletConnect } from "@/components/WalletConnect";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { fetchApiStatus, type ApiStatus } from "@/lib/backendApi";
 import { formatPercent, probability } from "@/lib/format";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 import { RouterLink as Link, usePathname } from "@/router";
 
 const tabs = [
@@ -37,6 +38,7 @@ const socialLinks: SocialLink[] = socialLinkConfigs;
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { backendEnabled, isLoading, error } = useMarkets();
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
   const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
   const [apiStatusError, setApiStatusError] = useState<string | null>(null);
   const statusLabel = useMemo(() => {
@@ -61,7 +63,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (apiStatusError) return apiStatusError;
     if (!apiStatus) return "ProbX API connected";
     const cursor = apiStatus.indexer?.cursor;
-    const parts = [
+      const parts = [
+      `Network: ${runtimeConfig.label}`,
       `Database: ${apiStatus.database?.ok ? "ok" : "error"}`,
       `Markets: ${apiStatus.marketCount}`,
       `Indexer lag: ${formatLag(apiStatus.indexer?.lagSeconds ?? 0)}`,
@@ -69,7 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       `Verification: ${apiStatus.tradeVerification}`
     ];
     return parts.join(" | ");
-  }, [apiStatus, apiStatusError, backendEnabled, error]);
+  }, [apiStatus, apiStatusError, backendEnabled, error, runtimeConfig.label]);
 
   useEffect(() => {
     if (!backendEnabled) {
@@ -112,6 +115,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="probx-logo-slice slice-d" />
             </span>
             <span className="text-[27px] font-black tracking-tight">ProbX</span>
+            {runtimeConfig.isTestnetMode ? (
+              <span className="rounded border border-solBlue/40 bg-solBlue/10 px-2 py-1 text-[11px] font-black uppercase text-solBlue">
+                Testnet
+              </span>
+            ) : null}
           </Link>
 
           <nav className="hidden justify-center gap-2 md:flex xl:gap-5 2xl:gap-7">
@@ -140,6 +148,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="hidden h-10 max-w-[360px] items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-slate-200 lg:flex xl:px-4"
               title={statusTitle}
             >
+              <span className={`rounded border px-1.5 py-0.5 text-[10px] font-black uppercase ${runtimeConfig.isTestnetMode ? "border-solBlue/40 bg-solBlue/10 text-solBlue" : "border-line bg-black/20 text-muted"}`}>
+                {runtimeConfig.label}
+              </span>
               <span className={`h-2 w-2 rounded-full ${statusClass}`} />
               <span className="truncate">{statusLabel}</span>
             </div>

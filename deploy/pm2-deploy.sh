@@ -11,6 +11,10 @@ FRONTEND_ENV_BACKUP=""
 EXPECTED_SOLANA_RPC_URL="${PROBX_EXPECTED_SOLANA_RPC_URL:-https://api.devnet.solana.com}"
 EXPECTED_PROGRAM_ID="${PROBX_EXPECTED_PROGRAM_ID:-4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL}"
 EXPECTED_API_URL="${PROBX_EXPECTED_API_URL:-https://api.probx.site}"
+EXPECTED_CLUSTER="${PROBX_EXPECTED_CLUSTER:-devnet}"
+EXPECTED_TESTNET_RPC_URL="${PROBX_EXPECTED_TESTNET_SOLANA_RPC_URL:-https://api.testnet.solana.com}"
+EXPECTED_TESTNET_API_URL="${PROBX_EXPECTED_TESTNET_API_URL:-https://test-api.probx.site}"
+EXPECTED_TESTNET_HOSTS="${PROBX_EXPECTED_TESTNET_HOSTS:-test.probx.site}"
 
 export PATH="/usr/local/go/bin:/usr/lib/go/bin:/snap/bin:$HOME/go/bin:$PATH"
 
@@ -158,6 +162,10 @@ if [ "${NEXT_PUBLIC_SOLANA_RPC_URL:-}" != "$EXPECTED_SOLANA_RPC_URL" ]; then
   printf 'NEXT_PUBLIC_SOLANA_RPC_URL must be %s for devnet deploy, got %s\n' "$EXPECTED_SOLANA_RPC_URL" "${NEXT_PUBLIC_SOLANA_RPC_URL:-unset}" >&2
   exit 1
 fi
+if [ "${NEXT_PUBLIC_SOLANA_CLUSTER:-}" != "$EXPECTED_CLUSTER" ]; then
+  printf 'NEXT_PUBLIC_SOLANA_CLUSTER must be %s, got %s\n' "$EXPECTED_CLUSTER" "${NEXT_PUBLIC_SOLANA_CLUSTER:-unset}" >&2
+  exit 1
+fi
 if [ "${NEXT_PUBLIC_PROBX_PROGRAM_ID:-}" != "$EXPECTED_PROGRAM_ID" ]; then
   printf 'NEXT_PUBLIC_PROBX_PROGRAM_ID must be %s for devnet deploy, got %s\n' "$EXPECTED_PROGRAM_ID" "${NEXT_PUBLIC_PROBX_PROGRAM_ID:-unset}" >&2
   exit 1
@@ -168,6 +176,18 @@ if [ "${NEXT_PUBLIC_ENABLE_ONCHAIN:-}" != "true" ]; then
 fi
 if [ "${NEXT_PUBLIC_API_URL:-}" != "$EXPECTED_API_URL" ]; then
   printf 'NEXT_PUBLIC_API_URL must be %s for devnet deploy, got %s\n' "$EXPECTED_API_URL" "${NEXT_PUBLIC_API_URL:-unset}" >&2
+  exit 1
+fi
+if [ "${NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL:-}" != "$EXPECTED_TESTNET_RPC_URL" ]; then
+  printf 'NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL must be %s, got %s\n' "$EXPECTED_TESTNET_RPC_URL" "${NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL:-unset}" >&2
+  exit 1
+fi
+if [ "${NEXT_PUBLIC_TESTNET_API_URL:-}" != "$EXPECTED_TESTNET_API_URL" ]; then
+  printf 'NEXT_PUBLIC_TESTNET_API_URL must be %s, got %s\n' "$EXPECTED_TESTNET_API_URL" "${NEXT_PUBLIC_TESTNET_API_URL:-unset}" >&2
+  exit 1
+fi
+if [ "${NEXT_PUBLIC_TESTNET_HOSTS:-}" != "$EXPECTED_TESTNET_HOSTS" ]; then
+  printf 'NEXT_PUBLIC_TESTNET_HOSTS must be %s, got %s\n' "$EXPECTED_TESTNET_HOSTS" "${NEXT_PUBLIC_TESTNET_HOSTS:-unset}" >&2
   exit 1
 fi
 
@@ -184,8 +204,13 @@ process.stdout.write(JSON.stringify({
   frontend: {
     apiUrl: process.env.NEXT_PUBLIC_API_URL || "",
     solanaRpcUrl: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "",
+    cluster: process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "",
     programId: process.env.NEXT_PUBLIC_PROBX_PROGRAM_ID || "",
-    enableOnchain: process.env.NEXT_PUBLIC_ENABLE_ONCHAIN || ""
+    enableOnchain: process.env.NEXT_PUBLIC_ENABLE_ONCHAIN || "",
+    testnetHosts: process.env.NEXT_PUBLIC_TESTNET_HOSTS || "",
+    testnetApiUrl: process.env.NEXT_PUBLIC_TESTNET_API_URL || "",
+    testnetSolanaRpcUrl: process.env.NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL || "",
+    testnetProgramId: process.env.NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID || ""
   }
 }) + "\n");
 NODE
@@ -288,11 +313,15 @@ done
 
 log "verifying frontend devnet config"
 frontend_deploy_json="$(curl -fsS "http://127.0.0.1:${FRONTEND_PORT}/deploy.json")"
-PROBX_FRONTEND_DEPLOY_JSON="$frontend_deploy_json" node - "$DEPLOY_COMMIT" "$EXPECTED_SOLANA_RPC_URL" "$EXPECTED_PROGRAM_ID" "$EXPECTED_API_URL" <<'NODE'
+PROBX_FRONTEND_DEPLOY_JSON="$frontend_deploy_json" node - "$DEPLOY_COMMIT" "$EXPECTED_SOLANA_RPC_URL" "$EXPECTED_PROGRAM_ID" "$EXPECTED_API_URL" "$EXPECTED_CLUSTER" "$EXPECTED_TESTNET_RPC_URL" "$EXPECTED_TESTNET_API_URL" "$EXPECTED_TESTNET_HOSTS" <<'NODE'
 const expectedCommit = process.argv[2];
 const expectedRpc = process.argv[3];
 const expectedProgram = process.argv[4];
 const expectedApiUrl = process.argv[5];
+const expectedCluster = process.argv[6];
+const expectedTestnetRpc = process.argv[7];
+const expectedTestnetApi = process.argv[8];
+const expectedTestnetHosts = process.argv[9];
 const deploy = JSON.parse(process.env.PROBX_FRONTEND_DEPLOY_JSON || "{}");
 const frontend = deploy.frontend || {};
 
@@ -302,6 +331,10 @@ if (deploy.commit !== expectedCommit) {
 }
 if (frontend.solanaRpcUrl !== expectedRpc) {
   console.error(`Frontend RPC mismatch: expected ${expectedRpc}, got ${frontend.solanaRpcUrl}`);
+  process.exit(1);
+}
+if (frontend.cluster !== expectedCluster) {
+  console.error(`Frontend cluster mismatch: expected ${expectedCluster}, got ${frontend.cluster}`);
   process.exit(1);
 }
 if (frontend.programId !== expectedProgram) {
@@ -314,6 +347,10 @@ if (frontend.enableOnchain !== "true") {
 }
 if (frontend.apiUrl !== expectedApiUrl) {
   console.error(`Frontend API URL mismatch: expected ${expectedApiUrl}, got ${frontend.apiUrl}`);
+  process.exit(1);
+}
+if (frontend.testnetSolanaRpcUrl !== expectedTestnetRpc || frontend.testnetApiUrl !== expectedTestnetApi || frontend.testnetHosts !== expectedTestnetHosts) {
+  console.error(`Frontend testnet config mismatch`);
   process.exit(1);
 }
 console.log(`Frontend devnet config ok: commit=${deploy.commit} rpc=${frontend.solanaRpcUrl} program=${frontend.programId}`);

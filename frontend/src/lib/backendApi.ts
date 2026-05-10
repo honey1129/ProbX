@@ -1,6 +1,9 @@
 import type { AgentActivity, Market, Position, Side, Trade } from "./types";
+import { getRuntimeConfig } from "./runtimeConfig";
 
-const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
+function configuredApiUrl() {
+  return getRuntimeConfig().apiUrl.replace(/\/$/, "");
+}
 
 export type BootstrapPayload = {
   markets: Market[];
@@ -152,7 +155,7 @@ export type WithdrawResidualPayload = {
 };
 
 export function isBackendApiConfigured() {
-  return configuredApiUrl.length > 0;
+  return configuredApiUrl().length > 0;
 }
 
 export async function fetchBootstrap(owner?: string) {
@@ -250,12 +253,13 @@ export async function withdrawBackendResidual(marketId: string, payload: Withdra
 }
 
 export async function uploadBackendMedia(file: Blob, filename = "market-image.jpg") {
-  if (!configuredApiUrl) {
+  const apiUrl = configuredApiUrl();
+  if (!apiUrl) {
     throw new Error("NEXT_PUBLIC_API_URL is not configured.");
   }
   const form = new FormData();
   form.set("file", file, filename);
-  const response = await fetch(`${configuredApiUrl}/api/media`, {
+  const response = await fetch(`${apiUrl}/api/media`, {
     method: "POST",
     body: form
   });
@@ -271,17 +275,18 @@ export async function uploadBackendMedia(file: Blob, filename = "market-image.jp
   }
   const payload = (await response.json()) as MediaUploadResult;
   if (payload.url?.startsWith("/")) {
-    return { ...payload, url: `${configuredApiUrl}${payload.url}` };
+    return { ...payload, url: `${apiUrl}${payload.url}` };
   }
   return payload;
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!configuredApiUrl) {
+  const apiUrl = configuredApiUrl();
+  if (!apiUrl) {
     throw new Error("NEXT_PUBLIC_API_URL is not configured.");
   }
 
-  const response = await fetch(`${configuredApiUrl}${path}`, {
+  const response = await fetch(`${apiUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",

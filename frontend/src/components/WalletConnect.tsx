@@ -6,10 +6,12 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { Check, ChevronDown, Copy, ExternalLink, LogOut, RefreshCw, Wallet } from "lucide-react";
 import { useWalletError } from "@/components/Providers";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 
 export function WalletConnect() {
   const { connected, connecting, connect, disconnect, disconnecting, publicKey, select, wallet, wallets } = useWallet();
   const { error, clearError } = useWalletError();
+  const runtimeConfig = getRuntimeConfig();
   const [menuOpen, setMenuOpen] = useState(false);
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [pendingWalletName, setPendingWalletName] = useState<WalletName | null>(null);
@@ -204,6 +206,23 @@ export function WalletConnect() {
                 <RefreshCw size={16} className="text-violet-200" />
                 Change wallet
               </button>
+
+              {runtimeConfig.faucetUrl ? (
+                <a
+                  href={runtimeConfig.faucetUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between rounded-md px-3 py-2.5 text-sm font-bold text-slate-200 transition hover:bg-solBlue/10 hover:text-white"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <ExternalLink size={16} className="text-solBlue" />
+                    Get test SOL
+                  </span>
+                  <span className="rounded border border-solBlue/30 bg-solBlue/10 px-2 py-0.5 text-[11px] uppercase text-solBlue">
+                    {runtimeConfig.label}
+                  </span>
+                </a>
+              ) : null}
 
               <button
                 type="button"

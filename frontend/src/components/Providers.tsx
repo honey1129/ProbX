@@ -8,6 +8,7 @@ import type { ConnectionConfig } from "@solana/web3.js";
 import type { ComponentType, ReactNode } from "react";
 import { createContext, useContext, useMemo, useState } from "react";
 import { MarketProvider } from "@/components/market/MarketProvider";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 
 type SolanaConnectionProviderProps = {
   children: ReactNode;
@@ -40,7 +41,8 @@ const WalletErrorContext = createContext<{
 });
 
 export function Providers({ children }: { children: ReactNode }) {
-  const endpoint = process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
+  const endpoint = runtimeConfig.solanaRpcUrl;
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
   const [walletError, setWalletError] = useState("");
 
@@ -62,7 +64,7 @@ export function Providers({ children }: { children: ReactNode }) {
         <SolanaWalletProvider
           wallets={wallets}
           autoConnect={false}
-          localStorageKey="probx.wallet"
+          localStorageKey={`probx.wallet.${runtimeConfig.cluster}`}
           onError={handleWalletError}
         >
           <SolanaWalletModalProvider>

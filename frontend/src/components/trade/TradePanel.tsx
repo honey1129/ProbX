@@ -6,6 +6,7 @@ import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Info, Loader2, Wallet2, X } from "lucide-react";
 import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import { protocolFeeSol, quoteBuyShares, quoteSellShares } from "@/lib/anchorClient";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 import type { Market, Side } from "@/lib/types";
 import { useMarkets } from "@/components/market/MarketProvider";
 
@@ -31,7 +32,8 @@ export function TradePanel({ market }: { market: Market }) {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
   const { buy, sell, positions, isLoading, error, backendEnabled, dataSource, waitForTradeConfirmation } = useMarkets();
-  const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
+  const onchainEnabled = runtimeConfig.enableOnchain;
   const [tab, setTab] = useState<TradeTab>("TRADE");
   const [mode, setMode] = useState<TradeMode>("BUY");
   const [side, setSide] = useState<Side>("YES");
@@ -227,7 +229,7 @@ export function TradePanel({ market }: { market: Market }) {
         ...receiptSnapshot,
         status: receiptStatus,
         signature,
-        explorerUrl: explorerUrlForSignature(signature)
+        explorerUrl: explorerUrlForSignature(signature, runtimeConfig.explorerCluster)
       });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Trade failed");
@@ -590,19 +592,8 @@ function shortAddress(value: string) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
-function explorerUrlForSignature(signature: string) {
+function explorerUrlForSignature(signature: string, explorerCluster: string) {
   if (signature === "local" || signature === "indexed" || signature === "simulated") return null;
-  const configuredCluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER?.trim();
-  const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim() || "";
-  const cluster = configuredCluster || inferExplorerCluster(rpcUrl);
-  const clusterQuery = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
+  const clusterQuery = explorerCluster === "mainnet-beta" ? "" : `?cluster=${explorerCluster}`;
   return `https://explorer.solana.com/tx/${signature}${clusterQuery}`;
-}
-
-function inferExplorerCluster(rpcUrl: string) {
-  const lower = rpcUrl.toLowerCase();
-  if (lower.includes("mainnet")) return "mainnet-beta";
-  if (lower.includes("testnet")) return "testnet";
-  if (lower.includes("localhost") || lower.includes("127.0.0.1")) return "custom";
-  return "devnet";
 }

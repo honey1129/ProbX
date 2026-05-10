@@ -13,6 +13,7 @@ func TestLoadReadsDotEnv(t *testing.T) {
 		"PROBX_SOLANA_RPC_URL",
 		"PROBX_PROGRAM_ID",
 		"PROBX_TRADE_VERIFICATION",
+		"PROBX_ENV_FILE",
 		"PROBX_INDEXER_INTERVAL",
 		"PROBX_INDEXER_TIMEOUT",
 		"PROBX_INDEXER_EVENT_LIMIT",
@@ -74,10 +75,49 @@ func TestLoadKeepsExistingEnvironmentOverDotEnv(t *testing.T) {
 	}
 }
 
+func TestLoadReadsExplicitEnvFileFirst(t *testing.T) {
+	unsetEnv(t, "PROBX_ENV_FILE", "PROBX_HTTP_ADDR")
+	dir := t.TempDir()
+	chdir(t, dir)
+	writeFile(t, ".env", "PROBX_HTTP_ADDR=:9090\n")
+	writeFile(t, "testnet.env", "PROBX_HTTP_ADDR=:8082\n")
+	if err := os.Setenv("PROBX_ENV_FILE", "testnet.env"); err != nil {
+		t.Fatalf("set env file: %v", err)
+	}
+
+	cfg := Load()
+	if cfg.HTTPAddr != ":8082" {
+		t.Fatalf("expected explicit env file to win, got %q", cfg.HTTPAddr)
+	}
+}
+
+func TestExplicitEnvFileOverridesExistingEnvironment(t *testing.T) {
+	unsetEnv(t, "PROBX_ENV_FILE", "PROBX_HTTP_ADDR")
+	dir := t.TempDir()
+	chdir(t, dir)
+	writeFile(t, "testnet.env", "PROBX_HTTP_ADDR=:8082\n")
+	if err := os.Setenv("PROBX_HTTP_ADDR", ":7070"); err != nil {
+		t.Fatalf("set inherited env: %v", err)
+	}
+	if err := os.Setenv("PROBX_ENV_FILE", "testnet.env"); err != nil {
+		t.Fatalf("set env file: %v", err)
+	}
+
+	cfg := Load()
+	if cfg.HTTPAddr != ":8082" {
+		t.Fatalf("expected explicit env file to override inherited env, got %q", cfg.HTTPAddr)
+	}
+}
+
 func writeDotEnv(t *testing.T, content string) {
 	t.Helper()
-	if err := os.WriteFile(".env", []byte(content), 0o600); err != nil {
-		t.Fatalf("write .env: %v", err)
+	writeFile(t, ".env", content)
+}
+
+func writeFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 

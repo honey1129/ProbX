@@ -84,5 +84,9 @@ jobs:
             PROBX_DEPLOY_BRANCH="${{ github.ref_name }}" \
             PROBX_FRONTEND_PORT="${{ vars.PROBX_FRONTEND_PORT || 3001 }}" \
             PROBX_PM2_INDEXER_INTERVAL="${{ vars.PROBX_PM2_INDEXER_INTERVAL || '15s' }}" \
+            PROBX_PM2_TESTNET_INDEXER_INTERVAL="${{ vars.PROBX_PM2_TESTNET_INDEXER_INTERVAL || vars.PROBX_PM2_INDEXER_INTERVAL || '15s' }}" \
             PROBX_EXPECTED_API_URL="${{ vars.PROBX_EXPECTED_API_URL || 'https://api.probx.site' }}" \
+            PROBX_EXPECTED_TESTNET_SOLANA_RPC_URL="${{ vars.PROBX_EXPECTED_TESTNET_SOLANA_RPC_URL || 'https://api.testnet.solana.com' }}" \
+            PROBX_EXPECTED_TESTNET_API_URL="${{ vars.PROBX_EXPECTED_TESTNET_API_URL || 'https://test-api.probx.site' }}" \
+            PROBX_EXPECTED_TESTNET_HOSTS="${{ vars.PROBX_EXPECTED_TESTNET_HOSTS || 'test.probx.site' }}" \
             bash deploy/pm2-deploy.sh

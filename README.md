@@ -198,6 +198,42 @@ wallet = "~/.config/solana/id.json"
 
 如果使用 `anchor test` 时本机缺少 `yarn`，请安装 yarn，或将 `Anchor.toml` 中的测试脚本改为等价的 npm 命令。
 
+## 测试网部署
+
+仓库提供了测试网合约部署脚本：
+
+```bash
+PROBX_TESTNET_TREASURY=<接收协议手续费的钱包公钥> \
+PROBX_TESTNET_WALLET=~/.config/solana/id.json \
+bash deploy/deploy-testnet-program.sh
+```
+
+脚本会切到 Solana testnet、构建并部署 Anchor 程序，然后执行 `npm run protocol:config` 初始化或更新协议 treasury 和 fee。部署钱包需要提前准备 testnet SOL，脚本完成后会打印：
+
+```text
+PROBX_PROGRAM_ID=<testnet program id>
+NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID=<testnet program id>
+```
+
+把同一个 program id 填到 VPS 的 `backend/.env.testnet` 和 `frontend/.env.local`。测试网后端建议独立数据库，例如：
+
+```bash
+# backend/.env.testnet
+PROBX_HTTP_ADDR=:8082
+PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx_test?parseTime=true&multiStatements=true
+PROBX_CORS_ORIGINS=https://test.probx.site
+PROBX_SOLANA_RPC_URL=https://api.testnet.solana.com
+PROBX_PROGRAM_ID=<testnet program id>
+PROBX_TRADE_VERIFICATION=confirmed
+PROBX_MEDIA_DIR=data/media-test
+PROBX_PUBLIC_BASE_URL=https://test-api.probx.site
+PROBX_INDEXER_INTERVAL=15s
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
+```
+
+`PROBX_ENV_FILE=backend/.env.testnet backend/scripts/migrate.sh` 会读取这份文件并迁移测试网数据库；PM2 部署脚本会自动分别迁移主环境和测试网环境。
+
 ## Go API
 
 常用接口：
@@ -323,6 +359,7 @@ git pull
 
 ```text
 /root/ProbX/backend/.env
+/root/ProbX/backend/.env.testnet
 /root/ProbX/frontend/.env.local
 ```
 
@@ -355,7 +392,7 @@ NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 NEXT_PUBLIC_TESTNET_ENABLE_ONCHAIN=true
 ```
 
-如果单独部署测试网 API/indexer，可以复制一套后端环境到另一台进程/域名，关键差异是：
+测试网 API/indexer 使用 `backend/.env.testnet`，关键差异是：
 
 ```bash
 PROBX_HTTP_ADDR=:8082
@@ -371,11 +408,11 @@ PROBX_TRADE_VERIFICATION=confirmed
 ```bash
 cd /root/ProbX
 PROBX_FRONTEND_PORT=3001 \
-PROBX_EXPECTED_API_URL=http://185.214.135.24:8081 \
+PROBX_EXPECTED_API_URL=https://api.probx.site \
 bash deploy/pm2-deploy.sh
 ```
 
-部署脚本会依次执行：拉取并重置到远程分支、构建 Go 后端、自动执行 `backend/migrations/` 下的 MySQL 迁移、安装并构建 Vite 前端、用 PM2 启动或重载 `probx-api`、`probx-indexer` 和 `probx-frontend`。
+部署脚本会依次执行：拉取并重置到远程分支、构建 Go 后端、自动执行 `backend/migrations/` 下的 MySQL 迁移、安装并构建 Vite 前端、用 PM2 启动或重载 `probx-api`、`probx-indexer`、`probx-test-api`、`probx-test-indexer` 和 `probx-frontend`。
 
 `probx-indexer` 是 PM2 常驻 worker，默认每 `15s` 同步一次链上市场、持仓和程序事件。需要调整频率时：
 
@@ -389,6 +426,8 @@ PROBX_FRONTEND_PORT=3001 PROBX_PM2_INDEXER_INTERVAL=10s bash deploy/pm2-deploy.s
 pm2 list
 pm2 logs probx-api --lines 80
 pm2 logs probx-indexer --lines 120
+pm2 logs probx-test-api --lines 80
+pm2 logs probx-test-indexer --lines 120
 pm2 restart probx-indexer --update-env
 ```
 
@@ -418,7 +457,11 @@ VPS_PROJECT_DIR=/root/ProbX
 ```text
 PROBX_FRONTEND_PORT=3001
 PROBX_PM2_INDEXER_INTERVAL=15s
-PROBX_EXPECTED_API_URL=http://185.214.135.24:8081
+PROBX_PM2_TESTNET_INDEXER_INTERVAL=15s
+PROBX_EXPECTED_API_URL=https://api.probx.site
+PROBX_EXPECTED_TESTNET_SOLANA_RPC_URL=https://api.testnet.solana.com
+PROBX_EXPECTED_TESTNET_API_URL=https://test-api.probx.site
+PROBX_EXPECTED_TESTNET_HOSTS=test.probx.site
 ```
 
 之后每次 push 到 `main`，GitHub Actions 会先执行 `go test ./...` 和前端 `npm run typecheck`，通过后再 SSH 到 VPS 并执行 `deploy/pm2-deploy.sh`。

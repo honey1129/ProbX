@@ -8,6 +8,9 @@ probx_prediction = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"
 [programs.devnet]
 probx_prediction = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"
 
+[programs.testnet]
+probx_prediction = "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"
+
 [registry]
 url = "https://api.apr.dev"
 

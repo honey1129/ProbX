@@ -1,6 +1,7 @@
 const projectDir = process.env.PROBX_PROJECT_DIR || "/root/ProbX";
 const frontendPort = process.env.PROBX_FRONTEND_PORT || "3001";
 const indexerInterval = process.env.PROBX_PM2_INDEXER_INTERVAL || "15s";
+const testnetIndexerInterval = process.env.PROBX_PM2_TESTNET_INDEXER_INTERVAL || indexerInterval;
 
 module.exports = {
   apps: [
@@ -25,6 +26,31 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PROBX_INDEXER_INTERVAL: indexerInterval,
+      },
+    },
+    {
+      name: "probx-test-api",
+      cwd: `${projectDir}/backend`,
+      script: "./probx-api",
+      exec_mode: "fork",
+      autorestart: true,
+      max_restarts: 10,
+      env: {
+        NODE_ENV: "production",
+        PROBX_ENV_FILE: `${projectDir}/backend/.env.testnet`,
+      },
+    },
+    {
+      name: "probx-test-indexer",
+      cwd: `${projectDir}/backend`,
+      script: "./probx-indexer",
+      exec_mode: "fork",
+      autorestart: true,
+      max_restarts: 10,
+      env: {
+        NODE_ENV: "production",
+        PROBX_ENV_FILE: `${projectDir}/backend/.env.testnet`,
+        PROBX_INDEXER_INTERVAL: testnetIndexerInterval,
       },
     },
     {

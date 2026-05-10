@@ -5,8 +5,10 @@ BRANCH="${PROBX_DEPLOY_BRANCH:-main}"
 PROJECT_DIR="${PROBX_PROJECT_DIR:-/root/ProbX}"
 FRONTEND_PORT="${PROBX_FRONTEND_PORT:-3001}"
 PM2_INDEXER_INTERVAL="${PROBX_PM2_INDEXER_INTERVAL:-15s}"
+PM2_TESTNET_INDEXER_INTERVAL="${PROBX_PM2_TESTNET_INDEXER_INTERVAL:-$PM2_INDEXER_INTERVAL}"
 ECOSYSTEM_FILE="$PROJECT_DIR/deploy/pm2/ecosystem.config.cjs"
 FRONTEND_ENV_FILE="$PROJECT_DIR/frontend/.env.local"
+TESTNET_ENV_FILE="$PROJECT_DIR/backend/.env.testnet"
 FRONTEND_ENV_BACKUP=""
 EXPECTED_SOLANA_RPC_URL="${PROBX_EXPECTED_SOLANA_RPC_URL:-https://api.devnet.solana.com}"
 EXPECTED_PROGRAM_ID="${PROBX_EXPECTED_PROGRAM_ID:-4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL}"
@@ -78,6 +80,7 @@ if [ ! -d "$PROJECT_DIR/.git" ]; then
 fi
 
 require_file "$PROJECT_DIR/backend/.env"
+require_file "$TESTNET_ENV_FILE"
 require_file "$PROJECT_DIR/frontend/.env.local"
 
 restore_frontend_env() {
@@ -153,6 +156,69 @@ fi
 mkdir -p "$MEDIA_DIR"
 "$PROJECT_DIR/backend/scripts/migrate.sh"
 
+log "applying testnet backend migrations"
+TESTNET_CONFIG="$(PROBX_ENV_FILE="$TESTNET_ENV_FILE" node - "$TESTNET_ENV_FILE" <<'NODE'
+const fs = require("fs");
+const envFile = process.argv[2];
+const out = {};
+for (const rawLine of fs.readFileSync(envFile, "utf8").split(/\r?\n/)) {
+  const line = rawLine.trim();
+  if (!line || line.startsWith("#")) continue;
+  const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+  if (!match) continue;
+  let value = match[2].trim();
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.endsWith(quote)) value = value.slice(1, -1);
+  else value = value.replace(/\s+#.*$/, "").trim();
+  out[match[1]] = value;
+}
+process.stdout.write(JSON.stringify(out));
+NODE
+)"
+TESTNET_API_ADDR="$(PROBX_TESTNET_CONFIG="$TESTNET_CONFIG" node - <<'NODE'
+const env = JSON.parse(process.env.PROBX_TESTNET_CONFIG || "{}");
+process.stdout.write(env.PROBX_HTTP_ADDR || ":8082");
+NODE
+)"
+TESTNET_API_PORT="${TESTNET_API_ADDR##*:}"
+if [ -z "$TESTNET_API_PORT" ] || [ "$TESTNET_API_PORT" = "$TESTNET_API_ADDR" ]; then
+  TESTNET_API_PORT="8082"
+fi
+TESTNET_RPC="$(PROBX_TESTNET_CONFIG="$TESTNET_CONFIG" node - <<'NODE'
+const env = JSON.parse(process.env.PROBX_TESTNET_CONFIG || "{}");
+process.stdout.write(env.PROBX_SOLANA_RPC_URL || "");
+NODE
+)"
+TESTNET_PROGRAM_ID="$(PROBX_TESTNET_CONFIG="$TESTNET_CONFIG" node - <<'NODE'
+const env = JSON.parse(process.env.PROBX_TESTNET_CONFIG || "{}");
+process.stdout.write(env.PROBX_PROGRAM_ID || "");
+NODE
+)"
+TESTNET_PUBLIC_BASE_URL="$(PROBX_TESTNET_CONFIG="$TESTNET_CONFIG" node - <<'NODE'
+const env = JSON.parse(process.env.PROBX_TESTNET_CONFIG || "{}");
+process.stdout.write((env.PROBX_PUBLIC_BASE_URL || "").replace(/\/$/, ""));
+NODE
+)"
+TESTNET_MEDIA_DIR="$(PROBX_TESTNET_CONFIG="$TESTNET_CONFIG" node - <<'NODE'
+const env = JSON.parse(process.env.PROBX_TESTNET_CONFIG || "{}");
+process.stdout.write(env.PROBX_MEDIA_DIR || "data/media-test");
+NODE
+)"
+if [ "$TESTNET_RPC" != "$EXPECTED_TESTNET_RPC_URL" ]; then
+  printf 'testnet PROBX_SOLANA_RPC_URL must be %s, got %s\n' "$EXPECTED_TESTNET_RPC_URL" "${TESTNET_RPC:-unset}" >&2
+  exit 1
+fi
+if [ -z "$TESTNET_PROGRAM_ID" ]; then
+  printf 'Missing testnet PROBX_PROGRAM_ID in backend/.env.testnet\n' >&2
+  exit 1
+fi
+if [ "$TESTNET_PUBLIC_BASE_URL" != "$EXPECTED_TESTNET_API_URL" ]; then
+  printf 'testnet PROBX_PUBLIC_BASE_URL must be %s, got %s\n' "$EXPECTED_TESTNET_API_URL" "${TESTNET_PUBLIC_BASE_URL:-unset}" >&2
+  exit 1
+fi
+mkdir -p "$TESTNET_MEDIA_DIR"
+PROBX_ENV_FILE="$TESTNET_ENV_FILE" "$PROJECT_DIR/backend/scripts/migrate.sh"
+
 log "installing frontend dependencies"
 cd "$PROJECT_DIR/frontend"
 npm install --legacy-peer-deps
@@ -186,6 +252,10 @@ if [ "${NEXT_PUBLIC_TESTNET_API_URL:-}" != "$EXPECTED_TESTNET_API_URL" ]; then
   printf 'NEXT_PUBLIC_TESTNET_API_URL must be %s, got %s\n' "$EXPECTED_TESTNET_API_URL" "${NEXT_PUBLIC_TESTNET_API_URL:-unset}" >&2
   exit 1
 fi
+if [ "${NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID:-}" != "$TESTNET_PROGRAM_ID" ]; then
+  printf 'NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID must match backend/.env.testnet PROBX_PROGRAM_ID %s, got %s\n' "$TESTNET_PROGRAM_ID" "${NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID:-unset}" >&2
+  exit 1
+fi
 if [ "${NEXT_PUBLIC_TESTNET_HOSTS:-}" != "$EXPECTED_TESTNET_HOSTS" ]; then
   printf 'NEXT_PUBLIC_TESTNET_HOSTS must be %s, got %s\n' "$EXPECTED_TESTNET_HOSTS" "${NEXT_PUBLIC_TESTNET_HOSTS:-unset}" >&2
   exit 1
@@ -216,10 +286,10 @@ process.stdout.write(JSON.stringify({
 NODE
 npm run build
 
-log "starting or reloading PM2 apps on frontend port $FRONTEND_PORT with indexer interval $PM2_INDEXER_INTERVAL"
+log "starting or reloading PM2 apps on frontend port $FRONTEND_PORT with indexer interval $PM2_INDEXER_INTERVAL and testnet interval $PM2_TESTNET_INDEXER_INTERVAL"
 cd "$PROJECT_DIR"
 pm2 delete probx-frontend >/dev/null 2>&1 || true
-PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" PROBX_PM2_INDEXER_INTERVAL="$PM2_INDEXER_INTERVAL" pm2 startOrReload "$ECOSYSTEM_FILE" --update-env
+PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" PROBX_PM2_INDEXER_INTERVAL="$PM2_INDEXER_INTERVAL" PROBX_PM2_TESTNET_INDEXER_INTERVAL="$PM2_TESTNET_INDEXER_INTERVAL" pm2 startOrReload "$ECOSYSTEM_FILE" --update-env
 pm2 save
 
 log "verifying PM2 worker processes"
@@ -230,7 +300,7 @@ for attempt in $(seq 1 15); do
 const fs = require("fs");
 const statusFile = process.argv[2];
 const apps = JSON.parse(fs.readFileSync(statusFile, "utf8") || "[]");
-const required = ["probx-api", "probx-indexer", "probx-frontend"];
+const required = ["probx-api", "probx-indexer", "probx-test-api", "probx-test-indexer", "probx-frontend"];
 for (const name of required) {
   const app = apps.find((item) => item.name === name);
   const status = app?.pm2_env?.status || "missing";
@@ -250,6 +320,8 @@ NODE
   if [ "$attempt" -eq 15 ]; then
     pm2 logs probx-api --lines 60 --nostream || true
     pm2 logs probx-indexer --lines 60 --nostream || true
+    pm2 logs probx-test-api --lines 60 --nostream || true
+    pm2 logs probx-test-indexer --lines 60 --nostream || true
     pm2 logs probx-frontend --lines 60 --nostream || true
     exit 1
   fi
@@ -295,6 +367,44 @@ NODE
   sleep 2
 done
 
+log "verifying API testnet config"
+for attempt in $(seq 1 30); do
+  if status_json="$(curl -fsS "http://127.0.0.1:${TESTNET_API_PORT}/api/status" 2>/dev/null)"; then
+    PROBX_STATUS_JSON="$status_json" node - "$EXPECTED_TESTNET_RPC_URL" "$TESTNET_PROGRAM_ID" <<'NODE'
+const expectedRpc = process.argv[2];
+const expectedProgram = process.argv[3];
+const status = JSON.parse(process.env.PROBX_STATUS_JSON || "{}");
+if (status.solanaRpcUrl !== expectedRpc) {
+  console.error(`Testnet API RPC mismatch: expected ${expectedRpc}, got ${status.solanaRpcUrl}`);
+  process.exit(1);
+}
+if (status.programId !== expectedProgram) {
+  console.error(`Testnet API program mismatch: expected ${expectedProgram}, got ${status.programId}`);
+  process.exit(1);
+}
+if (status.tradeVerification !== "confirmed") {
+  console.error(`Testnet API trade verification should be confirmed, got ${status.tradeVerification}`);
+  process.exit(1);
+}
+if (!status.database || !status.database.ok) {
+  console.error(`Testnet API database is not healthy: ${status.database?.error || "unknown error"}`);
+  process.exit(1);
+}
+console.log(`Testnet API config ok: rpc=${status.solanaRpcUrl} program=${status.programId} markets=${status.marketCount}`);
+NODE
+    log "API testnet config check passed"
+    break
+  fi
+
+  if [ "$attempt" -eq 30 ]; then
+    printf 'API testnet config check failed\n' >&2
+    pm2 logs probx-test-api --lines 80 --nostream || true
+    exit 1
+  fi
+
+  sleep 2
+done
+
 log "verifying frontend health"
 for attempt in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${FRONTEND_PORT}" >/dev/null; then
@@ -313,7 +423,7 @@ done
 
 log "verifying frontend devnet config"
 frontend_deploy_json="$(curl -fsS "http://127.0.0.1:${FRONTEND_PORT}/deploy.json")"
-PROBX_FRONTEND_DEPLOY_JSON="$frontend_deploy_json" node - "$DEPLOY_COMMIT" "$EXPECTED_SOLANA_RPC_URL" "$EXPECTED_PROGRAM_ID" "$EXPECTED_API_URL" "$EXPECTED_CLUSTER" "$EXPECTED_TESTNET_RPC_URL" "$EXPECTED_TESTNET_API_URL" "$EXPECTED_TESTNET_HOSTS" <<'NODE'
+PROBX_FRONTEND_DEPLOY_JSON="$frontend_deploy_json" node - "$DEPLOY_COMMIT" "$EXPECTED_SOLANA_RPC_URL" "$EXPECTED_PROGRAM_ID" "$EXPECTED_API_URL" "$EXPECTED_CLUSTER" "$EXPECTED_TESTNET_RPC_URL" "$EXPECTED_TESTNET_API_URL" "$EXPECTED_TESTNET_HOSTS" "$TESTNET_PROGRAM_ID" <<'NODE'
 const expectedCommit = process.argv[2];
 const expectedRpc = process.argv[3];
 const expectedProgram = process.argv[4];
@@ -322,6 +432,7 @@ const expectedCluster = process.argv[6];
 const expectedTestnetRpc = process.argv[7];
 const expectedTestnetApi = process.argv[8];
 const expectedTestnetHosts = process.argv[9];
+const expectedTestnetProgram = process.argv[10];
 const deploy = JSON.parse(process.env.PROBX_FRONTEND_DEPLOY_JSON || "{}");
 const frontend = deploy.frontend || {};
 
@@ -353,7 +464,15 @@ if (frontend.testnetSolanaRpcUrl !== expectedTestnetRpc || frontend.testnetApiUr
   console.error(`Frontend testnet config mismatch`);
   process.exit(1);
 }
-console.log(`Frontend devnet config ok: commit=${deploy.commit} rpc=${frontend.solanaRpcUrl} program=${frontend.programId}`);
+if (!frontend.testnetProgramId) {
+  console.error(`Frontend testnet program id is missing`);
+  process.exit(1);
+}
+if (frontend.testnetProgramId !== expectedTestnetProgram) {
+  console.error(`Frontend testnet program mismatch: expected ${expectedTestnetProgram}, got ${frontend.testnetProgramId}`);
+  process.exit(1);
+}
+console.log(`Frontend config ok: commit=${deploy.commit} rpc=${frontend.solanaRpcUrl} program=${frontend.programId} testnetProgram=${frontend.testnetProgramId}`);
 NODE
 
 log "deployment complete"

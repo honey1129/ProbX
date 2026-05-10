@@ -41,12 +41,16 @@ func Load() Config {
 }
 
 func loadDotEnv() {
-	for _, path := range []string{".env", "backend/.env"} {
-		loadDotEnvFile(path)
+	paths := []string{".env", "backend/.env"}
+	if profile := strings.TrimSpace(os.Getenv("PROBX_ENV_FILE")); profile != "" {
+		loadDotEnvFile(profile, true)
+	}
+	for _, path := range paths {
+		loadDotEnvFile(path, false)
 	}
 }
 
-func loadDotEnvFile(path string) {
+func loadDotEnvFile(path string, overrideExisting bool) {
 	file, err := os.Open(path)
 	if err != nil {
 		return
@@ -55,11 +59,11 @@ func loadDotEnvFile(path string) {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		applyDotEnvLine(scanner.Text())
+		applyDotEnvLine(scanner.Text(), overrideExisting)
 	}
 }
 
-func applyDotEnvLine(line string) {
+func applyDotEnvLine(line string, overrideExisting bool) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "#") {
 		return
@@ -76,7 +80,7 @@ func applyDotEnvLine(line string) {
 	if key == "" {
 		return
 	}
-	if _, exists := os.LookupEnv(key); exists {
+	if _, exists := os.LookupEnv(key); exists && !overrideExisting {
 		return
 	}
 	_ = os.Setenv(key, parseDotEnvValue(value))

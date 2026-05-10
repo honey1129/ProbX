@@ -91,6 +91,14 @@ type CreateMarketRequest struct {
 	Status           string  `json:"status"`
 }
 
+type UpdateMarketMetadataRequest struct {
+	Actor     string `json:"actor"`
+	Category  string `json:"category"`
+	AvatarURL string `json:"avatarUrl"`
+	Message   string `json:"message"`
+	Signature string `json:"signature"`
+}
+
 type TradeRequest struct {
 	MarketID        string  `json:"marketId"`
 	MarketPublicKey string  `json:"-"`

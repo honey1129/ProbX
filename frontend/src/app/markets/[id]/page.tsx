@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, Loader2, Radio, RefreshCw, UsersRound } from "lucide-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, ImagePlus, Loader2, Pencil, Radio, RefreshCw, Save, UsersRound, X } from "lucide-react";
 import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
@@ -13,10 +14,12 @@ import { RouterLink as Link, useParams } from "@/router";
 
 const timeframes: ChartTimeframe[] = ["1H", "1D", "1W", "ALL"];
 const tradeFilters = ["ALL", "YES", "NO"] as const;
+const categories: Market["category"][] = ["Crypto", "Politics", "Sports", "Tech", "Macro", "On-chain"];
 
 export default function MarketDetailPage() {
   const params = useParams<{ id: string }>();
   const { markets, activity, isLoading, error, backendEnabled, dataSource, refresh } = useMarkets();
+  const { publicKey } = useWallet();
   const [chartSide, setChartSide] = useState<Side>("YES");
   const [timeframe, setTimeframe] = useState<ChartTimeframe>("1D");
   const [tradeFilter, setTradeFilter] = useState<(typeof tradeFilters)[number]>("ALL");
@@ -151,6 +154,7 @@ export default function MarketDetailPage() {
 
   const yesProbability = probability(market);
   const activePrice = chartSide === "YES" ? yesProbability : 1 - yesProbability;
+  const canEditMetadata = !backendEnabled || publicKey?.toBase58() === market.creator;
 
   return (
     <div className="grid min-h-full grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_clamp(330px,23vw,390px)]">
@@ -180,6 +184,8 @@ export default function MarketDetailPage() {
 
           <ProbabilityBar probability={yesProbability} />
         </section>
+
+        <MetadataPanel market={market} canEdit={canEditMetadata} />
 
         <section className="terminal-panel p-4">
           <div className="mb-4 flex items-center justify-between gap-4">
@@ -387,6 +393,105 @@ function ResolverPanel({ market }: { market: Market }) {
           {pending === 0 ? "Resolving..." : "Resolve NO"}
         </button>
       </div>
+    </section>
+  );
+}
+
+function MetadataPanel({ market, canEdit }: { market: Market; canEdit: boolean }) {
+  const { updateMarketMetadata, backendEnabled } = useMarkets();
+  const [editing, setEditing] = useState(false);
+  const [category, setCategory] = useState<Market["category"]>(market.category);
+  const [avatarUrl, setAvatarUrl] = useState(market.avatarUrl ?? "");
+  const [message, setMessage] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    setCategory(market.category);
+    setAvatarUrl(market.avatarUrl ?? "");
+    setMessage(null);
+    setEditing(false);
+  }, [market.id, market.category, market.avatarUrl]);
+
+  async function save() {
+    setPending(true);
+    setMessage(null);
+    try {
+      await updateMarketMetadata(market.id, {
+        category,
+        avatarUrl: avatarUrl.trim() || undefined
+      });
+      setMessage(backendEnabled ? "Metadata updated." : "Metadata updated locally.");
+      setEditing(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Metadata update failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="terminal-panel p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="font-black">Market Metadata</h2>
+          <p className="mt-1 text-sm text-muted">Category and avatar used by the indexed product UI.</p>
+        </div>
+        {canEdit ? (
+          <button
+            onClick={() => setEditing((value) => !value)}
+            className="inline-flex items-center gap-2 rounded-lg border border-line bg-black/25 px-3 py-2 text-xs font-bold text-slate-200 transition hover:border-solBlue/50"
+            type="button"
+          >
+            {editing ? <X size={14} /> : <Pencil size={14} />}
+            {editing ? "Cancel" : "Edit"}
+          </button>
+        ) : null}
+      </div>
+
+      {editing ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_auto] md:items-end">
+          <label className="grid gap-1 text-xs text-muted">
+            Category
+            <select
+              value={category}
+              onChange={(event) => setCategory(event.target.value as Market["category"])}
+              className="h-10 rounded-lg border border-line bg-black/35 px-3 text-sm font-bold text-slate-100 outline-none"
+            >
+              {categories.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-xs text-muted">
+            Avatar URL
+            <span className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-line bg-black/35 px-3">
+              <ImagePlus size={15} className="shrink-0 text-muted" />
+              <input
+                value={avatarUrl}
+                onChange={(event) => setAvatarUrl(event.target.value)}
+                className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold text-slate-100 outline-none"
+                placeholder="https://..."
+              />
+            </span>
+          </label>
+          <button
+            onClick={save}
+            disabled={pending}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-yes/35 bg-yes/10 px-4 text-sm font-black text-yes transition hover:bg-yes/20 disabled:opacity-60"
+            type="button"
+          >
+            {pending ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+            Save
+          </button>
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+          <span className="rounded border border-solPurple/40 bg-solPurple/10 px-2 py-1 font-bold text-violet-200">{market.category}</span>
+          <span className="min-w-0 truncate text-muted">{market.avatarUrl ? market.avatarUrl : "No custom avatar"}</span>
+        </div>
+      )}
+
+      {message ? <p className="mt-3 rounded-lg border border-line bg-black/25 px-3 py-2 text-sm text-slate-300">{message}</p> : null}
     </section>
   );
 }

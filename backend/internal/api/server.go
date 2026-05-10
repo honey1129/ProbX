@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,6 +24,7 @@ type Store interface {
 	ListMarkets(ctx context.Context) ([]models.Market, error)
 	GetMarket(ctx context.Context, id string) (models.Market, error)
 	CreateMarket(ctx context.Context, req models.CreateMarketRequest) (models.Market, error)
+	UpdateMarketMetadata(ctx context.Context, marketID string, req models.UpdateMarketMetadataRequest) (models.Market, error)
 	ListPositions(ctx context.Context, owner string) ([]models.Position, error)
 	ListActivity(ctx context.Context, marketID string, limit int) ([]models.AgentActivity, error)
 	ListTrades(ctx context.Context, filter models.TradeFilter) (models.TradePage, error)
@@ -98,6 +102,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/markets", s.markets)
 	mux.HandleFunc("POST /api/markets", s.createMarket)
 	mux.HandleFunc("GET /api/markets/{id}", s.market)
+	mux.HandleFunc("PATCH /api/markets/{id}/metadata", s.updateMarketMetadata)
 	mux.HandleFunc("POST /api/markets/{id}/resolve", s.resolveMarket)
 	mux.HandleFunc("GET /api/positions", s.positions)
 	mux.HandleFunc("POST /api/positions/{id}/redeem", s.redeemPosition)
@@ -223,6 +228,38 @@ func (s *Server) createMarket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, market)
+}
+
+func (s *Server) updateMarketMetadata(w http.ResponseWriter, r *http.Request) {
+	var req models.UpdateMarketMetadataRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := requestContext(r)
+	defer cancel()
+
+	marketID := r.PathValue("id")
+	market, err := s.store.GetMarket(ctx, strings.TrimSpace(marketID))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if err := s.authorizeMarketMetadataUpdate(market, req); err != nil {
+		if errors.Is(err, mysqlstore.ErrInvalid) {
+			writeError(w, http.StatusBadRequest, err)
+		} else {
+			writeError(w, http.StatusUnauthorized, err)
+		}
+		return
+	}
+
+	updated, err := s.store.UpdateMarketMetadata(ctx, marketID, req)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) positions(w http.ResponseWriter, r *http.Request) {
@@ -376,6 +413,50 @@ func (s *Server) positionMarket(ctx context.Context, positionID string, owner st
 	return models.Position{}, models.Market{}, mysqlstore.ErrNotFound
 }
 
+func (s *Server) authorizeMarketMetadataUpdate(market models.Market, req models.UpdateMarketMetadataRequest) error {
+	actor := strings.TrimSpace(req.Actor)
+	if actor == "" {
+		return fmt.Errorf("%w: actor is required", mysqlstore.ErrInvalid)
+	}
+	if actor != strings.TrimSpace(market.Creator) {
+		return fmt.Errorf("metadata update is only allowed by the market creator")
+	}
+	if s.tradeVerification != "confirmed" {
+		return nil
+	}
+	message := strings.TrimSpace(req.Message)
+	signature := strings.TrimSpace(req.Signature)
+	if message == "" || signature == "" {
+		return fmt.Errorf("%w: wallet signature is required", mysqlstore.ErrInvalid)
+	}
+	expectedMessage := marketMetadataMessage(market.ID, actor, req.Category, req.AvatarURL)
+	if message != expectedMessage {
+		return fmt.Errorf("%w: metadata signature message mismatch", mysqlstore.ErrInvalid)
+	}
+	publicKey, err := base58Decode(actor)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("%w: invalid actor public key", mysqlstore.ErrInvalid)
+	}
+	rawSignature, err := base58Decode(signature)
+	if err != nil || len(rawSignature) != ed25519.SignatureSize {
+		return fmt.Errorf("%w: invalid wallet signature", mysqlstore.ErrInvalid)
+	}
+	if !ed25519.Verify(ed25519.PublicKey(publicKey), []byte(message), rawSignature) {
+		return fmt.Errorf("wallet signature verification failed")
+	}
+	return nil
+}
+
+func marketMetadataMessage(marketID string, actor string, category string, avatarURL string) string {
+	return strings.Join([]string{
+		"ProbX metadata update",
+		"market=" + strings.TrimSpace(marketID),
+		"actor=" + strings.TrimSpace(actor),
+		"category=" + strings.TrimSpace(category),
+		"avatarUrl=" + strings.TrimSpace(avatarURL),
+	}, "\n")
+}
+
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -385,7 +466,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 		w.Header().Set("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -441,4 +522,36 @@ func writeVerificationError(w http.ResponseWriter, err error) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func base58Decode(input string) ([]byte, error) {
+	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+	indexes := map[rune]int64{}
+	for i, char := range alphabet {
+		indexes[char] = int64(i)
+	}
+
+	value := big.NewInt(0)
+	base := big.NewInt(58)
+	for _, char := range input {
+		index, ok := indexes[char]
+		if !ok {
+			return nil, fmt.Errorf("invalid base58 character %q", char)
+		}
+		value.Mul(value, base)
+		value.Add(value, big.NewInt(index))
+	}
+
+	decoded := value.Bytes()
+	leadingZeroes := 0
+	for _, char := range input {
+		if char != rune(alphabet[0]) {
+			break
+		}
+		leadingZeroes++
+	}
+	if leadingZeroes > 0 {
+		decoded = append(make([]byte, leadingZeroes), decoded...)
+	}
+	return decoded, nil
 }

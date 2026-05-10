@@ -197,6 +197,7 @@ GET  /api/bootstrap?owner=local
 GET  /api/markets
 POST /api/markets
 GET  /api/markets/{id}
+PATCH /api/markets/{id}/metadata
 GET  /api/positions?owner=local
 GET  /api/activity?marketId=fed-rates&limit=40
 GET  /api/trades?marketId=fed-rates&owner=local&limit=50
@@ -230,6 +231,28 @@ curl -X POST http://localhost:8080/api/trades \
     "signature": "indexed",
     "status": "indexed"
   }'
+```
+
+更新市场 metadata 示例：
+
+```bash
+curl -X PATCH http://localhost:8080/api/markets/fed-rates/metadata \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "actor": "local",
+    "category": "Macro",
+    "avatarUrl": "https://probx.site/market.png"
+  }'
+```
+
+`PROBX_TRADE_VERIFICATION=confirmed` 时，`actor` 必须是市场 creator，并且请求需要带钱包签名的 `message` 和 base58 `signature`。签名消息格式为：
+
+```text
+ProbX metadata update
+market=<market id>
+actor=<creator wallet>
+category=<category>
+avatarUrl=<avatar URL>
 ```
 
 查询交易历史示例：

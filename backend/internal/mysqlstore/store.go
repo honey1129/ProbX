@@ -173,6 +173,39 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 	return s.GetMarket(ctx, req.ID)
 }
 
+func (s *Store) UpdateMarketMetadata(ctx context.Context, marketID string, req models.UpdateMarketMetadataRequest) (models.Market, error) {
+	marketID = strings.TrimSpace(marketID)
+	req.Category = normalizeCategory(req.Category)
+	req.AvatarURL = strings.TrimSpace(req.AvatarURL)
+	if marketID == "" {
+		return models.Market{}, fmt.Errorf("%w: market id is required", ErrInvalid)
+	}
+	if len(req.AvatarURL) > 360_000 {
+		return models.Market{}, fmt.Errorf("%w: avatarUrl is too large", ErrInvalid)
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE markets
+		SET category = ?, avatar_url = ?, updated_at = ?
+		WHERE id = ?`,
+		req.Category,
+		nullableString(req.AvatarURL),
+		nowMillis(),
+		marketID,
+	)
+	if err != nil {
+		return models.Market{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return models.Market{}, err
+	}
+	if affected == 0 {
+		return models.Market{}, ErrNotFound
+	}
+	return s.GetMarket(ctx, marketID)
+}
+
 func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (models.Market, error) {
 	rawCategory := strings.TrimSpace(market.Category)
 	market.ID = normalizeText(market.ID, market.PublicKey)

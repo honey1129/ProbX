@@ -62,6 +62,16 @@ func (f *fakeStore) CreateMarket(ctx context.Context, req models.CreateMarketReq
 	return next, nil
 }
 
+func (f *fakeStore) UpdateMarketMetadata(ctx context.Context, marketID string, req models.UpdateMarketMetadataRequest) (models.Market, error) {
+	if marketID != f.market.ID {
+		return models.Market{}, mysqlstore.ErrNotFound
+	}
+	next := f.market
+	next.Category = req.Category
+	next.AvatarURL = req.AvatarURL
+	return next, nil
+}
+
 func (f *fakeStore) ListPositions(ctx context.Context, owner string) ([]models.Position, error) {
 	if owner == "" || owner == "local" || owner == "owner_123" {
 		return []models.Position{
@@ -369,6 +379,40 @@ func TestCreateMarketWithAvatarURL(t *testing.T) {
 	}
 	if payload.AvatarURL != "https://probx.site/avatar.png" {
 		t.Fatalf("unexpected avatar URL: %q", payload.AvatarURL)
+	}
+}
+
+func TestUpdateMarketMetadata(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"actor":"creator","category":"Sports","avatarUrl":"https://probx.site/sports.png"}`)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/markets/fed-rates/metadata", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.Market
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Category != "Sports" || payload.AvatarURL != "https://probx.site/sports.png" {
+		t.Fatalf("unexpected metadata response: %+v", payload)
+	}
+}
+
+func TestUpdateMarketMetadataBlocksNonCreator(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"actor":"not_creator","category":"Sports"}`)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/markets/fed-rates/metadata", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", res.Code, res.Body.String())
 	}
 }
 

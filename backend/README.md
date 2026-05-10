@@ -88,6 +88,7 @@ GET  /api/bootstrap?owner=local
 GET  /api/markets
 POST /api/markets
 GET  /api/markets/{id}
+PATCH /api/markets/{id}/metadata
 GET  /api/positions?owner=local
 GET  /api/activity?marketId=fed-rates&limit=40
 GET  /api/trades?marketId=fed-rates&owner=local&limit=50
@@ -124,6 +125,28 @@ curl -X POST http://localhost:8080/api/trades \
 ```
 
 When trade verification is enabled, replace the demo `owner` and `signature` values with the connected wallet public key and confirmed transaction signature from the frontend.
+
+Example metadata update:
+
+```bash
+curl -X PATCH http://localhost:8080/api/markets/fed-rates/metadata \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "actor": "local",
+    "category": "Macro",
+    "avatarUrl": "https://probx.site/market.png"
+  }'
+```
+
+When verification is `confirmed`, `actor` must be the market creator and the payload must include a wallet-signed message plus base58 signature. The signed message format is:
+
+```text
+ProbX metadata update
+market=<market id>
+actor=<creator wallet>
+category=<category>
+avatarUrl=<avatar URL>
+```
 
 Example trade history:
 

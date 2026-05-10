@@ -14,7 +14,7 @@ import {
   sellShares as sellSharesIx,
   type AnchorWalletLike
 } from "@/lib/anchorClient";
-import { createBackendMarket, fetchBootstrap, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket } from "@/lib/backendApi";
+import { createBackendMarket, fetchBootstrap, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket, updateBackendMarketMetadata } from "@/lib/backendApi";
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
@@ -34,6 +34,7 @@ type MarketContextValue = {
   redeem: (positionId: string) => Promise<string>;
   resolve: (marketId: string, outcome: 0 | 1) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
+  updateMarketMetadata: (marketId: string, metadata: MarketMetadataInput) => Promise<Market>;
   addLocalMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
   waitForTradeConfirmation: (signature: string, options?: TradeConfirmationOptions) => Promise<TradeConfirmationState>;
 };
@@ -50,6 +51,11 @@ type CreateMarketOptions = {
 
 type TradeOptions = {
   slippageBps?: number;
+};
+
+type MarketMetadataInput = {
+  category: Market["category"];
+  avatarUrl?: string;
 };
 
 export type TradeConfirmationState = "local" | "indexed" | "sent" | "confirmed" | "timeout";
@@ -543,6 +549,49 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     [addLocalMarket, apiReady, backendEnabled, connection, error, onchainEnabled, ownerId, wallet]
   );
 
+  const updateMarketMetadata = useCallback(
+    async (marketId: string, metadata: MarketMetadataInput) => {
+      const market = markets.find((item) => item.id === marketId);
+      if (!market) throw new Error("Market not found");
+      const avatarUrl = metadata.avatarUrl?.trim() ?? "";
+
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
+        const payload = {
+          actor: ownerId,
+          category: metadata.category,
+          avatarUrl
+        };
+        if (ownerId !== "local" && !wallet.signMessage) {
+          throw new Error("Connected wallet does not support message signing.");
+        }
+        const signedPayload =
+          wallet.publicKey && wallet.signMessage
+            ? await signMetadataPayload({
+                ...payload,
+                marketId
+              }, wallet.signMessage)
+            : payload;
+
+        try {
+          const updated = await updateBackendMarketMetadata(marketId, signedPayload);
+          setMarkets((current) => upsertById(current, updated));
+          setError(null);
+          return updated;
+        } catch (error) {
+          const message = errorMessage(error, "ProbX API metadata update failed.");
+          setError(message);
+          throw new Error(message);
+        }
+      }
+
+      const updated = { ...market, category: metadata.category, avatarUrl: avatarUrl || undefined };
+      setMarkets((current) => upsertById(current, updated));
+      return updated;
+    },
+    [apiReady, backendEnabled, error, markets, ownerId, wallet.publicKey, wallet.signMessage]
+  );
+
   const waitForTradeConfirmation = useCallback(
     async (signature: string, options?: TradeConfirmationOptions): Promise<TradeConfirmationState> => {
       const normalized = signature.trim();
@@ -600,11 +649,12 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         redeem,
         resolve,
         createMarket,
+        updateMarketMetadata,
         addLocalMarket,
         waitForTradeConfirmation
       };
     },
-    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, addLocalMarket, waitForTradeConfirmation]
+    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, updateMarketMetadata, addLocalMarket, waitForTradeConfirmation]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;
@@ -668,6 +718,58 @@ function reduceLocalPositions(items: Position[], marketId: string, side: Side, s
       };
     })
     .filter((position) => position.size > 1e-9 || position.resolved);
+}
+
+async function signMetadataPayload(
+  payload: { marketId: string; actor: string; category: Market["category"]; avatarUrl: string },
+  signMessage: (message: Uint8Array) => Promise<Uint8Array>
+) {
+  const message = metadataMessage(payload);
+  const encoded = new TextEncoder().encode(message);
+  const signature = await signMessage(encoded);
+  return {
+    actor: payload.actor,
+    category: payload.category,
+    avatarUrl: payload.avatarUrl,
+    message,
+    signature: base58Encode(signature)
+  };
+}
+
+function metadataMessage(payload: { marketId: string; actor: string; category: string; avatarUrl: string }) {
+  return [
+    "ProbX metadata update",
+    `market=${payload.marketId.trim()}`,
+    `actor=${payload.actor.trim()}`,
+    `category=${payload.category.trim()}`,
+    `avatarUrl=${payload.avatarUrl.trim()}`
+  ].join("\n");
+}
+
+function base58Encode(input: Uint8Array) {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = [0];
+  let output = "";
+  for (const byte of input) {
+    let carry = byte;
+    for (let index = 0; index < digits.length; index++) {
+      carry += digits[index] << 8;
+      digits[index] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+  for (let index = digits.length - 1; index >= 0; index--) {
+    output += alphabet[digits[index]];
+  }
+  for (const byte of input) {
+    if (byte !== 0) break;
+    output = alphabet[0] + output;
+  }
+  return output || alphabet[0];
 }
 
 function notifyTradesUpdated(marketId?: string) {

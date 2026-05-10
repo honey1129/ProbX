@@ -31,6 +31,14 @@ export type TradePayload = {
   status?: string;
 };
 
+export type UpdateMarketMetadataPayload = {
+  actor: string;
+  category: Market["category"];
+  avatarUrl?: string;
+  message?: string;
+  signature?: string;
+};
+
 export type TradeResult = {
   signature: string;
   status: string;
@@ -87,6 +95,13 @@ export async function fetchBootstrap(owner?: string) {
 export async function createBackendMarket(payload: CreateMarketPayload) {
   return apiFetch<Market>("/api/markets", {
     method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateBackendMarketMetadata(marketId: string, payload: UpdateMarketMetadataPayload) {
+  return apiFetch<Market>(`/api/markets/${encodeURIComponent(marketId)}/metadata`, {
+    method: "PATCH",
     body: JSON.stringify(payload)
   });
 }

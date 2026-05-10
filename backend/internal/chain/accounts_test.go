@@ -383,7 +383,7 @@ func TestAccountClientFetchEventsPaginatesUntilCursorAndReturnsOldestFirst(t *te
 		})},
 	}
 
-	events, signatures, err := client.FetchEvents(context.Background(), EventFetchOptions{
+	result, err := client.FetchEvents(context.Background(), EventFetchOptions{
 		Limit:          3,
 		PageSize:       2,
 		UntilSignature: "sig_cursor",
@@ -391,8 +391,13 @@ func TestAccountClientFetchEventsPaginatesUntilCursorAndReturnsOldestFirst(t *te
 	if err != nil {
 		t.Fatalf("fetch paginated events: %v", err)
 	}
+	events := result.Events
+	signatures := result.Signatures
 	if signatureCalls != 2 {
 		t.Fatalf("expected 2 signature calls, got %d", signatureCalls)
+	}
+	if !result.Complete {
+		t.Fatalf("expected complete fetch")
 	}
 	if len(signatures) != 3 || signatures[0].Signature != "sig_new" || signatures[2].Signature != "sig_old" {
 		t.Fatalf("expected newest-first signatures, got %+v", signatures)
@@ -402,6 +407,92 @@ func TestAccountClientFetchEventsPaginatesUntilCursorAndReturnsOldestFirst(t *te
 	}
 	if events[0].Signature != "sig_old" || events[1].Signature != "sig_mid" || events[2].Signature != "sig_new" {
 		t.Fatalf("expected oldest-first events, got %+v", events)
+	}
+}
+
+func TestAccountClientFetchEventsReportsIncompleteWhenLimitExceeded(t *testing.T) {
+	raw := append([]byte{}, betPlacedEventDiscriminator...)
+	raw = append(raw, bytes.Repeat([]byte{19}, 32)...)
+	raw = append(raw, bytes.Repeat([]byte{20}, 32)...)
+	raw = append(raw, 1)
+	raw = appendU64(raw, 500_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 4_000_000_000)
+
+	signatureCalls := 0
+	client := &AccountClient{
+		endpoint:  "http://solana.invalid",
+		programID: "program_123",
+		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var payload rpcRequest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			switch payload.Method {
+			case "getSignaturesForAddress":
+				signatureCalls++
+				options, ok := payload.Params[1].(map[string]any)
+				if !ok {
+					t.Fatalf("expected signature options map, got %+v", payload.Params[1])
+				}
+				if options["limit"] != float64(3) {
+					t.Fatalf("expected probe limit 3, got %+v", options)
+				}
+				return jsonResponse(t, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      payload.ID,
+					"result": []map[string]any{
+						{"signature": "sig_new", "slot": 103, "blockTime": 1003},
+						{"signature": "sig_mid", "slot": 102, "blockTime": 1002},
+						{"signature": "sig_old", "slot": 101, "blockTime": 1001},
+					},
+				}), nil
+			case "getTransaction":
+				signature, ok := payload.Params[0].(string)
+				if !ok {
+					t.Fatalf("expected transaction signature string, got %+v", payload.Params[0])
+				}
+				return jsonResponse(t, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      payload.ID,
+					"result": map[string]any{
+						"slot":      100,
+						"blockTime": 1000,
+						"meta": map[string]any{
+							"logMessages": []string{
+								"Program log: " + signature,
+								"Program data: " + base64.StdEncoding.EncodeToString(raw),
+							},
+						},
+					},
+				}), nil
+			default:
+				t.Fatalf("unexpected method %s", payload.Method)
+				return nil, nil
+			}
+		})},
+	}
+
+	result, err := client.FetchEvents(context.Background(), EventFetchOptions{
+		Limit:          2,
+		PageSize:       3,
+		UntilSignature: "sig_cursor",
+	})
+	if err != nil {
+		t.Fatalf("fetch events: %v", err)
+	}
+	if signatureCalls != 1 {
+		t.Fatalf("expected one signature call, got %d", signatureCalls)
+	}
+	if result.Complete {
+		t.Fatalf("expected incomplete fetch")
+	}
+	if len(result.Signatures) != 2 || result.Signatures[0].Signature != "sig_new" || result.Signatures[1].Signature != "sig_mid" {
+		t.Fatalf("expected limited newest-first signatures, got %+v", result.Signatures)
+	}
+	if len(result.Events) != 2 || result.Events[0].Signature != "sig_mid" || result.Events[1].Signature != "sig_new" {
+		t.Fatalf("expected oldest-first limited events, got %+v", result.Events)
 	}
 }
 

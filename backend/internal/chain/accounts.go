@@ -87,6 +87,12 @@ type EventFetchOptions struct {
 	UntilSignature string
 }
 
+type EventFetchResult struct {
+	Events     []ProgramEvent
+	Signatures []SignatureInfo
+	Complete   bool
+}
+
 func NewAccountClient(endpoint string, programID string, timeout time.Duration) (*AccountClient, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	programID = strings.TrimSpace(programID)
@@ -155,20 +161,26 @@ func (c *AccountClient) FetchPositions(ctx context.Context) ([]PositionAccount, 
 }
 
 func (c *AccountClient) FetchRecentEvents(ctx context.Context, limit int) ([]ProgramEvent, error) {
-	events, _, err := c.FetchEvents(ctx, EventFetchOptions{Limit: limit})
-	return events, err
+	result, err := c.FetchEvents(ctx, EventFetchOptions{Limit: limit})
+	return result.Events, err
 }
 
-func (c *AccountClient) FetchEvents(ctx context.Context, options EventFetchOptions) ([]ProgramEvent, []SignatureInfo, error) {
+func (c *AccountClient) FetchEvents(ctx context.Context, options EventFetchOptions) (EventFetchResult, error) {
 	if options.Limit <= 0 || options.Limit > 5000 {
 		options.Limit = 500
 	}
 	if options.PageSize <= 0 || options.PageSize > 1000 {
 		options.PageSize = 200
 	}
-	signatures, err := c.fetchSignaturesUntil(ctx, options.Limit, options.PageSize, strings.TrimSpace(options.UntilSignature))
+	signatureResult, err := c.fetchSignaturesUntil(ctx, options.Limit+1, options.PageSize, strings.TrimSpace(options.UntilSignature))
 	if err != nil {
-		return nil, nil, err
+		return EventFetchResult{}, err
+	}
+	signatures := signatureResult.Signatures
+	complete := signatureResult.Complete
+	if len(signatures) > options.Limit {
+		signatures = signatures[:options.Limit]
+		complete = false
 	}
 
 	events := []ProgramEvent{}
@@ -177,7 +189,7 @@ func (c *AccountClient) FetchEvents(ctx context.Context, options EventFetchOptio
 	for _, item := range ordered {
 		logs, err := c.fetchTransactionLogs(ctx, item.Signature)
 		if err != nil {
-			return nil, nil, err
+			return EventFetchResult{}, err
 		}
 		for index, logLine := range logs.LogMessages() {
 			event, ok := DecodeProgramEvent(logLine)
@@ -191,14 +203,19 @@ func (c *AccountClient) FetchEvents(ctx context.Context, options EventFetchOptio
 			events = append(events, event)
 		}
 	}
-	return events, signatures, nil
+	return EventFetchResult{Events: events, Signatures: signatures, Complete: complete}, nil
 }
 
 func (c *AccountClient) fetchSignatures(ctx context.Context, limit int) ([]SignatureInfo, error) {
 	return c.fetchSignaturesPage(ctx, limit, "", "")
 }
 
-func (c *AccountClient) fetchSignaturesUntil(ctx context.Context, limit int, pageSize int, until string) ([]SignatureInfo, error) {
+type signatureFetchResult struct {
+	Signatures []SignatureInfo
+	Complete   bool
+}
+
+func (c *AccountClient) fetchSignaturesUntil(ctx context.Context, limit int, pageSize int, until string) (signatureFetchResult, error) {
 	signatures := []SignatureInfo{}
 	before := ""
 	for len(signatures) < limit {
@@ -209,18 +226,18 @@ func (c *AccountClient) fetchSignaturesUntil(ctx context.Context, limit int, pag
 		}
 		page, err := c.fetchSignaturesPage(ctx, nextLimit, before, until)
 		if err != nil {
-			return nil, err
+			return signatureFetchResult{}, err
 		}
 		if len(page) == 0 {
-			break
+			return signatureFetchResult{Signatures: signatures, Complete: true}, nil
 		}
 		signatures = append(signatures, page...)
 		before = page[len(page)-1].Signature
 		if len(page) < nextLimit {
-			break
+			return signatureFetchResult{Signatures: signatures, Complete: true}, nil
 		}
 	}
-	return signatures, nil
+	return signatureFetchResult{Signatures: signatures, Complete: len(signatures) < limit}, nil
 }
 
 func (c *AccountClient) fetchSignaturesPage(ctx context.Context, limit int, before string, until string) ([]SignatureInfo, error) {

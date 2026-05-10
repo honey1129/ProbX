@@ -60,7 +60,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load indexer cursor: %v", err)
 	}
-	events, signatures, err := client.FetchEvents(ctx, chain.EventFetchOptions{
+	result, err := client.FetchEvents(ctx, chain.EventFetchOptions{
 		Limit:          5000,
 		PageSize:       200,
 		UntilSignature: cursor.Signature,
@@ -68,6 +68,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("fetch program events: %v", err)
 	}
+	events := result.Events
+	signatures := result.Signatures
 	indexedEvents := 0
 	skippedEvents := 0
 	nextCursor := cursor
@@ -82,7 +84,7 @@ func main() {
 			skippedEvents++
 		}
 	}
-	if len(signatures) > 0 {
+	if len(signatures) > 0 && result.Complete {
 		newest := signatures[0]
 		nextCursor = models.IndexerCursor{
 			Signature: newest.Signature,
@@ -91,15 +93,18 @@ func main() {
 		if err := store.SaveIndexerCursor(ctx, programEventsCursorName, nextCursor); err != nil {
 			log.Fatalf("save indexer cursor: %v", err)
 		}
+	} else if len(signatures) > 0 {
+		log.Printf("program event backlog exceeded fetch limit; processed %d signature(s) without advancing cursor", len(signatures))
 	}
 
 	log.Printf(
-		"indexed %d market account(s), %d position account(s), %d new event(s), %d duplicate event(s), cursor=%q->%q",
+		"indexed %d market account(s), %d position account(s), %d new event(s), %d duplicate event(s), cursor=%q->%q complete=%t",
 		len(markets),
 		indexedPositions,
 		indexedEvents,
 		skippedEvents,
 		cursor.Signature,
 		nextCursor.Signature,
+		result.Complete,
 	)
 }

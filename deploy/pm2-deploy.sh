@@ -187,8 +187,39 @@ PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" PROBX_PM2_
 pm2 save
 
 log "verifying PM2 worker processes"
-pm2 describe probx-api >/dev/null
-pm2 describe probx-indexer >/dev/null
+for attempt in $(seq 1 15); do
+  PM2_STATUS_FILE="$(mktemp "${TMPDIR:-/tmp}/probx-pm2-status.XXXXXX")"
+  pm2 jlist > "$PM2_STATUS_FILE"
+  if node - "$PM2_STATUS_FILE" <<'NODE'
+const fs = require("fs");
+const statusFile = process.argv[2];
+const apps = JSON.parse(fs.readFileSync(statusFile, "utf8") || "[]");
+const required = ["probx-api", "probx-indexer", "probx-frontend"];
+for (const name of required) {
+  const app = apps.find((item) => item.name === name);
+  const status = app?.pm2_env?.status || "missing";
+  if (status !== "online") {
+    console.error(`${name} is ${status}, expected online`);
+    process.exit(1);
+  }
+}
+console.log(`PM2 apps online: ${required.join(", ")}`);
+NODE
+  then
+    rm -f "$PM2_STATUS_FILE"
+    break
+  fi
+  rm -f "$PM2_STATUS_FILE"
+
+  if [ "$attempt" -eq 15 ]; then
+    pm2 logs probx-api --lines 60 --nostream || true
+    pm2 logs probx-indexer --lines 60 --nostream || true
+    pm2 logs probx-frontend --lines 60 --nostream || true
+    exit 1
+  fi
+
+  sleep 2
+done
 
 log "verifying API devnet config"
 for attempt in $(seq 1 30); do

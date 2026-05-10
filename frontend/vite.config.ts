@@ -37,5 +37,22 @@ export default defineConfig(({ mode }) => ({
   preview: {
     allowedHosts,
     host: "0.0.0.0"
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom"],
+          walletSolana: [
+            "@solana/web3.js",
+            "@project-serum/anchor",
+            "@solana/wallet-adapter-base",
+            "@solana/wallet-adapter-react",
+            "@solana/wallet-adapter-react-ui",
+            "@solana/wallet-adapter-wallets"
+          ]
+        }
+      }
+    }
   }
 }));

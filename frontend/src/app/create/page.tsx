@@ -11,7 +11,7 @@ const maxAvatarBytes = 240_000;
 const maxAvatarPayloadLength = 360_000;
 
 export default function CreateMarketPage() {
-  const { createMarket, backendEnabled, isLoading, error, refresh } = useMarkets();
+  const { createMarket, waitForActionConfirmation, backendEnabled, isLoading, error, refresh } = useMarkets();
   const [question, setQuestion] = useState("Will SOL close above $200 this month?");
   const [category, setCategory] = useState<Market["category"]>("Crypto");
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -88,12 +88,22 @@ export default function CreateMarketPage() {
         initialLiquidity: Number(initialLiquidity) || 1000,
         avatarUrl: avatarUrl.trim() || undefined
       });
+      if (signature !== "local" && signature !== "indexed") {
+        setStatus(`Create transaction sent: ${signature.slice(0, 12)}... waiting for indexer.`);
+        const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketCreated" });
+        setStatus(
+          confirmation === "confirmed"
+            ? `Market confirmed and indexed: ${signature.slice(0, 12)}...`
+            : confirmation === "timeout"
+              ? `Create transaction sent: ${signature.slice(0, 12)}... indexer still catching up.`
+              : "Market saved to ProbX API."
+        );
+        return;
+      }
       setStatus(
         signature === "local"
           ? "Market created in local preview."
-          : signature === "indexed"
-            ? "Market saved to ProbX API."
-            : `Create transaction sent: ${signature.slice(0, 12)}...`
+          : "Market saved to ProbX API."
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Create market failed.");

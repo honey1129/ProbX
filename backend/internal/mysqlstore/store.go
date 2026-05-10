@@ -381,6 +381,46 @@ func (s *Store) GetIndexerCursor(ctx context.Context, name string) (models.Index
 	return cursor, err
 }
 
+func (s *Store) ListIndexedEvents(ctx context.Context, filter models.IndexedEventFilter) ([]models.IndexedEventRecord, error) {
+	filter.Signature = strings.TrimSpace(filter.Signature)
+	filter.Type = strings.TrimSpace(filter.Type)
+	if filter.Signature == "" {
+		return nil, fmt.Errorf("%w: signature is required", ErrInvalid)
+	}
+	if filter.Limit <= 0 || filter.Limit > 50 {
+		filter.Limit = 10
+	}
+
+	conditions := []string{"signature = ?"}
+	args := []any{filter.Signature}
+	if filter.Type != "" {
+		conditions = append(conditions, "event_type = ?")
+		args = append(args, filter.Type)
+	}
+	args = append(args, filter.Limit)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, signature, slot, event_type, created_at
+		FROM indexed_events
+		WHERE `+strings.Join(conditions, " AND ")+`
+		ORDER BY slot DESC, id DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := []models.IndexedEventRecord{}
+	for rows.Next() {
+		var event models.IndexedEventRecord
+		if err := rows.Scan(&event.ID, &event.Signature, &event.Slot, &event.Type, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
 func (s *Store) SaveIndexerCursor(ctx context.Context, name string, cursor models.IndexerCursor) error {
 	name = strings.TrimSpace(name)
 	cursor.Signature = strings.TrimSpace(cursor.Signature)

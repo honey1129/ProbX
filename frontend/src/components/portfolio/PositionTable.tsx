@@ -7,7 +7,7 @@ import type { Market, Position } from "@/lib/types";
 import { RouterLink as Link } from "@/router";
 
 export function PositionTable({ positions, markets, compact = false }: { positions: Position[]; markets: Market[]; compact?: boolean }) {
-  const { redeem } = useMarkets();
+  const { redeem, waitForActionConfirmation } = useMarkets();
   const [claimed, setClaimed] = useState<Record<string, boolean>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<Record<string, string>>({});
@@ -18,15 +18,32 @@ export function PositionTable({ positions, markets, compact = false }: { positio
     setPending((current) => ({ ...current, [position.id]: true }));
     try {
       const signature = await redeem(position.id);
+      if (signature !== "local" && signature !== "indexed") {
+        setMessages((current) => ({
+          ...current,
+          [position.id]: `Tx ${signature.slice(0, 8)}... waiting for indexer`
+        }));
+        const confirmation = await waitForActionConfirmation(signature, {
+          eventType: "WinningsRedeemed",
+          marketId: position.marketId
+        });
+        setClaimed((current) => ({ ...current, [position.id]: true }));
+        setMessages((current) => ({
+          ...current,
+          [position.id]:
+            confirmation === "confirmed"
+              ? `Claim confirmed: ${signature.slice(0, 8)}...`
+              : `Tx ${signature.slice(0, 8)}... indexer still catching up`
+        }));
+        return;
+      }
       setClaimed((current) => ({ ...current, [position.id]: true }));
       setMessages((current) => ({
         ...current,
         [position.id]:
           signature === "local"
             ? "Marked claimed"
-            : signature === "indexed"
-              ? "Claim indexed"
-              : `Tx ${signature.slice(0, 8)}...`
+            : "Claim indexed"
       }));
     } catch (error) {
       setMessages((current) => ({

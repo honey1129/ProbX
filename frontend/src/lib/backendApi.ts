@@ -52,6 +52,24 @@ export type TradePage = {
   nextCursor?: string;
 };
 
+export type IndexedEventRecord = {
+  id: string;
+  signature: string;
+  slot: number;
+  type: string;
+  createdAt: number;
+};
+
+export type IndexedEventPage = {
+  events: IndexedEventRecord[];
+};
+
+export type IndexedEventQuery = {
+  signature: string;
+  type?: string;
+  limit?: number;
+};
+
 export type TradeQuery = {
   marketId?: string;
   owner?: string;
@@ -125,6 +143,14 @@ export async function fetchTrades(query: TradeQuery) {
   if (query.cursor) params.set("cursor", query.cursor);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return apiFetch<TradePage>(`/api/trades${suffix}`);
+}
+
+export async function fetchIndexedEvents(query: IndexedEventQuery) {
+  const params = new URLSearchParams();
+  params.set("signature", query.signature);
+  if (query.type) params.set("type", query.type);
+  if (query.limit) params.set("limit", String(query.limit));
+  return apiFetch<IndexedEventPage>(`/api/indexed-events?${params.toString()}`);
 }
 
 export async function resolveBackendMarket(marketId: string, payload: ResolveMarketPayload) {

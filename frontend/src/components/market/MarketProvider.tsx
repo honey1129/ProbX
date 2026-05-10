@@ -14,7 +14,7 @@ import {
   sellShares as sellSharesIx,
   type AnchorWalletLike
 } from "@/lib/anchorClient";
-import { createBackendMarket, fetchBootstrap, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket, updateBackendMarketMetadata } from "@/lib/backendApi";
+import { createBackendMarket, fetchBootstrap, fetchIndexedEvents, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket, updateBackendMarketMetadata } from "@/lib/backendApi";
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
@@ -37,6 +37,7 @@ type MarketContextValue = {
   updateMarketMetadata: (marketId: string, metadata: MarketMetadataInput) => Promise<Market>;
   addLocalMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
   waitForTradeConfirmation: (signature: string, options?: TradeConfirmationOptions) => Promise<TradeConfirmationState>;
+  waitForActionConfirmation: (signature: string, options: ActionConfirmationOptions) => Promise<ActionConfirmationState>;
 };
 
 const MarketContext = createContext<MarketContextValue | null>(null);
@@ -59,8 +60,16 @@ type MarketMetadataInput = {
 };
 
 export type TradeConfirmationState = "local" | "indexed" | "sent" | "confirmed" | "timeout";
+export type ActionConfirmationState = "local" | "indexed" | "confirmed" | "timeout";
 
 type TradeConfirmationOptions = {
+  marketId?: string;
+  attempts?: number;
+  intervalMs?: number;
+};
+
+type ActionConfirmationOptions = {
+  eventType: "MarketCreated" | "MarketResolved" | "WinningsRedeemed";
   marketId?: string;
   attempts?: number;
   intervalMs?: number;
@@ -631,6 +640,37 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     [backendEnabled, ownerId, refresh]
   );
 
+  const waitForActionConfirmation = useCallback(
+    async (signature: string, options: ActionConfirmationOptions): Promise<ActionConfirmationState> => {
+      const normalized = signature.trim();
+      if (!backendEnabled) return "local";
+      if (normalized === "" || normalized === "local") return "local";
+      if (normalized === "indexed" || normalized === "simulated") return "indexed";
+
+      const attempts = options.attempts ?? 10;
+      const intervalMs = options.intervalMs ?? 1600;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        if (attempt > 0) await delay(intervalMs);
+        try {
+          const page = await fetchIndexedEvents({
+            signature: normalized,
+            type: options.eventType,
+            limit: 1
+          });
+          if (page.events.some((event) => event.signature === normalized && event.type === options.eventType)) {
+            notifyTradesUpdated(options.marketId);
+            refresh();
+            return "confirmed";
+          }
+        } catch {
+          // Best effort; the action remains submitted and can be reconciled by refresh.
+        }
+      }
+      return "timeout";
+    },
+    [backendEnabled, refresh]
+  );
+
   const value = useMemo(
     () => {
       const dataSource: MarketContextValue["dataSource"] = backendEnabled ? "api" : "local";
@@ -651,10 +691,11 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         createMarket,
         updateMarketMetadata,
         addLocalMarket,
-        waitForTradeConfirmation
+        waitForTradeConfirmation,
+        waitForActionConfirmation
       };
     },
-    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, updateMarketMetadata, addLocalMarket, waitForTradeConfirmation]
+    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, updateMarketMetadata, addLocalMarket, waitForTradeConfirmation, waitForActionConfirmation]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;

@@ -38,6 +38,16 @@ export function timeRemaining(endTime: number) {
   return `${hours}h ${minutes}m`;
 }
 
+export function relativeTime(timestamp: number) {
+  const seconds = Math.max(1, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }

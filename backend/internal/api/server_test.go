@@ -111,6 +111,12 @@ func (f *fakeStore) GetIndexerCursor(ctx context.Context, name string) (models.I
 	return models.IndexerCursor{Signature: "cursor_sig", Slot: 42, UpdatedAt: 1}, nil
 }
 
+func (f *fakeStore) ListIndexedEvents(ctx context.Context, filter models.IndexedEventFilter) ([]models.IndexedEventRecord, error) {
+	return []models.IndexedEventRecord{
+		{ID: "sig_1_0", Signature: filter.Signature, Slot: 42, Type: normalizeTestEventType(filter.Type), CreatedAt: 1234},
+	}, nil
+}
+
 func (f *fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error) {
 	f.recordCalled = true
 	if req.MarketID == "" {
@@ -316,6 +322,28 @@ func TestListTrades(t *testing.T) {
 	}
 	if len(payload.Trades) != 1 || payload.Trades[0].Action != "BUY" || payload.Trades[0].Status != "confirmed" {
 		t.Fatalf("unexpected trades response: %+v", payload)
+	}
+}
+
+func TestListIndexedEvents(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/indexed-events?signature=sig_1&type=MarketCreated", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload struct {
+		Events []models.IndexedEventRecord `json:"events"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Events) != 1 || payload.Events[0].Type != "MarketCreated" {
+		t.Fatalf("unexpected indexed event response: %+v", payload)
 	}
 }
 
@@ -542,6 +570,13 @@ func normalizeTestOwner(owner string) string {
 		return "local"
 	}
 	return owner
+}
+
+func normalizeTestEventType(eventType string) string {
+	if strings.TrimSpace(eventType) == "" {
+		return "MarketCreated"
+	}
+	return eventType
 }
 
 func contains(values []string, target string) bool {

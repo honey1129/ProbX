@@ -29,6 +29,7 @@ type Store interface {
 	ListActivity(ctx context.Context, marketID string, limit int) ([]models.AgentActivity, error)
 	ListTrades(ctx context.Context, filter models.TradeFilter) (models.TradePage, error)
 	GetIndexerCursor(ctx context.Context, name string) (models.IndexerCursor, error)
+	ListIndexedEvents(ctx context.Context, filter models.IndexedEventFilter) ([]models.IndexedEventRecord, error)
 	RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error)
 	ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error)
 	RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error)
@@ -108,6 +109,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/positions/{id}/redeem", s.redeemPosition)
 	mux.HandleFunc("GET /api/activity", s.activity)
 	mux.HandleFunc("GET /api/trades", s.trades)
+	mux.HandleFunc("GET /api/indexed-events", s.indexedEvents)
 	mux.HandleFunc("POST /api/trades", s.recordTrade)
 	return s.withCORS(s.withLogging(mux))
 }
@@ -304,6 +306,22 @@ func (s *Server) trades(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+func (s *Server) indexedEvents(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	events, err := s.store.ListIndexedEvents(ctx, models.IndexedEventFilter{
+		Signature: r.URL.Query().Get("signature"),
+		Type:      r.URL.Query().Get("type"),
+		Limit:     limit,
+	})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
 func (s *Server) recordTrade(w http.ResponseWriter, r *http.Request) {

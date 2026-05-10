@@ -8,7 +8,7 @@ import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { fetchTrades } from "@/lib/backendApi";
-import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
+import { formatPercent, formatPrice, formatSol, probability, relativeTime, timeRemaining } from "@/lib/format";
 import type { AgentActivity, Market, Side, Trade } from "@/lib/types";
 import { RouterLink as Link, useParams } from "@/router";
 
@@ -327,7 +327,7 @@ export default function MarketDetailPage() {
 }
 
 function ResolverPanel({ market }: { market: Market }) {
-  const { resolve, backendEnabled } = useMarkets();
+  const { resolve, waitForActionConfirmation, backendEnabled } = useMarkets();
   const [pending, setPending] = useState<0 | 1 | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const hasEnded = market.endTime <= Math.floor(Date.now() / 1000);
@@ -339,12 +339,22 @@ function ResolverPanel({ market }: { market: Market }) {
     setPending(outcome);
     try {
       const signature = await resolve(market.id, outcome);
+      if (signature !== "local" && signature !== "indexed") {
+        setMessage(`Resolve tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
+        const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketResolved", marketId: market.id });
+        setMessage(
+          confirmation === "confirmed"
+            ? `Resolve confirmed and indexed: ${signature.slice(0, 12)}...`
+            : confirmation === "timeout"
+              ? `Resolve tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
+              : "Market resolved in ProbX API."
+        );
+        return;
+      }
       setMessage(
         signature === "local"
           ? "Market resolved locally."
-          : signature === "indexed"
-            ? "Market resolved in ProbX API."
-            : `Resolve tx sent: ${signature.slice(0, 12)}...`
+          : "Market resolved in ProbX API."
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Resolve failed.");
@@ -520,16 +530,6 @@ function MarketStatePanel({ icon, eyebrow, title, message, action }: { icon: Rea
       </div>
     </section>
   );
-}
-
-function relativeTime(timestamp: number) {
-  const seconds = Math.max(1, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
 }
 
 function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL" } {

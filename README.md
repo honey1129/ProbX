@@ -201,6 +201,7 @@ PATCH /api/markets/{id}/metadata
 GET  /api/positions?owner=local
 GET  /api/activity?marketId=fed-rates&limit=40
 GET  /api/trades?marketId=fed-rates&owner=local&limit=50
+GET  /api/indexed-events?signature=tx_sig&type=MarketCreated
 POST /api/trades
 ```
 
@@ -259,6 +260,12 @@ avatarUrl=<avatar URL>
 
 ```bash
 curl 'http://localhost:8080/api/trades?marketId=fed-rates&limit=50'
+```
+
+查询交易动作是否已被索引：
+
+```bash
+curl 'http://localhost:8080/api/indexed-events?signature=tx_sig&type=MarketCreated'
 ```
 
 ## 链上索引器

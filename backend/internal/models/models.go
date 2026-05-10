@@ -173,6 +173,20 @@ type IndexedEvent struct {
 	TimestampMillis  int64
 }
 
+type IndexedEventFilter struct {
+	Signature string
+	Type      string
+	Limit     int
+}
+
+type IndexedEventRecord struct {
+	ID        string `json:"id"`
+	Signature string `json:"signature"`
+	Slot      uint64 `json:"slot"`
+	Type      string `json:"type"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
 type IndexerCursor struct {
 	Signature string `json:"signature"`
 	Slot      uint64 `json:"slot"`

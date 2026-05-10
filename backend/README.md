@@ -92,6 +92,7 @@ PATCH /api/markets/{id}/metadata
 GET  /api/positions?owner=local
 GET  /api/activity?marketId=fed-rates&limit=40
 GET  /api/trades?marketId=fed-rates&owner=local&limit=50
+GET  /api/indexed-events?signature=tx_sig&type=MarketCreated
 POST /api/trades
 ```
 
@@ -152,6 +153,12 @@ Example trade history:
 
 ```bash
 curl 'http://localhost:8080/api/trades?marketId=fed-rates&limit=50'
+```
+
+Example indexed event lookup:
+
+```bash
+curl 'http://localhost:8080/api/indexed-events?signature=tx_sig&type=MarketCreated'
 ```
 
 ## Checks

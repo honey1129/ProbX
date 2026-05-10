@@ -86,6 +86,13 @@ export type IndexedEventPage = {
   events: IndexedEventRecord[];
 };
 
+export type MediaUploadResult = {
+  url: string;
+  path: string;
+  contentType: string;
+  size: number;
+};
+
 export type IndexedEventQuery = {
   signature: string;
   type?: string;
@@ -240,6 +247,33 @@ export async function withdrawBackendResidual(marketId: string, payload: Withdra
     method: "POST",
     body: JSON.stringify(payload)
   });
+}
+
+export async function uploadBackendMedia(file: Blob, filename = "market-image.jpg") {
+  if (!configuredApiUrl) {
+    throw new Error("NEXT_PUBLIC_API_URL is not configured.");
+  }
+  const form = new FormData();
+  form.set("file", file, filename);
+  const response = await fetch(`${configuredApiUrl}/api/media`, {
+    method: "POST",
+    body: form
+  });
+  if (!response.ok) {
+    let message = `API request failed with ${response.status}`;
+    try {
+      const payload = (await response.json()) as { error?: string };
+      message = payload.error ?? message;
+    } catch {
+      // Ignore non-JSON error bodies.
+    }
+    throw new Error(message);
+  }
+  const payload = (await response.json()) as MediaUploadResult;
+  if (payload.url?.startsWith("/")) {
+    return { ...payload, url: `${configuredApiUrl}${payload.url}` };
+  }
+  return payload;
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {

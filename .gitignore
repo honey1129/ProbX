@@ -7,6 +7,7 @@ frontend/dist/
 frontend/public/deploy.json
 frontend/tsconfig.tsbuildinfo
 backend/.gocache/
+data/media/
 .env
 .env.local
 .env.*.local

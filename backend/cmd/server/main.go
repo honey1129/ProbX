@@ -24,6 +24,8 @@ func main() {
 		SolanaRPCURL:      cfg.SolanaRPCURL,
 		ProgramID:         cfg.ProgramID,
 		TradeVerification: cfg.TradeVerification,
+		MediaDir:          cfg.MediaDir,
+		PublicBaseURL:     cfg.PublicBaseURL,
 	}
 	switch cfg.TradeVerification {
 	case "", "off":

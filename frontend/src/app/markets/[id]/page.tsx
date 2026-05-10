@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, ImagePlus, Loader2, Pencil, Radio, RefreshCw, Save, ShieldAlert, UsersRound, WalletCards, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, Loader2, Pencil, Radio, RefreshCw, Save, ShieldAlert, UsersRound, WalletCards, X } from "lucide-react";
+import { MarketMediaPicker } from "@/components/market/MarketMediaPicker";
 import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
@@ -632,7 +633,7 @@ function MetadataPanel({ market, canEdit }: { market: Market; canEdit: boolean }
       </div>
 
       {editing ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_auto] md:items-end">
+        <div className="mt-4 grid gap-3">
           <label className="grid gap-1 text-xs text-muted">
             Category
             <select
@@ -645,18 +646,7 @@ function MetadataPanel({ market, canEdit }: { market: Market; canEdit: boolean }
               ))}
             </select>
           </label>
-          <label className="grid min-w-0 gap-1 text-xs text-muted">
-            Avatar URL
-            <span className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-line bg-black/35 px-3">
-              <ImagePlus size={15} className="shrink-0 text-muted" />
-              <input
-                value={avatarUrl}
-                onChange={(event) => setAvatarUrl(event.target.value)}
-                className="h-full min-w-0 flex-1 bg-transparent text-sm font-bold text-slate-100 outline-none"
-                placeholder="https://..."
-              />
-            </span>
-          </label>
+          <MarketMediaPicker value={avatarUrl} onChange={setAvatarUrl} />
           <button
             onClick={save}
             disabled={pending}

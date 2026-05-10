@@ -15,6 +15,8 @@ type Config struct {
 	SolanaRPCURL      string
 	ProgramID         string
 	TradeVerification string
+	MediaDir          string
+	PublicBaseURL     string
 	IndexerInterval   time.Duration
 	IndexerTimeout    time.Duration
 	IndexerEventLimit int
@@ -30,6 +32,8 @@ func Load() Config {
 		SolanaRPCURL:      env("PROBX_SOLANA_RPC_URL", "http://127.0.0.1:8899"),
 		ProgramID:         env("PROBX_PROGRAM_ID", "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"),
 		TradeVerification: strings.ToLower(env("PROBX_TRADE_VERIFICATION", "off")),
+		MediaDir:          env("PROBX_MEDIA_DIR", "data/media"),
+		PublicBaseURL:     strings.TrimRight(env("PROBX_PUBLIC_BASE_URL", ""), "/"),
 		IndexerInterval:   durationEnv("PROBX_INDEXER_INTERVAL", 0),
 		IndexerTimeout:    durationEnv("PROBX_INDEXER_TIMEOUT", 30*time.Second),
 		IndexerEventLimit: intEnv("PROBX_INDEXER_EVENT_LIMIT", 5000),

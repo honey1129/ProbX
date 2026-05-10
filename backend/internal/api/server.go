@@ -3,12 +3,18 @@ package api
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -55,6 +61,8 @@ type Options struct {
 	SolanaRPCURL      string
 	ProgramID         string
 	TradeVerification string
+	MediaDir          string
+	PublicBaseURL     string
 }
 
 type Server struct {
@@ -63,6 +71,8 @@ type Server struct {
 	solanaRPCURL      string
 	programID         string
 	tradeVerification string
+	mediaDir          string
+	publicBaseURL     string
 	corsOrigin        map[string]struct{}
 	allowAll          bool
 }
@@ -98,6 +108,8 @@ func NewServerWithOptions(store Store, origins []string, options Options) *Serve
 		solanaRPCURL:      strings.TrimSpace(options.SolanaRPCURL),
 		programID:         strings.TrimSpace(options.ProgramID),
 		tradeVerification: tradeVerification,
+		mediaDir:          strings.TrimSpace(options.MediaDir),
+		publicBaseURL:     strings.TrimRight(strings.TrimSpace(options.PublicBaseURL), "/"),
 		corsOrigin:        originSet,
 		allowAll:          allowAll,
 	}
@@ -123,6 +135,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/trades", s.trades)
 	mux.HandleFunc("GET /api/indexed-events", s.indexedEvents)
 	mux.HandleFunc("POST /api/trades", s.recordTrade)
+	mux.HandleFunc("POST /api/media", s.uploadMedia)
+	if s.mediaDir != "" {
+		mux.Handle("GET /media/", http.StripPrefix("/media/", http.FileServer(http.Dir(s.mediaDir))))
+	}
 	return s.withCORS(s.withLogging(mux))
 }
 
@@ -366,6 +382,79 @@ func (s *Server) recordTrade(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, response)
 }
 
+func (s *Server) uploadMedia(w http.ResponseWriter, r *http.Request) {
+	if s.mediaDir == "" {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("media uploads are not configured"))
+		return
+	}
+	if err := r.ParseMultipartForm(6 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid media upload"))
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("file is required"))
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("file must be an image"))
+		return
+	}
+	if header.Size > 5<<20 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("image must be under 5 MB"))
+		return
+	}
+	extension := extensionForContentType(contentType)
+	if extension == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("unsupported image type"))
+		return
+	}
+	if err := os.MkdirAll(s.mediaDir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("media storage unavailable"))
+		return
+	}
+	name, err := randomMediaName(extension)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("media storage unavailable"))
+		return
+	}
+	path := filepath.Join(s.mediaDir, name)
+	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("media storage unavailable"))
+		return
+	}
+	defer out.Close()
+
+	limited := io.LimitReader(file, 5<<20+1)
+	written, err := io.Copy(out, limited)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("media storage unavailable"))
+		return
+	}
+	if written > 5<<20 {
+		_ = out.Close()
+		_ = os.Remove(path)
+		writeError(w, http.StatusBadRequest, fmt.Errorf("image must be under 5 MB"))
+		return
+	}
+
+	urlPath := "/media/" + name
+	url := urlPath
+	if s.publicBaseURL != "" {
+		url = s.publicBaseURL + urlPath
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"url":         url,
+		"path":        urlPath,
+		"contentType": contentType,
+		"size":        written,
+	})
+}
+
 func (s *Server) resolveMarket(w http.ResponseWriter, r *http.Request) {
 	var req models.ResolveMarketRequest
 	if err := readJSON(r, &req); err != nil {
@@ -602,6 +691,35 @@ func marketMetadataMessage(marketID string, actor string, category string, avata
 		"category=" + strings.TrimSpace(category),
 		"avatarUrl=" + strings.TrimSpace(avatarURL),
 	}, "\n")
+}
+
+func extensionForContentType(contentType string) string {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = contentType
+	}
+	switch strings.ToLower(mediaType) {
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "image/svg+xml":
+		return ".svg"
+	default:
+		return ""
+	}
+}
+
+func randomMediaName(extension string) (string, error) {
+	var bytes [16]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes[:]) + extension, nil
 }
 
 func (s *Server) withCORS(next http.Handler) http.Handler {

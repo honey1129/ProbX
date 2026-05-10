@@ -1,11 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -349,6 +354,59 @@ func TestStatusReportsRuntimeConfig(t *testing.T) {
 	}
 	if !contains(payload.CORSOrigins, "https://probx.site") || !contains(payload.CORSOrigins, "https://www.probx.site") {
 		t.Fatalf("unexpected CORS origins: %+v", payload.CORSOrigins)
+	}
+}
+
+func TestUploadMedia(t *testing.T) {
+	mediaDir := t.TempDir()
+	handler := NewServerWithOptions(
+		&fakeStore{market: testMarket()},
+		nil,
+		Options{MediaDir: mediaDir, PublicBaseURL: "https://api.probx.site"},
+	).Routes()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", `form-data; name="file"; filename="avatar.png"`)
+	partHeader.Set("Content-Type", "image/png")
+	part, err := writer.CreatePart(partHeader)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n'}); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/media", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload struct {
+		URL         string `json:"url"`
+		Path        string `json:"path"`
+		ContentType string `json:"contentType"`
+		Size        int64  `json:"size"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.HasPrefix(payload.URL, "https://api.probx.site/media/") || !strings.HasPrefix(payload.Path, "/media/") {
+		t.Fatalf("unexpected media URL payload: %+v", payload)
+	}
+	if payload.ContentType != "image/png" || payload.Size == 0 {
+		t.Fatalf("unexpected media metadata: %+v", payload)
+	}
+	if _, err := os.Stat(filepath.Join(mediaDir, strings.TrimPrefix(payload.Path, "/media/"))); err != nil {
+		t.Fatalf("expected media file on disk: %v", err)
 	}
 }
 

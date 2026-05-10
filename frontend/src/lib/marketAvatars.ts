@@ -14,5 +14,6 @@ export function marketAvatarUrl(market: Pick<Market, "id" | "avatarUrl">) {
 }
 
 export function marketAvatarMode(market: Pick<Market, "id">) {
+  if ("avatarUrl" in market && typeof market.avatarUrl === "string" && market.avatarUrl.startsWith("data:image/")) return "photo";
   return market.id === "trump-approval" ? "photo" : "logo";
 }

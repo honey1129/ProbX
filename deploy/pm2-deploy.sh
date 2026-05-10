@@ -136,6 +136,17 @@ if [ "$TRADE_VERIFICATION" != "confirmed" ]; then
   printf 'PROBX_TRADE_VERIFICATION must be confirmed for devnet deploy, got %s\n' "${PROBX_TRADE_VERIFICATION:-unset}" >&2
   exit 1
 fi
+MEDIA_DIR="${PROBX_MEDIA_DIR:-data/media}"
+PUBLIC_BASE_URL="${PROBX_PUBLIC_BASE_URL:-}"
+if [ -z "$PUBLIC_BASE_URL" ]; then
+  printf 'Missing PROBX_PUBLIC_BASE_URL in backend/.env\n' >&2
+  exit 1
+fi
+if [ "${PUBLIC_BASE_URL%/}" != "$EXPECTED_API_URL" ]; then
+  printf 'PROBX_PUBLIC_BASE_URL must be %s for media URLs, got %s\n' "$EXPECTED_API_URL" "$PUBLIC_BASE_URL" >&2
+  exit 1
+fi
+mkdir -p "$MEDIA_DIR"
 "$PROJECT_DIR/backend/scripts/migrate.sh"
 
 log "installing frontend dependencies"

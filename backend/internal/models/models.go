@@ -7,6 +7,13 @@ type Market struct {
 	PublicKey          string    `json:"publicKey"`
 	Creator            string    `json:"creator"`
 	Resolver           string    `json:"resolver"`
+	ProtocolConfig     string    `json:"protocolConfig,omitempty"`
+	Treasury           string    `json:"treasury,omitempty"`
+	ProtocolFeeBps     int       `json:"protocolFeeBps"`
+	CreatorLPShares    float64   `json:"creatorLpShares"`
+	ProtocolFees       float64   `json:"protocolFees"`
+	ResidualWithdrawn  float64   `json:"residualWithdrawn"`
+	ResidualClaimed    bool      `json:"residualClaimed"`
 	EndTime            int64     `json:"endTime"`
 	Question           string    `json:"question"`
 	Category           string    `json:"category"`
@@ -45,16 +52,18 @@ type AgentActivity struct {
 }
 
 type Trade struct {
-	ID        string  `json:"id"`
-	Owner     string  `json:"owner"`
-	MarketID  string  `json:"marketId"`
-	Side      string  `json:"side"`
-	Action    string  `json:"action"`
-	AmountSOL float64 `json:"amountSol"`
-	Price     float64 `json:"price"`
-	Signature string  `json:"signature"`
-	Status    string  `json:"status"`
-	CreatedAt int64   `json:"createdAt"`
+	ID             string  `json:"id"`
+	Owner          string  `json:"owner"`
+	MarketID       string  `json:"marketId"`
+	Side           string  `json:"side"`
+	Action         string  `json:"action"`
+	AmountSOL      float64 `json:"amountSol"`
+	NetAmountSOL   float64 `json:"netAmountSol"`
+	ProtocolFeeSOL float64 `json:"protocolFeeSol"`
+	Price          float64 `json:"price"`
+	Signature      string  `json:"signature"`
+	Status         string  `json:"status"`
+	CreatedAt      int64   `json:"createdAt"`
 }
 
 type TradeFilter struct {
@@ -163,6 +172,13 @@ type RefundPositionRequest struct {
 	Status          string `json:"status"`
 }
 
+type WithdrawResidualRequest struct {
+	MarketPublicKey string `json:"-"`
+	Creator         string `json:"creator"`
+	Signature       string `json:"signature"`
+	Status          string `json:"status"`
+}
+
 type IndexedPosition struct {
 	PublicKey       string
 	Owner           string
@@ -185,9 +201,15 @@ type IndexedEvent struct {
 	NewResolver      string
 	Question         string
 	EndTime          int64
+	ProtocolConfig   string
+	Treasury         string
+	ProtocolFeeBps   int
+	CreatorLPShares  float64
 	Side             string
 	Action           string
 	AmountSOL        float64
+	NetAmountSOL     float64
+	ProtocolFeeSOL   float64
 	Shares           float64
 	PayoutSOL        float64
 	Outcome          *int

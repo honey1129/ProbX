@@ -1,19 +1,25 @@
-import * as anchor from "@coral-xyz/anchor";
-import { Program, BN, web3 } from "@coral-xyz/anchor";
+import anchor from "@coral-xyz/anchor";
 import { assert } from "chai";
 import type { ProbxPrediction } from "../target/types/probx_prediction";
+
+const { BN, web3 } = anchor;
+type Program<T extends anchor.Idl = anchor.Idl> = anchor.Program<T>;
+type PublicKey = anchor.web3.PublicKey;
+type AnchorBN = InstanceType<typeof BN>;
 
 const SIDE_NO = 0;
 const SIDE_YES = 1;
 const OUTCOME_CANCELLED = 2;
 const PRICE_SCALE = new BN(1_000_000_000);
 const LAMPORTS_PER_SOL = web3.LAMPORTS_PER_SOL;
+const PROTOCOL_FEE_BPS = new BN(100);
+const BPS_DENOMINATOR = new BN(10_000);
 
 type Quote = {
-  sharesOut: BN;
-  lamportsOut: BN;
-  nextYesPool: BN;
-  nextNoPool: BN;
+  sharesOut: AnchorBN;
+  lamportsOut: AnchorBN;
+  nextYesPool: AnchorBN;
+  nextNoPool: AnchorBN;
 };
 
 describe("probx_prediction", () => {
@@ -24,10 +30,15 @@ describe("probx_prediction", () => {
   const creator = provider.wallet.publicKey;
   const yesUser = web3.Keypair.generate();
   const noUser = web3.Keypair.generate();
+  const treasury = web3.Keypair.generate();
+  const [config] = web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("protocol_config")],
+    program.programId
+  );
 
   const question = "Will SOL close above $250 this Friday?";
 
-  async function fund(pubkey: web3.PublicKey, lamports: number) {
+  async function fund(pubkey: PublicKey, lamports: number) {
     const signature = await provider.connection.requestAirdrop(pubkey, lamports);
     const latest = await provider.connection.getLatestBlockhash();
     await provider.connection.confirmTransaction(
@@ -39,6 +50,21 @@ describe("probx_prediction", () => {
   async function sleep(ms: number) {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
+
+  before(async () => {
+    try {
+      await program.account.protocolConfig.fetch(config);
+    } catch {
+      await program.methods
+        .initializeProtocol(treasury.publicKey, PROTOCOL_FEE_BPS.toNumber())
+        .accountsStrict({
+          config,
+          authority: creator,
+          systemProgram: web3.SystemProgram.programId,
+        })
+        .rpc();
+    }
+  });
 
   it("creates an AMM market, buys and sells shares, resolves, and redeems winners", async () => {
     await fund(yesUser.publicKey, 5 * LAMPORTS_PER_SOL);
@@ -65,9 +91,10 @@ describe("probx_prediction", () => {
 
     await program.methods
       .createMarket(question, endTime, initialLiquidity)
-      .accounts({
+      .accountsStrict({
         market,
         creator,
+        config,
         systemProgram: web3.SystemProgram.programId,
       })
       .rpc();
@@ -76,6 +103,9 @@ describe("probx_prediction", () => {
     assert.equal(marketAccount.question, question);
     assert.ok(marketAccount.creator.equals(creator));
     assert.ok(marketAccount.resolver.equals(creator));
+    assert.ok(marketAccount.treasury.equals(treasury.publicKey));
+    assert.equal(marketAccount.protocolFeeBps, PROTOCOL_FEE_BPS.toNumber());
+    assert.equal(marketAccount.creatorLpShares.toString(), initialLiquidity.toString());
     assert.equal(marketAccount.resolved, false);
     assert.equal(marketAccount.yesPool.toString(), initialLiquidity.toString());
     assert.equal(marketAccount.noPool.toString(), initialLiquidity.toString());
@@ -86,24 +116,27 @@ describe("probx_prediction", () => {
 
     const startingPrice = (await program.methods
       .getPrice()
-      .accounts({ market })
-      .view()) as BN;
+      .accountsStrict({ market })
+      .view()) as AnchorBN;
     assert.equal(startingPrice.toString(), PRICE_SCALE.div(new BN(2)).toString());
 
     const yesBuyAmount = new BN(1 * LAMPORTS_PER_SOL);
+    const yesBuyFee = protocolFee(yesBuyAmount);
     const yesBuyQuote = quoteBuy(
       marketAccount.yesPool,
       marketAccount.noPool,
-      yesBuyAmount,
+      yesBuyAmount.sub(yesBuyFee),
       SIDE_YES
     );
+    const treasuryBeforeBuy = await provider.connection.getBalance(treasury.publicKey);
 
     await program.methods
       .buyShares(yesBuyAmount, SIDE_YES, yesBuyQuote.sharesOut)
-      .accounts({
+      .accountsStrict({
         market,
         position: yesPosition,
         owner: yesUser.publicKey,
+        treasury: treasury.publicKey,
         systemProgram: web3.SystemProgram.programId,
       })
       .signers([yesUser])
@@ -113,24 +146,29 @@ describe("probx_prediction", () => {
     assert.equal(marketAccount.yesPool.toString(), yesBuyQuote.nextYesPool.toString());
     assert.equal(marketAccount.noPool.toString(), yesBuyQuote.nextNoPool.toString());
     assert.equal(marketAccount.yesShares.toString(), yesBuyQuote.sharesOut.toString());
+    assert.equal(marketAccount.protocolFeesCollected.toString(), yesBuyFee.toString());
+    const treasuryAfterBuy = await provider.connection.getBalance(treasury.publicKey);
+    assert.equal(treasuryAfterBuy - treasuryBeforeBuy, yesBuyFee.toNumber());
 
     const yesPositionAccount = await program.account.position.fetch(yesPosition);
     assert.equal(yesPositionAccount.yesAmount.toString(), yesBuyQuote.sharesOut.toString());
 
     const noBuyAmount = new BN(500_000_000);
+    const noBuyFee = protocolFee(noBuyAmount);
     const noBuyQuote = quoteBuy(
       marketAccount.yesPool,
       marketAccount.noPool,
-      noBuyAmount,
+      noBuyAmount.sub(noBuyFee),
       SIDE_NO
     );
 
     await program.methods
       .buyShares(noBuyAmount, SIDE_NO, noBuyQuote.sharesOut)
-      .accounts({
+      .accountsStrict({
         market,
         position: noPosition,
         owner: noUser.publicKey,
+        treasury: treasury.publicKey,
         systemProgram: web3.SystemProgram.programId,
       })
       .signers([noUser])
@@ -146,13 +184,15 @@ describe("probx_prediction", () => {
       sellShares,
       SIDE_YES
     );
+    const sellFee = protocolFee(sellQuote.lamportsOut);
 
     await program.methods
-      .sellShares(sellShares, SIDE_YES, sellQuote.lamportsOut)
-      .accounts({
+      .sellShares(sellShares, SIDE_YES, sellQuote.lamportsOut.sub(sellFee))
+      .accountsStrict({
         market,
         position: yesPosition,
         owner: yesUser.publicKey,
+        treasury: treasury.publicKey,
       })
       .signers([yesUser])
       .rpc();
@@ -171,7 +211,7 @@ describe("probx_prediction", () => {
 
     await program.methods
       .resolveMarket(SIDE_YES)
-      .accounts({
+      .accountsStrict({
         market,
         resolver: creator,
       })
@@ -185,7 +225,7 @@ describe("probx_prediction", () => {
 
     await program.methods
       .redeemWinnings()
-      .accounts({
+      .accountsStrict({
         market,
         position: yesPosition,
         owner: yesUser.publicKey,
@@ -203,7 +243,7 @@ describe("probx_prediction", () => {
     try {
       await program.methods
         .redeemWinnings()
-        .accounts({
+        .accountsStrict({
           market,
           position: noPosition,
           owner: noUser.publicKey,
@@ -214,6 +254,18 @@ describe("probx_prediction", () => {
     } catch (error) {
       assert.match(String(error), /NoWinningPosition|no claimable/i);
     }
+
+    await program.methods
+      .withdrawResidual()
+      .accountsStrict({
+        market,
+        creator,
+      })
+      .rpc();
+
+    marketAccount = await program.account.market.fetch(market);
+    assert.equal(marketAccount.residualClaimed, true);
+    assert.equal(marketAccount.totalLiquidity.toString(), "0");
   });
 
   it("updates resolver, cancels a market, and refunds cancelled positions", async () => {
@@ -239,16 +291,17 @@ describe("probx_prediction", () => {
 
     await program.methods
       .createMarket("Will this market be voided?", endTime, initialLiquidity)
-      .accounts({
+      .accountsStrict({
         market,
         creator,
+        config,
         systemProgram: web3.SystemProgram.programId,
       })
       .rpc();
 
     await program.methods
       .setResolver(nextResolver.publicKey)
-      .accounts({
+      .accountsStrict({
         market,
         resolver: creator,
       })
@@ -260,10 +313,11 @@ describe("probx_prediction", () => {
     const yesAmount = new BN(1 * LAMPORTS_PER_SOL);
     await program.methods
       .buyShares(yesAmount, SIDE_YES, new BN(0))
-      .accounts({
+      .accountsStrict({
         market,
         position,
         owner: refundUser.publicKey,
+        treasury: treasury.publicKey,
         systemProgram: web3.SystemProgram.programId,
       })
       .signers([refundUser])
@@ -273,10 +327,11 @@ describe("probx_prediction", () => {
     const noAmount = new BN(500_000_000);
     await program.methods
       .buyShares(noAmount, SIDE_NO, new BN(0))
-      .accounts({
+      .accountsStrict({
         market,
         position,
         owner: refundUser.publicKey,
+        treasury: treasury.publicKey,
         systemProgram: web3.SystemProgram.programId,
       })
       .signers([refundUser])
@@ -289,7 +344,7 @@ describe("probx_prediction", () => {
     try {
       await program.methods
         .cancelMarket()
-        .accounts({
+        .accountsStrict({
           market,
           resolver: creator,
         })
@@ -301,7 +356,7 @@ describe("probx_prediction", () => {
 
     await program.methods
       .cancelMarket()
-      .accounts({
+      .accountsStrict({
         market,
         resolver: nextResolver.publicKey,
       })
@@ -315,7 +370,7 @@ describe("probx_prediction", () => {
     const before = await provider.connection.getBalance(refundUser.publicKey);
     await program.methods
       .refundCancelled()
-      .accounts({
+      .accountsStrict({
         market,
         position,
         owner: refundUser.publicKey,
@@ -331,7 +386,7 @@ describe("probx_prediction", () => {
   });
 });
 
-function quoteBuy(yesPool: BN, noPool: BN, amount: BN, side: number): Quote {
+function quoteBuy(yesPool: AnchorBN, noPool: AnchorBN, amount: AnchorBN, side: number): Quote {
   const yes = BigInt(yesPool.toString());
   const no = BigInt(noPool.toString());
   const input = BigInt(amount.toString());
@@ -358,7 +413,7 @@ function quoteBuy(yesPool: BN, noPool: BN, amount: BN, side: number): Quote {
   };
 }
 
-function quoteSell(yesPool: BN, noPool: BN, shares: BN, side: number): Quote {
+function quoteSell(yesPool: AnchorBN, noPool: AnchorBN, shares: AnchorBN, side: number): Quote {
   const yes = BigInt(yesPool.toString());
   const no = BigInt(noPool.toString());
   const input = BigInt(shares.toString());
@@ -383,6 +438,10 @@ function quoteSell(yesPool: BN, noPool: BN, shares: BN, side: number): Quote {
     nextYesPool: fromBigInt(nextYes),
     nextNoPool: fromBigInt(nextNo),
   };
+}
+
+function protocolFee(amount: AnchorBN) {
+  return amount.mul(PROTOCOL_FEE_BPS).div(BPS_DENOMINATOR);
 }
 
 function ceilDiv(numerator: bigint, denominator: bigint) {

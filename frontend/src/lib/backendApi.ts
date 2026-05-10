@@ -138,6 +138,12 @@ export type RedeemPositionResult = {
 
 export type RefundPositionPayload = RedeemPositionPayload;
 
+export type WithdrawResidualPayload = {
+  creator: string;
+  signature?: string;
+  status?: string;
+};
+
 export function isBackendApiConfigured() {
   return configuredApiUrl.length > 0;
 }
@@ -224,6 +230,13 @@ export async function redeemBackendPosition(positionId: string, payload: RedeemP
 
 export async function refundBackendPosition(positionId: string, payload: RefundPositionPayload) {
   return apiFetch<RedeemPositionResult>(`/api/positions/${encodeURIComponent(positionId)}/refund`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function withdrawBackendResidual(marketId: string, payload: WithdrawResidualPayload) {
+  return apiFetch<RedeemPositionResult>(`/api/markets/${encodeURIComponent(marketId)}/withdraw-residual`, {
     method: "POST",
     body: JSON.stringify(payload)
   });

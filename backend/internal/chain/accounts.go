@@ -29,6 +29,7 @@ var marketResolverUpdatedEventDiscriminator = eventDiscriminator("MarketResolver
 var marketCancelledEventDiscriminator = eventDiscriminator("MarketCancelled")
 var winningsRedeemedEventDiscriminator = eventDiscriminator("WinningsRedeemed")
 var refundRedeemedEventDiscriminator = eventDiscriminator("RefundRedeemed")
+var residualWithdrawnEventDiscriminator = eventDiscriminator("ResidualWithdrawn")
 
 type AccountClient struct {
 	endpoint  string
@@ -42,6 +43,13 @@ type MarketAccount struct {
 	Question               string
 	Creator                string
 	Resolver               string
+	ProtocolConfig         string
+	Treasury               string
+	ProtocolFeeBps         uint16
+	CreatorLPShares        uint64
+	ProtocolFeesCollected  uint64
+	ResidualWithdrawn      uint64
+	ResidualClaimed        bool
 	YesPoolLamports        uint64
 	NoPoolLamports         uint64
 	TotalLiquidityLamports uint64
@@ -61,30 +69,36 @@ type PositionAccount struct {
 }
 
 type ProgramEvent struct {
-	ID               string
-	Signature        string
-	Slot             uint64
-	Type             string
-	Action           string
-	InstructionIndex int
-	OnchainID        uint64
-	MarketPublicKey  string
-	Owner            string
-	Resolver         string
-	PreviousResolver string
-	NewResolver      string
-	Question         string
-	EndTime          int64
-	Side             uint8
-	AmountLamports   uint64
-	SharesLamports   uint64
-	PayoutLamports   uint64
-	Outcome          *int
-	YesPoolLamports  uint64
-	NoPoolLamports   uint64
-	TotalLiquidity   uint64
-	PriceAfter       uint64
-	BlockTime        int64
+	ID                  string
+	Signature           string
+	Slot                uint64
+	Type                string
+	Action              string
+	InstructionIndex    int
+	OnchainID           uint64
+	MarketPublicKey     string
+	Owner               string
+	Resolver            string
+	PreviousResolver    string
+	NewResolver         string
+	Question            string
+	EndTime             int64
+	ProtocolConfig      string
+	Treasury            string
+	ProtocolFeeBps      int
+	CreatorLPShares     uint64
+	Side                uint8
+	AmountLamports      uint64
+	NetAmountLamports   uint64
+	ProtocolFeeLamports uint64
+	SharesLamports      uint64
+	PayoutLamports      uint64
+	Outcome             *int
+	YesPoolLamports     uint64
+	NoPoolLamports      uint64
+	TotalLiquidity      uint64
+	PriceAfter          uint64
+	BlockTime           int64
 }
 
 type EventFetchOptions struct {
@@ -408,6 +422,13 @@ func DecodeMarketAccount(pubkey string, raw []byte) (MarketAccount, error) {
 	market.Question = reader.readString()
 	market.Creator = base58Encode(reader.readBytes(32))
 	market.Resolver = base58Encode(reader.readBytes(32))
+	market.ProtocolConfig = base58Encode(reader.readBytes(32))
+	market.Treasury = base58Encode(reader.readBytes(32))
+	market.ProtocolFeeBps = reader.readU16()
+	market.CreatorLPShares = reader.readU64()
+	market.ProtocolFeesCollected = reader.readU64()
+	market.ResidualWithdrawn = reader.readU64()
+	market.ResidualClaimed = reader.readBool()
 	market.YesPoolLamports = reader.readU64()
 	market.NoPoolLamports = reader.readU64()
 	market.TotalLiquidityLamports = reader.readU64()
@@ -461,9 +482,13 @@ func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
 		event.OnchainID = reader.readU64()
 		event.Owner = base58Encode(reader.readBytes(32))
 		event.Resolver = base58Encode(reader.readBytes(32))
+		event.ProtocolConfig = base58Encode(reader.readBytes(32))
 		event.Question = reader.readString()
 		event.EndTime = reader.readI64()
 		event.TotalLiquidity = reader.readU64()
+		event.CreatorLPShares = reader.readU64()
+		event.Treasury = base58Encode(reader.readBytes(32))
+		event.ProtocolFeeBps = int(reader.readU16())
 		event.YesPoolLamports = reader.readU64()
 		event.NoPoolLamports = reader.readU64()
 		return event, reader.err == nil
@@ -473,6 +498,8 @@ func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
 		event.Owner = base58Encode(reader.readBytes(32))
 		event.Side = reader.readU8()
 		event.AmountLamports = reader.readU64()
+		event.NetAmountLamports = reader.readU64()
+		event.ProtocolFeeLamports = reader.readU64()
 		event.SharesLamports = reader.readU64()
 		event.YesPoolLamports = reader.readU64()
 		event.NoPoolLamports = reader.readU64()
@@ -496,6 +523,8 @@ func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
 		event.Side = reader.readU8()
 		event.SharesLamports = reader.readU64()
 		event.AmountLamports = reader.readU64()
+		event.NetAmountLamports = reader.readU64()
+		event.ProtocolFeeLamports = reader.readU64()
 		event.YesPoolLamports = reader.readU64()
 		event.NoPoolLamports = reader.readU64()
 		event.TotalLiquidity = reader.readU64()
@@ -547,6 +576,15 @@ func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
 		event.PayoutLamports = reader.readU64()
 		event.TotalLiquidity = reader.readU64()
 		return event, reader.err == nil
+	case bytes.Equal(discriminator, residualWithdrawnEventDiscriminator):
+		event := ProgramEvent{Type: "ResidualWithdrawn", Action: "WITHDRAW"}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Owner = base58Encode(reader.readBytes(32))
+		outcome := int(reader.readU8())
+		event.Outcome = &outcome
+		event.PayoutLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
+		return event, reader.err == nil
 	default:
 		return ProgramEvent{}, false
 	}
@@ -559,17 +597,24 @@ func (m MarketAccount) Model() models.Market {
 		outcome = &value
 	}
 	return models.Market{
-		ID:             m.PublicKey,
-		PublicKey:      m.PublicKey,
-		Creator:        m.Creator,
-		Resolver:       m.Resolver,
-		EndTime:        m.EndTime,
-		Question:       m.Question,
-		YesPool:        lamportsToSOL(m.YesPoolLamports),
-		NoPool:         lamportsToSOL(m.NoPoolLamports),
-		TotalLiquidity: lamportsToSOL(m.TotalLiquidityLamports),
-		Resolved:       m.Resolved,
-		Outcome:        outcome,
+		ID:                m.PublicKey,
+		PublicKey:         m.PublicKey,
+		Creator:           m.Creator,
+		Resolver:          m.Resolver,
+		ProtocolConfig:    m.ProtocolConfig,
+		Treasury:          m.Treasury,
+		ProtocolFeeBps:    int(m.ProtocolFeeBps),
+		CreatorLPShares:   lamportsToSOL(m.CreatorLPShares),
+		ProtocolFees:      lamportsToSOL(m.ProtocolFeesCollected),
+		ResidualWithdrawn: lamportsToSOL(m.ResidualWithdrawn),
+		ResidualClaimed:   m.ResidualClaimed,
+		EndTime:           m.EndTime,
+		Question:          m.Question,
+		YesPool:           lamportsToSOL(m.YesPoolLamports),
+		NoPool:            lamportsToSOL(m.NoPoolLamports),
+		TotalLiquidity:    lamportsToSOL(m.TotalLiquidityLamports),
+		Resolved:          m.Resolved,
+		Outcome:           outcome,
 	}
 }
 
@@ -607,9 +652,15 @@ func (e ProgramEvent) Model() models.IndexedEvent {
 		NewResolver:      e.NewResolver,
 		Question:         e.Question,
 		EndTime:          e.EndTime,
+		ProtocolConfig:   e.ProtocolConfig,
+		Treasury:         e.Treasury,
+		ProtocolFeeBps:   e.ProtocolFeeBps,
+		CreatorLPShares:  lamportsToSOL(e.CreatorLPShares),
 		Side:             sideLabel(e.Side),
 		Action:           e.Action,
 		AmountSOL:        lamportsToSOL(e.AmountLamports),
+		NetAmountSOL:     lamportsToSOL(e.NetAmountLamports),
+		ProtocolFeeSOL:   lamportsToSOL(e.ProtocolFeeLamports),
 		Shares:           lamportsToSOL(e.SharesLamports),
 		PayoutSOL:        lamportsToSOL(e.PayoutLamports),
 		Outcome:          outcome,
@@ -731,6 +782,14 @@ func (r *accountReader) readU64() uint64 {
 		return 0
 	}
 	return binary.LittleEndian.Uint64(data)
+}
+
+func (r *accountReader) readU16() uint16 {
+	data := r.readBytes(2)
+	if r.err != nil {
+		return 0
+	}
+	return binary.LittleEndian.Uint16(data)
 }
 
 func (r *accountReader) readI64() int64 {

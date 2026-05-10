@@ -22,16 +22,17 @@ var (
 )
 
 var (
-	buySharesInstruction       = instructionDiscriminator("buy_shares")
-	createMarketInstruction    = instructionDiscriminator("create_market")
-	sellSharesInstruction      = instructionDiscriminator("sell_shares")
-	placeBetInstruction        = instructionDiscriminator("place_bet")
-	resolveMarketInstruction   = instructionDiscriminator("resolve_market")
-	setResolverInstruction     = instructionDiscriminator("set_resolver")
-	cancelMarketInstruction    = instructionDiscriminator("cancel_market")
-	redeemWinningsInstruction  = instructionDiscriminator("redeem_winnings")
-	refundCancelledInstruction = instructionDiscriminator("refund_cancelled")
-	claimRewardInstruction     = instructionDiscriminator("claim_reward")
+	buySharesInstruction        = instructionDiscriminator("buy_shares")
+	createMarketInstruction     = instructionDiscriminator("create_market")
+	sellSharesInstruction       = instructionDiscriminator("sell_shares")
+	placeBetInstruction         = instructionDiscriminator("place_bet")
+	resolveMarketInstruction    = instructionDiscriminator("resolve_market")
+	setResolverInstruction      = instructionDiscriminator("set_resolver")
+	cancelMarketInstruction     = instructionDiscriminator("cancel_market")
+	redeemWinningsInstruction   = instructionDiscriminator("redeem_winnings")
+	refundCancelledInstruction  = instructionDiscriminator("refund_cancelled")
+	withdrawResidualInstruction = instructionDiscriminator("withdraw_residual")
+	claimRewardInstruction      = instructionDiscriminator("claim_reward")
 )
 
 type Verifier struct {
@@ -132,6 +133,17 @@ func (v *Verifier) VerifyRefund(ctx context.Context, req models.RefundPositionRe
 	}
 	if !tx.matchesRefundInstruction(v.programID, req) {
 		return fmt.Errorf("%w: transaction does not match requested refund", ErrVerificationFailed)
+	}
+	return nil
+}
+
+func (v *Verifier) VerifyWithdrawResidual(ctx context.Context, req models.WithdrawResidualRequest) error {
+	tx, err := v.verifyCommon(ctx, req.Signature, req.Creator, req.MarketPublicKey, "creator")
+	if err != nil {
+		return err
+	}
+	if !tx.matchesWithdrawResidualInstruction(v.programID, req) {
+		return fmt.Errorf("%w: transaction does not match requested residual withdrawal", ErrVerificationFailed)
 	}
 	return nil
 }
@@ -344,6 +356,15 @@ func (t transactionResult) matchesRedeemInstruction(programID string, req models
 func (t transactionResult) matchesRefundInstruction(programID string, req models.RefundPositionRequest) bool {
 	for _, instruction := range t.tradeInstructions() {
 		if instruction.matchesRefund(programID, req) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t transactionResult) matchesWithdrawResidualInstruction(programID string, req models.WithdrawResidualRequest) bool {
+	for _, instruction := range t.tradeInstructions() {
+		if instruction.matchesWithdrawResidual(programID, req) {
 			return true
 		}
 	}
@@ -583,6 +604,23 @@ func (i instruction) matchesRefund(programID string, req models.RefundPositionRe
 	return decodeRefundInstruction(data)
 }
 
+func (i instruction) matchesWithdrawResidual(programID string, req models.WithdrawResidualRequest) bool {
+	if i.ProgramID != programID {
+		return false
+	}
+	if !i.hasAccountAt(0, strings.TrimSpace(req.MarketPublicKey)) {
+		return false
+	}
+	if !i.hasAccountAt(1, strings.TrimSpace(req.Creator)) {
+		return false
+	}
+	data, err := base58Decode(i.Data)
+	if err != nil {
+		return false
+	}
+	return decodeWithdrawResidualInstruction(data)
+}
+
 func (i instruction) hasAccountAt(index int, value string) bool {
 	return value != "" && len(i.Accounts) > index && i.Accounts[index] == value
 }
@@ -682,6 +720,10 @@ func decodeRedeemInstruction(data []byte) bool {
 
 func decodeRefundInstruction(data []byte) bool {
 	return len(data) == 8 && bytes.Equal(data[:8], refundCancelledInstruction)
+}
+
+func decodeWithdrawResidualInstruction(data []byte) bool {
+	return len(data) == 8 && bytes.Equal(data[:8], withdrawResidualInstruction)
 }
 
 func instructionDiscriminator(name string) []byte {

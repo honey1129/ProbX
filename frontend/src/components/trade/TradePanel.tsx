@@ -5,7 +5,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AlertTriangle, CheckCircle2, ChevronDown, Info, Loader2, Wallet2 } from "lucide-react";
 import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
-import { quoteBuyShares, quoteSellShares } from "@/lib/anchorClient";
+import { protocolFeeSol, quoteBuyShares, quoteSellShares } from "@/lib/anchorClient";
 import type { Market, Side } from "@/lib/types";
 import { useMarkets } from "@/components/market/MarketProvider";
 
@@ -81,9 +81,11 @@ export function TradePanel({ market }: { market: Market }) {
   const nextYesPool = mode === "BUY" ? buyQuote.nextYesPool : sellQuote.nextYesPool;
   const nextNoPool = mode === "BUY" ? buyQuote.nextNoPool : sellQuote.nextNoPool;
   const shares = mode === "BUY" ? Number(buyQuote.sharesOut.toString()) / LAMPORTS_PER_SOL : amountNumber;
-  const proceeds = mode === "SELL" ? Number(sellQuote.lamportsOut.toString()) / LAMPORTS_PER_SOL : 0;
-  const fee = 0;
-  const expectedTotal = mode === "BUY" ? amountNumber + fee : proceeds;
+  const grossProceeds = mode === "SELL" ? Number(sellQuote.lamportsOut.toString()) / LAMPORTS_PER_SOL : 0;
+  const fee = mode === "BUY" ? protocolFeeSol(market, amountNumber) : protocolFeeSol(market, grossProceeds);
+  const netBuyAmount = Math.max(0, amountNumber - fee);
+  const netProceeds = Math.max(0, grossProceeds - fee);
+  const expectedTotal = mode === "BUY" ? amountNumber : netProceeds;
   const impact = useMemo(() => {
     const nextTotal = nextYesPool + nextNoPool;
     if (!amountNumber || nextTotal <= 0) return 0;
@@ -344,11 +346,11 @@ export function TradePanel({ market }: { market: Market }) {
             />
             <QuoteItem label="Est. Fill Price" value={formatPrice(p)} />
             <QuoteItem label={mode === "BUY" ? "Shares Received" : "Shares Sold"} value={shares.toFixed(3)} />
-            <QuoteItem label={mode === "BUY" ? "Potential Return" : "Est. Proceeds"} value={formatSol(mode === "BUY" ? shares : proceeds)} />
+            <QuoteItem label={mode === "BUY" ? "Net to AMM" : "Gross Proceeds"} value={formatSol(mode === "BUY" ? netBuyAmount : grossProceeds)} />
             <QuoteItem label="Price Impact" value={`${impact.toFixed(2)}%`} />
             <QuoteItem label="Max Slippage" value={`${slippage}%`} />
             <QuoteItem label="Protocol Fee" value={formatSol(fee, 4)} />
-            <QuoteItem label={mode === "BUY" ? "Est. Total" : "SOL Out"} value={formatSol(expectedTotal, 4)} strong />
+            <QuoteItem label={mode === "BUY" ? "Total Debit" : "Net SOL Out"} value={formatSol(expectedTotal, 4)} strong />
           </div>
 
           <button
@@ -420,6 +422,10 @@ function MarketInfo({ market }: { market: Market }) {
         <Row label="Chance" value={formatPercent(yesProbability, 0)} />
         <Row label="24h Volume" value={`$${(market.volume24h / 1_000_000).toFixed(2)}M`} />
         <Row label="Liquidity" value={formatSol(liquidity)} />
+        <Row label="Protocol Fee" value={`${((market.protocolFeeBps || 0) / 100).toFixed(2)}%`} />
+        <Row label="Protocol Fees" value={formatSol(market.protocolFees || 0, 4)} />
+        <Row label="Creator LP" value={formatSol(market.creatorLpShares || 0, 4)} />
+        <Row label="Residual Claimed" value={market.residualClaimed ? formatSol(market.residualWithdrawn || 0, 4) : "No"} />
         <Row label="Participants" value={market.participants.toLocaleString()} />
         <Row label="Pool Imbalance" value={formatPercent(imbalance, 1)} />
         <Row label="Closes In" value={timeRemaining(market.endTime)} />
@@ -431,6 +437,7 @@ function MarketInfo({ market }: { market: Market }) {
           <CodeRow label="Market" value={market.publicKey} />
           <CodeRow label="Creator" value={market.creator} />
           <CodeRow label="Resolver" value={market.resolver} />
+          <CodeRow label="Treasury" value={market.treasury || market.creator} />
         </div>
       </div>
 

@@ -3,6 +3,13 @@ CREATE TABLE IF NOT EXISTS markets (
   public_key VARCHAR(96) NOT NULL,
   creator VARCHAR(96) NOT NULL,
   resolver VARCHAR(96) NOT NULL,
+  protocol_config VARCHAR(96) NOT NULL DEFAULT '',
+  treasury VARCHAR(96) NOT NULL DEFAULT '',
+  protocol_fee_bps INT NOT NULL DEFAULT 100,
+  creator_lp_shares DOUBLE NOT NULL DEFAULT 0,
+  protocol_fees DOUBLE NOT NULL DEFAULT 0,
+  residual_withdrawn DOUBLE NOT NULL DEFAULT 0,
+  residual_claimed BOOLEAN NOT NULL DEFAULT FALSE,
   question VARCHAR(280) NOT NULL,
   category VARCHAR(32) NOT NULL,
   avatar_url MEDIUMTEXT NULL,
@@ -20,6 +27,7 @@ CREATE TABLE IF NOT EXISTS markets (
   UNIQUE KEY idx_markets_public_key (public_key),
   KEY idx_markets_end_time (end_time),
   KEY idx_markets_resolver (resolver),
+  KEY idx_markets_treasury (treasury),
   KEY idx_markets_category (category)
 );
 
@@ -58,7 +66,10 @@ CREATE TABLE IF NOT EXISTS trades (
   owner VARCHAR(96) NOT NULL,
   market_id VARCHAR(96) NOT NULL,
   side VARCHAR(8) NOT NULL,
+  action VARCHAR(12) NOT NULL DEFAULT 'BUY',
   amount_sol DOUBLE NOT NULL,
+  net_amount_sol DOUBLE NOT NULL DEFAULT 0,
+  protocol_fee_sol DOUBLE NOT NULL DEFAULT 0,
   price DOUBLE NOT NULL,
   signature VARCHAR(128) NOT NULL,
   status VARCHAR(32) NOT NULL,

@@ -36,6 +36,7 @@ type Store interface {
 	ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error)
 	RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error)
 	RefundPosition(ctx context.Context, positionID string, req models.RefundPositionRequest) (models.RedeemPositionResponse, error)
+	WithdrawResidual(ctx context.Context, marketID string, req models.WithdrawResidualRequest) (models.RedeemPositionResponse, error)
 }
 
 type TradeVerifier interface {
@@ -46,6 +47,7 @@ type TradeVerifier interface {
 	VerifyResolve(ctx context.Context, req models.ResolveMarketRequest) error
 	VerifyRedeem(ctx context.Context, req models.RedeemPositionRequest) error
 	VerifyRefund(ctx context.Context, req models.RefundPositionRequest) error
+	VerifyWithdrawResidual(ctx context.Context, req models.WithdrawResidualRequest) error
 }
 
 type Options struct {
@@ -113,6 +115,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/markets/{id}/resolver", s.setMarketResolver)
 	mux.HandleFunc("POST /api/markets/{id}/cancel", s.cancelMarket)
 	mux.HandleFunc("POST /api/markets/{id}/resolve", s.resolveMarket)
+	mux.HandleFunc("POST /api/markets/{id}/withdraw-residual", s.withdrawResidual)
 	mux.HandleFunc("GET /api/positions", s.positions)
 	mux.HandleFunc("POST /api/positions/{id}/redeem", s.redeemPosition)
 	mux.HandleFunc("POST /api/positions/{id}/refund", s.refundPosition)
@@ -503,6 +506,35 @@ func (s *Server) refundPosition(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	response, err := s.store.RefundPosition(ctx, positionID, req)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) withdrawResidual(w http.ResponseWriter, r *http.Request) {
+	var req models.WithdrawResidualRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	marketID := r.PathValue("id")
+	if s.tradeVerifier != nil {
+		market, err := s.store.GetMarket(ctx, strings.TrimSpace(marketID))
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		req.MarketPublicKey = market.PublicKey
+		if err := s.tradeVerifier.VerifyWithdrawResidual(ctx, req); err != nil {
+			writeVerificationError(w, err)
+			return
+		}
+	}
+	response, err := s.store.WithdrawResidual(ctx, marketID, req)
 	if err != nil {
 		writeStoreError(w, err)
 		return

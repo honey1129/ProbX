@@ -85,14 +85,20 @@ func TestDecodeMarketCreatedEvent(t *testing.T) {
 	market := bytes.Repeat([]byte{9}, 32)
 	creator := bytes.Repeat([]byte{10}, 32)
 	resolver := bytes.Repeat([]byte{11}, 32)
+	config := bytes.Repeat([]byte{13}, 32)
+	treasury := bytes.Repeat([]byte{12}, 32)
 	raw := append([]byte{}, marketCreatedEventDiscriminator...)
 	raw = append(raw, market...)
 	raw = appendU64(raw, 77)
 	raw = append(raw, creator...)
 	raw = append(raw, resolver...)
+	raw = append(raw, config...)
 	raw = appendString(raw, "Will SOL close above $250?")
 	raw = appendU64(raw, 1_893_456_000)
 	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = append(raw, treasury...)
+	raw = appendU16(raw, 100)
 	raw = appendU64(raw, 2_000_000_000)
 	raw = appendU64(raw, 2_000_000_000)
 
@@ -106,11 +112,14 @@ func TestDecodeMarketCreatedEvent(t *testing.T) {
 	if event.MarketPublicKey != base58Encode(market) || event.Owner != base58Encode(creator) || event.Resolver != base58Encode(resolver) {
 		t.Fatalf("unexpected event pubkeys: %+v", event)
 	}
+	if event.ProtocolConfig != base58Encode(config) || event.Treasury != base58Encode(treasury) {
+		t.Fatalf("unexpected event protocol keys: %+v", event)
+	}
 	if event.Question != "Will SOL close above $250?" || event.EndTime != 1_893_456_000 {
 		t.Fatalf("unexpected event content: %+v", event)
 	}
 	model := event.Model()
-	if model.OnchainID != 77 || model.Question != event.Question || model.TotalLiquidity != 2 {
+	if model.OnchainID != 77 || model.Question != event.Question || model.TotalLiquidity != 2 || model.ProtocolConfig != base58Encode(config) || model.ProtocolFeeBps != 100 {
 		t.Fatalf("unexpected model: %+v", model)
 	}
 }
@@ -175,6 +184,8 @@ func TestDecodeSharesBoughtEvent(t *testing.T) {
 	raw = append(raw, owner...)
 	raw = append(raw, 1)
 	raw = appendU64(raw, 1_500_000_000)
+	raw = appendU64(raw, 1_485_000_000)
+	raw = appendU64(raw, 15_000_000)
 	raw = appendU64(raw, 600_000_000)
 	raw = appendU64(raw, 3_500_000_000)
 	raw = appendU64(raw, 2_000_000_000)
@@ -192,7 +203,7 @@ func TestDecodeSharesBoughtEvent(t *testing.T) {
 		t.Fatalf("unexpected event pubkeys: %+v", event)
 	}
 	model := event.Model()
-	if model.AmountSOL != 1.5 || model.Shares != 0.6 || model.Side != "YES" {
+	if model.AmountSOL != 1.5 || model.NetAmountSOL != 1.485 || model.ProtocolFeeSOL != 0.015 || model.Shares != 0.6 || model.Side != "YES" {
 		t.Fatalf("unexpected model: %+v", model)
 	}
 }
@@ -289,6 +300,8 @@ func TestAccountClientFetchRecentEvents(t *testing.T) {
 	raw = append(raw, 0)
 	raw = appendU64(raw, 500_000_000)
 	raw = appendU64(raw, 250_000_000)
+	raw = appendU64(raw, 247_500_000)
+	raw = appendU64(raw, 2_500_000)
 	raw = appendU64(raw, 2_000_000_000)
 	raw = appendU64(raw, 3_000_000_000)
 	raw = appendU64(raw, 4_000_000_000)
@@ -354,6 +367,8 @@ func TestAccountClientFetchEventsPaginatesUntilCursorAndReturnsOldestFirst(t *te
 	raw = append(raw, bytes.Repeat([]byte{16}, 32)...)
 	raw = append(raw, 1)
 	raw = appendU64(raw, 1_000_000_000)
+	raw = appendU64(raw, 990_000_000)
+	raw = appendU64(raw, 10_000_000)
 	raw = appendU64(raw, 500_000_000)
 	raw = appendU64(raw, 2_500_000_000)
 	raw = appendU64(raw, 1_500_000_000)
@@ -632,6 +647,13 @@ type marketAccountFixture struct {
 	Question               string
 	Creator                []byte
 	Resolver               []byte
+	ProtocolConfig         []byte
+	Treasury               []byte
+	ProtocolFeeBps         uint16
+	CreatorLPShares        uint64
+	ProtocolFeesCollected  uint64
+	ResidualWithdrawn      uint64
+	ResidualClaimed        bool
 	YesPoolLamports        uint64
 	NoPoolLamports         uint64
 	TotalLiquidityLamports uint64
@@ -657,6 +679,17 @@ func marketAccountBytes(t *testing.T, fixture marketAccountFixture) []byte {
 	writeString(t, buf, fixture.Question)
 	buf.Write(fixture.Creator)
 	buf.Write(fixture.Resolver)
+	buf.Write(defaultBytes(fixture.ProtocolConfig, 32))
+	buf.Write(defaultBytes(fixture.Treasury, 32))
+	writeU16(t, buf, fixture.ProtocolFeeBps)
+	writeU64(t, buf, fixture.CreatorLPShares)
+	writeU64(t, buf, fixture.ProtocolFeesCollected)
+	writeU64(t, buf, fixture.ResidualWithdrawn)
+	if fixture.ResidualClaimed {
+		buf.WriteByte(1)
+	} else {
+		buf.WriteByte(0)
+	}
 	writeU64(t, buf, fixture.YesPoolLamports)
 	writeU64(t, buf, fixture.NoPoolLamports)
 	writeU64(t, buf, fixture.TotalLiquidityLamports)
@@ -696,6 +729,26 @@ func writeU64(t *testing.T, buf *bytes.Buffer, value uint64) {
 	if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
 		t.Fatalf("write u64: %v", err)
 	}
+}
+
+func writeU16(t *testing.T, buf *bytes.Buffer, value uint16) {
+	t.Helper()
+	if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+		t.Fatalf("write u16: %v", err)
+	}
+}
+
+func appendU16(raw []byte, value uint16) []byte {
+	out := make([]byte, 2)
+	binary.LittleEndian.PutUint16(out, value)
+	return append(raw, out...)
+}
+
+func defaultBytes(value []byte, length int) []byte {
+	if len(value) == length {
+		return value
+	}
+	return make([]byte, length)
 }
 
 func appendU64(out []byte, value uint64) []byte {

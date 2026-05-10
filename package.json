@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "test": "anchor test",
-    "test:ts": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+    "test:ts": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts",
+    "protocol:config": "ts-node -P ./tsconfig.json scripts/protocol_config.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1"

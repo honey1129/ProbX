@@ -70,6 +70,8 @@ export default function PortfolioPage() {
         side: trade.side,
         action: trade.action,
         amountSol: trade.size / 1000,
+        netAmountSol: trade.size / 1000,
+        protocolFeeSol: 0,
         price: trade.confidence / 100,
         signature: "local",
         status: "local",

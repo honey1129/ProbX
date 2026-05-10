@@ -21,6 +21,18 @@ var (
 	ErrInvalid  = errors.New("invalid request")
 )
 
+const (
+	defaultProtocolFeeBps = 100
+	localProtocolConfig   = "local"
+)
+
+const marketSelectColumns = `
+	id, public_key, creator, resolver, protocol_config, treasury, protocol_fee_bps,
+	creator_lp_shares, protocol_fees, residual_withdrawn, residual_claimed,
+	question, category, avatar_url, yes_pool, no_pool,
+	total_liquidity, volume_24h, participants, change_24h, end_time,
+	resolved, outcome`
+
 type Store struct {
 	db *sql.DB
 }
@@ -72,10 +84,7 @@ func (s *Store) Bootstrap(ctx context.Context, owner string) (models.Bootstrap, 
 }
 
 func (s *Store) ListMarkets(ctx context.Context) ([]models.Market, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
-		       total_liquidity, volume_24h, participants, change_24h, end_time,
-		       resolved, outcome
+	rows, err := s.db.QueryContext(ctx, `SELECT `+marketSelectColumns+`
 		FROM markets
 		ORDER BY resolved ASC, end_time ASC, created_at DESC`)
 	if err != nil {
@@ -98,10 +107,7 @@ func (s *Store) ListMarkets(ctx context.Context) ([]models.Market, error) {
 }
 
 func (s *Store) GetMarket(ctx context.Context, id string) (models.Market, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
-		       total_liquidity, volume_24h, participants, change_24h, end_time,
-		       resolved, outcome
+	row := s.db.QueryRowContext(ctx, `SELECT `+marketSelectColumns+`
 		FROM markets
 		WHERE id = ?`, id)
 	market, err := scanMarket(row)
@@ -154,11 +160,13 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO markets (
-			id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
+			id, public_key, creator, resolver, protocol_config, treasury, protocol_fee_bps,
+			creator_lp_shares, question, category, avatar_url, yes_pool, no_pool,
 			total_liquidity, volume_24h, participants, change_24h, end_time,
 			resolved, outcome, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
-		req.ID, req.PublicKey, req.Creator, req.Creator, req.Question, req.Category, nullableString(req.AvatarURL),
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
+		req.ID, req.PublicKey, req.Creator, req.Creator, localProtocolConfig, req.Creator, defaultProtocolFeeBps,
+		req.InitialLiquidity, req.Question, req.Category, nullableString(req.AvatarURL),
 		yesPool, noPool, req.InitialLiquidity, req.EndTime, now, now,
 	)
 	if err != nil {
@@ -261,11 +269,15 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO markets (
-				id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
+				id, public_key, creator, resolver, protocol_config, treasury, protocol_fee_bps,
+				creator_lp_shares, protocol_fees, residual_withdrawn, residual_claimed,
+				question, category, avatar_url, yes_pool, no_pool,
 				total_liquidity, volume_24h, participants, change_24h, end_time,
 				resolved, outcome, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, ?, ?)`,
-			market.ID, market.PublicKey, market.Creator, market.Resolver, market.Question, market.Category, nullableString(market.AvatarURL),
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?, ?, ?)`,
+			market.ID, market.PublicKey, market.Creator, market.Resolver, market.ProtocolConfig, market.Treasury, market.ProtocolFeeBps,
+			market.CreatorLPShares, market.ProtocolFees, market.ResidualWithdrawn, market.ResidualClaimed,
+			market.Question, market.Category, nullableString(market.AvatarURL),
 			market.YesPool, market.NoPool, market.TotalLiquidity, market.EndTime,
 			market.Resolved, nullableInt(market.Outcome), now, now,
 		)
@@ -291,11 +303,15 @@ func (s *Store) UpsertIndexedMarket(ctx context.Context, market models.Market) (
 	change24h := probability(market.YesPool, market.NoPool) - probability(existing.YesPool, existing.NoPool)
 	_, err = tx.ExecContext(ctx, `
 		UPDATE markets
-		SET creator = ?, resolver = ?, question = ?, category = ?, avatar_url = COALESCE(?, avatar_url), yes_pool = ?, no_pool = ?,
+		SET creator = ?, resolver = ?, protocol_config = ?, treasury = ?, protocol_fee_bps = ?,
+		    creator_lp_shares = ?, protocol_fees = ?, residual_withdrawn = ?, residual_claimed = ?,
+		    question = ?, category = ?, avatar_url = COALESCE(?, avatar_url), yes_pool = ?, no_pool = ?,
 		    total_liquidity = ?, change_24h = ?, end_time = ?, resolved = ?,
 		    outcome = ?, updated_at = ?
 		WHERE id = ?`,
-		market.Creator, market.Resolver, market.Question, market.Category, nullableString(market.AvatarURL), market.YesPool, market.NoPool,
+		market.Creator, market.Resolver, market.ProtocolConfig, market.Treasury, market.ProtocolFeeBps,
+		market.CreatorLPShares, market.ProtocolFees, market.ResidualWithdrawn, market.ResidualClaimed,
+		market.Question, market.Category, nullableString(market.AvatarURL), market.YesPool, market.NoPool,
 		market.TotalLiquidity, change24h, market.EndTime, market.Resolved,
 		nullableInt(market.Outcome), now, market.ID,
 	)
@@ -512,6 +528,10 @@ func (s *Store) IndexProgramEvent(ctx context.Context, event models.IndexedEvent
 		if err := indexRefundedEvent(ctx, tx, market, event); err != nil {
 			return false, err
 		}
+	case "ResidualWithdrawn":
+		if err := indexResidualWithdrawnEvent(ctx, tx, market, event); err != nil {
+			return false, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -651,7 +671,7 @@ func (s *Store) ListTrades(ctx context.Context, filter models.TradeFilter) (mode
 	}
 
 	query := `
-		SELECT id, owner, market_id, side, action, amount_sol, price, signature, status, created_at
+		SELECT id, owner, market_id, side, action, amount_sol, net_amount_sol, protocol_fee_sol, price, signature, status, created_at
 		FROM trades
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY created_at DESC, id DESC
@@ -714,10 +734,7 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 	}
 	defer rollbackQuietly(tx)
 
-	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
-		       total_liquidity, volume_24h, participants, change_24h, end_time,
-		       resolved, outcome
+	row := tx.QueryRowContext(ctx, `SELECT `+marketSelectColumns+`
 		FROM markets
 		WHERE id = ?
 		FOR UPDATE`, req.MarketID)
@@ -745,13 +762,20 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 		nextYesPool       float64
 		nextNoPool        float64
 		volumeDelta       float64
+		netAmountSOL      float64
+		protocolFeeSOL    float64
 		participantsDelta int
 	)
 	now := nowMillis()
 
 	if req.Action == "BUY" {
 		var sharesOut float64
-		sharesOut, nextYesPool, nextNoPool, err = quoteBuy(market.YesPool, market.NoPool, req.AmountSOL, req.Side)
+		protocolFeeSOL = calculateProtocolFeeSOL(req.AmountSOL, market.ProtocolFeeBps)
+		netAmountSOL = req.AmountSOL - protocolFeeSOL
+		if netAmountSOL <= 0 {
+			return models.TradeResponse{}, fmt.Errorf("%w: amount is too small after protocol fee", ErrInvalid)
+		}
+		sharesOut, nextYesPool, nextNoPool, err = quoteBuy(market.YesPool, market.NoPool, netAmountSOL, req.Side)
 		if err != nil {
 			return models.TradeResponse{}, err
 		}
@@ -759,13 +783,18 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 		if err != nil {
 			return models.TradeResponse{}, err
 		}
-		market.TotalLiquidity += req.AmountSOL
+		market.TotalLiquidity += netAmountSOL
 		volumeDelta = req.AmountSOL
 	} else {
 		var lamportsOut float64
 		lamportsOut, nextYesPool, nextNoPool, err = quoteSell(market.YesPool, market.NoPool, req.AmountSOL, req.Side)
 		if err != nil {
 			return models.TradeResponse{}, err
+		}
+		protocolFeeSOL = calculateProtocolFeeSOL(lamportsOut, market.ProtocolFeeBps)
+		netAmountSOL = lamportsOut - protocolFeeSOL
+		if netAmountSOL < 0 {
+			return models.TradeResponse{}, fmt.Errorf("%w: protocol fee exceeds proceeds", ErrInvalid)
 		}
 		if market.TotalLiquidity < lamportsOut {
 			return models.TradeResponse{}, fmt.Errorf("%w: insufficient market liquidity", ErrInvalid)
@@ -779,6 +808,7 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 
 	market.YesPool = nextYesPool
 	market.NoPool = nextNoPool
+	market.ProtocolFees += protocolFeeSOL
 	market.Volume24h += volumeDelta * 1000
 	nextProbability := probability(market.YesPool, market.NoPool)
 	market.Change24h = nextProbability - previousProbability
@@ -787,10 +817,10 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 
 	_, err = tx.ExecContext(ctx, `
 		UPDATE markets
-		SET yes_pool = ?, no_pool = ?, total_liquidity = ?, volume_24h = ?,
+		SET yes_pool = ?, no_pool = ?, total_liquidity = ?, protocol_fees = ?, volume_24h = ?,
 		    participants = ?, change_24h = ?, updated_at = ?
 		WHERE id = ?`,
-		market.YesPool, market.NoPool, market.TotalLiquidity, market.Volume24h,
+		market.YesPool, market.NoPool, market.TotalLiquidity, market.ProtocolFees, market.Volume24h,
 		market.Participants, market.Change24h, now, market.ID,
 	)
 	if err != nil {
@@ -799,9 +829,9 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 
 	tradeID := newID("trade")
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO trades (id, owner, market_id, side, action, amount_sol, price, signature, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		tradeID, req.Owner, req.MarketID, req.Side, req.Action, req.AmountSOL, entryProbability, req.Signature, req.Status, now,
+		INSERT INTO trades (id, owner, market_id, side, action, amount_sol, net_amount_sol, protocol_fee_sol, price, signature, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tradeID, req.Owner, req.MarketID, req.Side, req.Action, req.AmountSOL, netAmountSOL, protocolFeeSOL, entryProbability, req.Signature, req.Status, now,
 	)
 	if err != nil {
 		return models.TradeResponse{}, err
@@ -862,10 +892,7 @@ func (s *Store) ResolveMarket(ctx context.Context, marketID string, req models.R
 	}
 	defer rollbackQuietly(tx)
 
-	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
-		       total_liquidity, volume_24h, participants, change_24h, end_time,
-		       resolved, outcome
+	row := tx.QueryRowContext(ctx, `SELECT `+marketSelectColumns+`
 		FROM markets
 		WHERE id = ?
 		FOR UPDATE`, marketID)
@@ -1175,6 +1202,102 @@ func (s *Store) RefundPosition(ctx context.Context, positionID string, req model
 	}, nil
 }
 
+func (s *Store) WithdrawResidual(ctx context.Context, marketID string, req models.WithdrawResidualRequest) (models.RedeemPositionResponse, error) {
+	marketID = strings.TrimSpace(marketID)
+	req.Creator = normalizeText(req.Creator, "local")
+	req.Status = normalizeText(req.Status, "indexed")
+	req.Signature = normalizeText(req.Signature, "indexed")
+	if marketID == "" {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: market id is required", ErrInvalid)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	defer rollbackQuietly(tx)
+
+	market, err := selectMarketByIDForUpdate(ctx, tx, marketID)
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	if !market.Resolved || market.Outcome == nil {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: market is not resolved", ErrInvalid)
+	}
+	if req.Creator != "local" && strings.TrimSpace(req.Creator) != strings.TrimSpace(market.Creator) {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: only the market creator can withdraw residual funds", ErrInvalid)
+	}
+	if market.ResidualClaimed {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: residual funds already withdrawn", ErrInvalid)
+	}
+
+	var outstanding float64
+	switch *market.Outcome {
+	case 1:
+		outstanding, err = sumOpenPositionSize(ctx, tx, market.ID, "YES")
+	case 0:
+		outstanding, err = sumOpenPositionSize(ctx, tx, market.ID, "NO")
+	case 2:
+		outstanding, err = sumOpenPositionSize(ctx, tx, market.ID, "")
+	default:
+		err = fmt.Errorf("%w: invalid outcome", ErrInvalid)
+	}
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	if outstanding > 1e-9 {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: outstanding claimable positions remain", ErrInvalid)
+	}
+	if market.TotalLiquidity <= 0 {
+		return models.RedeemPositionResponse{}, fmt.Errorf("%w: no residual liquidity", ErrInvalid)
+	}
+
+	now := nowMillis()
+	residual := market.TotalLiquidity
+	_, err = tx.ExecContext(ctx, `
+		UPDATE markets
+		SET total_liquidity = 0,
+		    creator_lp_shares = 0,
+		    residual_withdrawn = ?,
+		    residual_claimed = TRUE,
+		    updated_at = ?
+		WHERE id = ?`,
+		residual,
+		now,
+		market.ID,
+	)
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	activity := models.AgentActivity{
+		ID:         newID("act"),
+		Agent:      shortAgentName(req.Creator),
+		MarketID:   market.ID,
+		Side:       sideLabel(*market.Outcome),
+		Action:     "WITHDRAW",
+		Size:       residual * 1000,
+		Confidence: 100,
+		Timestamp:  now,
+	}
+	if err := insertActivity(ctx, tx, activity); err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+
+	nextMarket, err := s.GetMarket(ctx, market.ID)
+	if err != nil {
+		return models.RedeemPositionResponse{}, err
+	}
+	return models.RedeemPositionResponse{
+		Signature: req.Signature,
+		Status:    req.Status,
+		Market:    nextMarket,
+		Position:  models.Position{},
+	}, nil
+}
+
 func (s *Store) refundCancelledPosition(ctx context.Context, tx *sql.Tx, positionID string, req models.RefundPositionRequest) (models.Position, float64, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT p.id, p.market_id, p.side, p.size, p.entry_probability,
@@ -1338,6 +1461,13 @@ func scanMarket(row scanner) (models.Market, error) {
 		&market.PublicKey,
 		&market.Creator,
 		&market.Resolver,
+		&market.ProtocolConfig,
+		&market.Treasury,
+		&market.ProtocolFeeBps,
+		&market.CreatorLPShares,
+		&market.ProtocolFees,
+		&market.ResidualWithdrawn,
+		&market.ResidualClaimed,
 		&market.Question,
 		&market.Category,
 		&avatarURL,
@@ -1360,6 +1490,18 @@ func scanMarket(row scanner) (models.Market, error) {
 	if strings.TrimSpace(market.Resolver) == "" {
 		market.Resolver = market.Creator
 	}
+	if strings.TrimSpace(market.ProtocolConfig) == "" {
+		market.ProtocolConfig = localProtocolConfig
+	}
+	if strings.TrimSpace(market.Treasury) == "" {
+		market.Treasury = market.Creator
+	}
+	if market.ProtocolFeeBps <= 0 {
+		market.ProtocolFeeBps = defaultProtocolFeeBps
+	}
+	if market.CreatorLPShares <= 0 {
+		market.CreatorLPShares = market.TotalLiquidity
+	}
 	if outcome.Valid {
 		value := int(outcome.Int64)
 		market.Outcome = &value
@@ -1377,10 +1519,49 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, "UPDATE markets SET resolver = creator WHERE resolver = ''"); err != nil {
 		return err
 	}
+	if err := ensureColumn(ctx, db, "markets", "protocol_config", "VARCHAR(96) NOT NULL DEFAULT '' AFTER resolver"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "markets", "treasury", "VARCHAR(96) NOT NULL DEFAULT '' AFTER protocol_config"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "markets", "protocol_fee_bps", "INT NOT NULL DEFAULT 100 AFTER treasury"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "markets", "creator_lp_shares", "DOUBLE NOT NULL DEFAULT 0 AFTER protocol_fee_bps"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "markets", "protocol_fees", "DOUBLE NOT NULL DEFAULT 0 AFTER creator_lp_shares"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "markets", "residual_withdrawn", "DOUBLE NOT NULL DEFAULT 0 AFTER protocol_fees"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "markets", "residual_claimed", "BOOLEAN NOT NULL DEFAULT FALSE AFTER residual_withdrawn"); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE markets SET treasury = creator WHERE treasury = ''"); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE markets SET creator_lp_shares = total_liquidity WHERE creator_lp_shares = 0"); err != nil {
+		return err
+	}
 	if err := ensureColumn(ctx, db, "trades", "action", "VARCHAR(12) NOT NULL DEFAULT 'BUY' AFTER side"); err != nil {
 		return err
 	}
+	if err := ensureColumn(ctx, db, "trades", "net_amount_sol", "DOUBLE NOT NULL DEFAULT 0 AFTER amount_sol"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "trades", "protocol_fee_sol", "DOUBLE NOT NULL DEFAULT 0 AFTER net_amount_sol"); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE trades SET net_amount_sol = amount_sol WHERE net_amount_sol = 0"); err != nil {
+		return err
+	}
 	if err := ensureIndex(ctx, db, "markets", "idx_markets_resolver", "CREATE INDEX idx_markets_resolver ON markets (resolver)"); err != nil {
+		return err
+	}
+	if err := ensureIndex(ctx, db, "markets", "idx_markets_treasury", "CREATE INDEX idx_markets_treasury ON markets (treasury)"); err != nil {
 		return err
 	}
 	if err := ensureIndex(ctx, db, "trades", "idx_trades_signature", "CREATE INDEX idx_trades_signature ON trades (signature)"); err != nil {
@@ -1503,6 +1684,8 @@ func scanTrade(row scanner) (models.Trade, error) {
 		&trade.Side,
 		&trade.Action,
 		&trade.AmountSOL,
+		&trade.NetAmountSOL,
+		&trade.ProtocolFeeSOL,
 		&trade.Price,
 		&trade.Signature,
 		&trade.Status,
@@ -1511,14 +1694,14 @@ func scanTrade(row scanner) (models.Trade, error) {
 	if trade.Action == "" {
 		trade.Action = "BUY"
 	}
+	if trade.NetAmountSOL == 0 {
+		trade.NetAmountSOL = trade.AmountSOL
+	}
 	return trade, err
 }
 
 func selectMarketByPublicKeyForUpdate(ctx context.Context, tx *sql.Tx, publicKey string) (models.Market, error) {
-	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
-		       total_liquidity, volume_24h, participants, change_24h, end_time,
-		       resolved, outcome
+	row := tx.QueryRowContext(ctx, `SELECT `+marketSelectColumns+`
 		FROM markets
 		WHERE public_key = ?
 		FOR UPDATE`, publicKey)
@@ -1530,10 +1713,7 @@ func selectMarketByPublicKeyForUpdate(ctx context.Context, tx *sql.Tx, publicKey
 }
 
 func selectMarketByIDForUpdate(ctx context.Context, tx *sql.Tx, marketID string) (models.Market, error) {
-	row := tx.QueryRowContext(ctx, `
-		SELECT id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
-		       total_liquidity, volume_24h, participants, change_24h, end_time,
-		       resolved, outcome
+	row := tx.QueryRowContext(ctx, `SELECT `+marketSelectColumns+`
 		FROM markets
 		WHERE id = ?
 		FOR UPDATE`, marketID)
@@ -1575,11 +1755,16 @@ func indexCreatedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEven
 	creator := normalizeText(event.Owner, "unknown")
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO markets (
+			protocol_config, treasury, protocol_fee_bps, creator_lp_shares,
 			id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,
 			total_liquidity, volume_24h, participants, change_24h, end_time,
 			resolved, outcome, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, 'Crypto', NULL, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Crypto', NULL, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)
 		ON DUPLICATE KEY UPDATE
+		  protocol_config = VALUES(protocol_config),
+		  treasury = VALUES(treasury),
+		  protocol_fee_bps = VALUES(protocol_fee_bps),
+		  creator_lp_shares = VALUES(creator_lp_shares),
 		  creator = VALUES(creator),
 		  resolver = VALUES(resolver),
 		  question = VALUES(question),
@@ -1588,6 +1773,10 @@ func indexCreatedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEven
 		  total_liquidity = VALUES(total_liquidity),
 		  end_time = VALUES(end_time),
 		  updated_at = GREATEST(updated_at, VALUES(updated_at))`,
+		normalizeText(event.ProtocolConfig, localProtocolConfig),
+		normalizeText(event.Treasury, creator),
+		feeBpsOrDefault(event.ProtocolFeeBps),
+		defaultFloat(event.CreatorLPShares, event.TotalLiquidity),
 		marketID,
 		event.MarketPublicKey,
 		creator,
@@ -1637,25 +1826,43 @@ func indexTradeEvent(ctx context.Context, tx *sql.Tx, market models.Market, even
 	if event.Action == "SELL" && event.Shares > 0 {
 		size = event.Shares
 	}
+	netAmount := event.NetAmountSOL
+	if netAmount == 0 {
+		netAmount = event.AmountSOL
+	}
 	price := probability(event.YesPool, event.NoPool)
 	if event.Side == "NO" {
 		price = 1 - price
 	}
 	_, err := tx.ExecContext(ctx, `
-		INSERT IGNORE INTO trades (id, owner, market_id, side, action, amount_sol, price, signature, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
+		INSERT IGNORE INTO trades (id, owner, market_id, side, action, amount_sol, net_amount_sol, protocol_fee_sol, price, signature, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
 		indexedTradeID(event),
 		normalizeText(event.Owner, "unknown"),
 		market.ID,
 		event.Side,
 		event.Action,
 		size,
+		netAmount,
+		event.ProtocolFeeSOL,
 		price,
 		event.Signature,
 		event.TimestampMillis,
 	)
 	if err != nil {
 		return err
+	}
+	if event.ProtocolFeeSOL > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE markets
+			SET protocol_fees = protocol_fees + ?, updated_at = GREATEST(updated_at, ?)
+			WHERE id = ?`,
+			event.ProtocolFeeSOL,
+			event.TimestampMillis,
+			market.ID,
+		); err != nil {
+			return err
+		}
 	}
 	if event.YesPool > 0 || event.NoPool > 0 {
 		if err := insertProbabilityPoint(ctx, tx, market.ID, probability(event.YesPool, event.NoPool), event.TimestampMillis); err != nil {
@@ -1875,6 +2082,39 @@ func indexRefundedEvent(ctx context.Context, tx *sql.Tx, market models.Market, e
 	})
 }
 
+func indexResidualWithdrawnEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
+	creator := normalizeText(event.Owner, "")
+	if creator == "" {
+		return fmt.Errorf("%w: residual withdrawal event creator is required", ErrInvalid)
+	}
+	_, err := tx.ExecContext(ctx, `
+		UPDATE markets
+		SET total_liquidity = ?, residual_withdrawn = ?, residual_claimed = TRUE, updated_at = GREATEST(updated_at, ?)
+		WHERE id = ?`,
+		event.TotalLiquidity,
+		event.PayoutSOL,
+		event.TimestampMillis,
+		market.ID,
+	)
+	if err != nil {
+		return err
+	}
+	side := "VOID"
+	if event.Outcome != nil {
+		side = sideLabel(*event.Outcome)
+	}
+	return insertActivity(ctx, tx, models.AgentActivity{
+		ID:         "act_" + event.ID,
+		Agent:      shortAgentName(creator),
+		MarketID:   market.ID,
+		Side:       side,
+		Action:     "WITHDRAW",
+		Size:       event.PayoutSOL * 1000,
+		Confidence: 100,
+		Timestamp:  event.TimestampMillis,
+	})
+}
+
 func upsertPosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, sharesOut float64, entryProbability float64, now int64) (int, error) {
 	id := positionID(req.Owner, req.MarketID, req.Side)
 	var existingSize float64
@@ -1991,6 +2231,21 @@ func reducePosition(ctx context.Context, tx *sql.Tx, req models.TradeRequest, sh
 	return err
 }
 
+func sumOpenPositionSize(ctx context.Context, tx *sql.Tx, marketID string, side string) (float64, error) {
+	query := `
+		SELECT COALESCE(SUM(size), 0)
+		FROM positions
+		WHERE market_id = ? AND size > 0`
+	args := []any{marketID}
+	if strings.TrimSpace(side) != "" {
+		query += " AND side = ?"
+		args = append(args, side)
+	}
+	var size float64
+	err := tx.QueryRowContext(ctx, query, args...).Scan(&size)
+	return size, err
+}
+
 func insertActivity(ctx context.Context, tx *sql.Tx, item models.AgentActivity) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO agent_activity (id, agent, market_id, side, action, size, confidence, timestamp_ms)
@@ -2059,6 +2314,27 @@ func quoteSell(yesPool float64, noPool float64, shares float64, side string) (fl
 		return 0, 0, 0, fmt.Errorf("%w: amount is too small for AMM liquidity", ErrInvalid)
 	}
 	return lamportsOut, nextYesPool, nextNoPool, nil
+}
+
+func calculateProtocolFeeSOL(amount float64, protocolFeeBps int) float64 {
+	if protocolFeeBps <= 0 || amount <= 0 {
+		return 0
+	}
+	return amount * float64(protocolFeeBps) / 10_000
+}
+
+func feeBpsOrDefault(value int) int {
+	if value <= 0 {
+		return defaultProtocolFeeBps
+	}
+	return value
+}
+
+func defaultFloat(value float64, fallback float64) float64 {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func normalizeCategory(value string) string {

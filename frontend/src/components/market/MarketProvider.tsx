@@ -15,9 +15,11 @@ import {
   resolveMarket as resolveMarketIx,
   sellShares as sellSharesIx,
   setMarketResolver as setMarketResolverIx,
+  protocolFeeSol,
+  withdrawResidual as withdrawResidualIx,
   type AnchorWalletLike
 } from "@/lib/anchorClient";
-import { cancelBackendMarket, createBackendMarket, fetchBootstrap, fetchIndexedEvents, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, refundBackendPosition, resolveBackendMarket, setBackendMarketResolver, updateBackendMarketMetadata } from "@/lib/backendApi";
+import { cancelBackendMarket, createBackendMarket, fetchBootstrap, fetchIndexedEvents, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, refundBackendPosition, resolveBackendMarket, setBackendMarketResolver, updateBackendMarketMetadata, withdrawBackendResidual } from "@/lib/backendApi";
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
@@ -39,6 +41,7 @@ type MarketContextValue = {
   resolve: (marketId: string, outcome: 0 | 1) => Promise<string>;
   cancelMarket: (marketId: string) => Promise<string>;
   setMarketResolver: (marketId: string, newResolver: string) => Promise<string>;
+  withdrawResidual: (marketId: string) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
   updateMarketMetadata: (marketId: string, metadata: MarketMetadataInput) => Promise<Market>;
   addLocalMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
@@ -76,7 +79,7 @@ type TradeConfirmationOptions = {
 };
 
 type ActionConfirmationOptions = {
-  eventType: "MarketCreated" | "MarketResolved" | "WinningsRedeemed" | "MarketResolverUpdated" | "MarketCancelled" | "RefundRedeemed";
+  eventType: "MarketCreated" | "MarketResolved" | "WinningsRedeemed" | "MarketResolverUpdated" | "MarketCancelled" | "RefundRedeemed" | "ResidualWithdrawn";
   marketId?: string;
   attempts?: number;
   intervalMs?: number;
@@ -233,11 +236,13 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           const quote = quoteBuyShares(item, side, amountSol);
           const yesPool = quote.nextYesPool;
           const noPool = quote.nextNoPool;
+          const fee = protocolFeeSol(item, amountSol);
           return {
             ...item,
             yesPool,
             noPool,
-            totalLiquidity: item.totalLiquidity + amountSol,
+            totalLiquidity: item.totalLiquidity + Math.max(0, amountSol - fee),
+            protocolFees: item.protocolFees + fee,
             volume24h: item.volume24h + amountSol * 1000,
             probabilityHistory: [...item.probabilityHistory.slice(-95), yesPool / (yesPool + noPool)]
           };
@@ -330,6 +335,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       const quote = quoteSellShares(market, side, sharesSol);
       const lamportsOut = bnToSol(quote.lamportsOut);
+      const fee = protocolFeeSol(market, lamportsOut);
       setMarkets((current) =>
         current.map((item) => {
           if (item.id !== marketId) return item;
@@ -340,6 +346,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             yesPool,
             noPool,
             totalLiquidity: Math.max(0, item.totalLiquidity - lamportsOut),
+            protocolFees: item.protocolFees + fee,
             volume24h: item.volume24h + lamportsOut * 1000,
             probabilityHistory: [...item.probabilityHistory.slice(-95), yesPool / (yesPool + noPool)]
           };
@@ -672,6 +679,59 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
   );
 
+  const withdrawResidual = useCallback(
+    async (marketId: string) => {
+      const market = markets.find((item) => item.id === marketId);
+      if (!market) throw new Error("Market not found");
+      if (!market.resolved) throw new Error("Market is not resolved");
+      if (market.residualClaimed) throw new Error("Residual funds already withdrawn");
+
+      let signature = backendEnabled ? "indexed" : "local";
+      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+        signature = await withdrawResidualIx({
+          connection,
+          wallet: wallet as AnchorWalletLike,
+          market
+        });
+      }
+
+      if (backendEnabled) {
+        if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
+        try {
+          const result = await withdrawBackendResidual(marketId, {
+            creator: ownerId,
+            signature,
+            status: signature === "indexed" ? "indexed" : "sent"
+          });
+          setMarkets((current) => upsertById(current, normalizeMarket(result.market)));
+          setError(null);
+          return result.signature;
+        } catch (error) {
+          const message = errorMessage(error, "ProbX API residual withdrawal failed.");
+          setApiReady(false);
+          setError(message);
+          throw new Error(message);
+        }
+      }
+
+      setMarkets((current) =>
+        current.map((item) =>
+          item.id === marketId
+            ? {
+                ...item,
+                residualWithdrawn: item.totalLiquidity,
+                residualClaimed: true,
+                creatorLpShares: 0,
+                totalLiquidity: 0
+              }
+            : item
+        )
+      );
+      return signature;
+    },
+    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+  );
+
   const addLocalMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
     const initialLiquidity = Math.max(0.01, options?.initialLiquidity ?? 1);
     setMarkets((current) => [
@@ -680,6 +740,13 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         publicKey: options?.publicKey ?? "11111111111111111111111111111111",
         creator: options?.creator ?? "11111111111111111111111111111111",
         resolver: options?.resolver ?? options?.creator ?? "11111111111111111111111111111111",
+        protocolConfig: "local",
+        treasury: options?.creator ?? "11111111111111111111111111111111",
+        protocolFeeBps: 100,
+        creatorLpShares: initialLiquidity,
+        protocolFees: 0,
+        residualWithdrawn: 0,
+        residualClaimed: false,
         endTime,
         question,
         category: options?.category ?? "Crypto",
@@ -884,6 +951,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         resolve,
         cancelMarket,
         setMarketResolver,
+        withdrawResidual,
         createMarket,
         updateMarketMetadata,
         addLocalMarket,
@@ -891,7 +959,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         waitForActionConfirmation
       };
     },
-    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, refund, resolve, cancelMarket, setMarketResolver, createMarket, updateMarketMetadata, addLocalMarket, waitForTradeConfirmation, waitForActionConfirmation]
+    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, refund, resolve, cancelMarket, setMarketResolver, withdrawResidual, createMarket, updateMarketMetadata, addLocalMarket, waitForTradeConfirmation, waitForActionConfirmation]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;
@@ -912,7 +980,13 @@ function upsertById<T extends { id: string }>(items: T[], next: T) {
 function normalizeMarket(market: Market): Market {
   return {
     ...market,
-    resolver: market.resolver || market.creator
+    resolver: market.resolver || market.creator,
+    treasury: market.treasury || market.creator,
+    protocolFeeBps: market.protocolFeeBps ?? 100,
+    creatorLpShares: market.creatorLpShares ?? market.totalLiquidity,
+    protocolFees: market.protocolFees ?? 0,
+    residualWithdrawn: market.residualWithdrawn ?? 0,
+    residualClaimed: market.residualClaimed ?? false
   };
 }
 

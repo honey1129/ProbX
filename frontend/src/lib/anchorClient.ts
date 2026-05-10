@@ -25,6 +25,7 @@ const legacyIdl = {
         { name: "market", isMut: true, isSigner: false },
         { name: "position", isMut: true, isSigner: false },
         { name: "owner", isMut: true, isSigner: true },
+        { name: "treasury", isMut: true, isSigner: false },
         { name: "systemProgram", isMut: false, isSigner: false }
       ],
       args: [
@@ -38,7 +39,8 @@ const legacyIdl = {
       accounts: [
         { name: "market", isMut: true, isSigner: false },
         { name: "position", isMut: true, isSigner: false },
-        { name: "owner", isMut: true, isSigner: true }
+        { name: "owner", isMut: true, isSigner: true },
+        { name: "treasury", isMut: true, isSigner: false }
       ],
       args: [
         { name: "shares", type: "u64" },
@@ -89,11 +91,20 @@ const legacyIdl = {
       args: []
     },
     {
+      name: "withdraw_residual",
+      accounts: [
+        { name: "market", isMut: true, isSigner: false },
+        { name: "creator", isMut: true, isSigner: true }
+      ],
+      args: []
+    },
+    {
       name: "place_bet",
       accounts: [
         { name: "market", isMut: true, isSigner: false },
         { name: "position", isMut: true, isSigner: false },
         { name: "owner", isMut: true, isSigner: true },
+        { name: "treasury", isMut: true, isSigner: false },
         { name: "systemProgram", isMut: false, isSigner: false }
       ],
       args: [
@@ -106,6 +117,7 @@ const legacyIdl = {
       accounts: [
         { name: "market", isMut: true, isSigner: false },
         { name: "creator", isMut: true, isSigner: true },
+        { name: "config", isMut: false, isSigner: false },
         { name: "systemProgram", isMut: false, isSigner: false }
       ],
       args: [
@@ -138,6 +150,10 @@ export function getPositionPda(market: PublicKey, owner: PublicKey) {
   )[0];
 }
 
+export function getProtocolConfigPda() {
+  return PublicKey.findProgramAddressSync([Buffer.from("protocol_config")], PROGRAM_ID)[0];
+}
+
 export function getMarketPda(creator: PublicKey, endTime: number) {
   const endTimeBytes = new BN(endTime).toArrayLike(Buffer, "le", 8);
   return PublicKey.findProgramAddressSync([Buffer.from("market"), creator.toBuffer(), endTimeBytes], PROGRAM_ID)[0];
@@ -165,6 +181,7 @@ export async function buyShares(params: {
   const owner = params.wallet.publicKey;
   const market = new PublicKey(params.market.publicKey);
   const position = getPositionPda(market, owner);
+  const treasury = new PublicKey(params.market.treasury || params.market.creator);
   const side = params.side === "YES" ? 1 : 0;
   const lamports = new BN(Math.round(params.amountSol * web3.LAMPORTS_PER_SOL));
   const quote = quoteBuyShares(params.market, params.side, params.amountSol);
@@ -179,6 +196,7 @@ export async function buyShares(params: {
       market,
       position,
       owner,
+      treasury,
       systemProgram: SystemProgram.programId
     })
     .rpc();
@@ -193,6 +211,7 @@ export async function createMarket(params: {
 }) {
   const program = getProgram(params.connection, params.wallet);
   const market = getMarketPda(params.wallet.publicKey, params.endTime);
+  const config = getProtocolConfigPda();
   const initialLiquidity = new BN(
     Math.round((params.initialLiquiditySol ?? 1) * web3.LAMPORTS_PER_SOL)
   );
@@ -202,6 +221,7 @@ export async function createMarket(params: {
     .accounts({
       market,
       creator: params.wallet.publicKey,
+      config,
       systemProgram: SystemProgram.programId
     })
     .rpc();
@@ -219,11 +239,15 @@ export async function sellShares(params: {
   const owner = params.wallet.publicKey;
   const market = new PublicKey(params.market.publicKey);
   const position = getPositionPda(market, owner);
+  const treasury = new PublicKey(params.market.treasury || params.market.creator);
   const side = params.side === "YES" ? 1 : 0;
   const shares = new BN(Math.round(params.sharesSol * web3.LAMPORTS_PER_SOL));
   const quote = quoteSellShares(params.market, params.side, params.sharesSol);
   const slippageBps = Math.max(0, Math.min(10_000, params.slippageBps ?? 50));
-  const minLamportsOut = quote.lamportsOut
+  const feeBps = Math.max(0, params.market.protocolFeeBps || 0);
+  const protocolFee = quote.lamportsOut.mul(new BN(feeBps)).div(new BN(10_000));
+  const netLamportsOut = quote.lamportsOut.sub(protocolFee);
+  const minLamportsOut = netLamportsOut
     .mul(new BN(10_000 - slippageBps))
     .div(new BN(10_000));
 
@@ -232,7 +256,8 @@ export async function sellShares(params: {
     .accounts({
       market,
       position,
-      owner
+      owner,
+      treasury
     })
     .rpc();
 }
@@ -330,10 +355,34 @@ export async function cancelMarket(params: {
     .rpc();
 }
 
+export async function withdrawResidual(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  market: Market;
+}) {
+  const program = getProgram(params.connection, params.wallet);
+  const market = new PublicKey(params.market.publicKey);
+
+  return program.methods
+    .withdrawResidual()
+    .accounts({
+      market,
+      creator: params.wallet.publicKey
+    })
+    .rpc();
+}
+
+export function protocolFeeSol(market: Market, grossSol: number) {
+  const feeBps = Math.max(0, market.protocolFeeBps || 0);
+  if (!Number.isFinite(grossSol) || grossSol <= 0 || feeBps <= 0) return 0;
+  return (grossSol * feeBps) / 10_000;
+}
+
 export function quoteBuyShares(market: Market, side: Side, amountSol: number) {
   const yesPool = solToLamportsBigInt(market.yesPool);
   const noPool = solToLamportsBigInt(market.noPool);
-  const amount = solToLamportsBigInt(amountSol);
+  const fee = solToLamportsBigInt(protocolFeeSol(market, amountSol));
+  const amount = solToLamportsBigInt(amountSol) - fee;
   const invariant = yesPool * noPool;
 
   if (side === "YES") {

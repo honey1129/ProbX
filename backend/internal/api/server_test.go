@@ -23,6 +23,7 @@ type fakeStore struct {
 	resolveCalled     bool
 	redeemCalled      bool
 	refundCalled      bool
+	withdrawCalled    bool
 }
 
 func (f *fakeStore) Ping(ctx context.Context) error {
@@ -195,6 +196,22 @@ func (f *fakeStore) RefundPosition(ctx context.Context, positionID string, req m
 	}, nil
 }
 
+func (f *fakeStore) WithdrawResidual(ctx context.Context, marketID string, req models.WithdrawResidualRequest) (models.RedeemPositionResponse, error) {
+	f.withdrawCalled = true
+	if marketID != f.market.ID {
+		return models.RedeemPositionResponse{}, mysqlstore.ErrNotFound
+	}
+	next := f.market
+	next.ResidualClaimed = true
+	next.ResidualWithdrawn = next.TotalLiquidity
+	next.TotalLiquidity = 0
+	return models.RedeemPositionResponse{
+		Signature: "indexed",
+		Status:    "indexed",
+		Market:    next,
+	}, nil
+}
+
 type fakeVerifier struct {
 	err              error
 	createCalls      int
@@ -204,6 +221,7 @@ type fakeVerifier struct {
 	resolveCalls     int
 	redeemCalls      int
 	refundCalls      int
+	withdrawCalls    int
 }
 
 func (f *fakeVerifier) VerifyCreateMarket(ctx context.Context, req models.CreateMarketRequest) error {
@@ -238,6 +256,11 @@ func (f *fakeVerifier) VerifyRedeem(ctx context.Context, req models.RedeemPositi
 
 func (f *fakeVerifier) VerifyRefund(ctx context.Context, req models.RefundPositionRequest) error {
 	f.refundCalls++
+	return f.err
+}
+
+func (f *fakeVerifier) VerifyWithdrawResidual(ctx context.Context, req models.WithdrawResidualRequest) error {
+	f.withdrawCalls++
 	return f.err
 }
 
@@ -509,6 +532,27 @@ func TestRefundPosition(t *testing.T) {
 	}
 }
 
+func TestWithdrawResidual(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+	body := strings.NewReader(`{"creator":"local"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/withdraw-residual", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.RedeemPositionResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Market.ResidualClaimed || payload.Market.TotalLiquidity != 0 {
+		t.Fatalf("unexpected withdraw response: %+v", payload)
+	}
+}
+
 func TestCreateMarketWithAvatarURL(t *testing.T) {
 	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
 	body := strings.NewReader(`{"question":"Will SOL close above $250?","category":"Crypto","endTime":1893456000,"avatarUrl":"https://probx.site/avatar.png"}`)
@@ -729,6 +773,27 @@ func TestRefundPositionVerifierBlocksInvalidRefund(t *testing.T) {
 	}
 }
 
+func TestWithdrawResidualVerifierBlocksInvalidWithdrawal(t *testing.T) {
+	store := &fakeStore{market: testMarket()}
+	verifier := &fakeVerifier{err: chain.ErrVerificationFailed}
+	handler := NewServerWithOptions(store, nil, Options{TradeVerifier: verifier}).Routes()
+	body := strings.NewReader(`{"creator":"creator","signature":"bad"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/markets/fed-rates/withdraw-residual", body)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+	if verifier.withdrawCalls != 1 {
+		t.Fatalf("expected withdraw verifier to be called once, got %d", verifier.withdrawCalls)
+	}
+	if store.withdrawCalled {
+		t.Fatalf("store should not withdraw residual funds for unverified transaction")
+	}
+}
+
 func TestStoreErrorMapping(t *testing.T) {
 	tests := []struct {
 		err    error
@@ -777,6 +842,11 @@ func testMarket() models.Market {
 		PublicKey:          "market-public-key",
 		Creator:            "creator",
 		Resolver:           "creator",
+		ProtocolConfig:     "local",
+		Treasury:           "creator",
+		ProtocolFeeBps:     100,
+		CreatorLPShares:    100,
+		ProtocolFees:       1,
 		EndTime:            1_893_456_000,
 		Question:           "Will rates be cut?",
 		Category:           "Politics",

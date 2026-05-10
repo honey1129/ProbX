@@ -84,6 +84,10 @@
           "signer": true
         },
         {
+          "name": "treasury",
+          "writable": true
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -102,6 +106,58 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "cancel_market",
+      "discriminator": [
+        205,
+        121,
+        84,
+        210,
+        222,
+        71,
+        150,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver",
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        }
+      ],
+      "args": []
     },
     {
       "name": "claim_reward",
@@ -237,6 +293,33 @@
           "signer": true
         },
         {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -304,6 +387,68 @@
       ],
       "args": [],
       "returns": "u64"
+    },
+    {
+      "name": "initialize_protocol",
+      "discriminator": [
+        188,
+        233,
+        252,
+        106,
+        134,
+        146,
+        202,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        },
+        {
+          "name": "protocol_fee_bps",
+          "type": "u16"
+        }
+      ]
     },
     {
       "name": "place_bet",
@@ -385,6 +530,10 @@
           "signer": true
         },
         {
+          "name": "treasury",
+          "writable": true
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -411,6 +560,91 @@
         122,
         239,
         185
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          },
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refund_cancelled",
+      "discriminator": [
+        103,
+        244,
+        158,
+        83,
+        225,
+        80,
+        56,
+        62
       ],
       "accounts": [
         {
@@ -543,200 +777,6 @@
       ]
     },
     {
-      "name": "set_resolver",
-      "discriminator": [
-        137,
-        108,
-        27,
-        51,
-        202,
-        16,
-        33,
-        119
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.creator",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.end_time",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "resolver",
-          "signer": true,
-          "relations": [
-            "market"
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "new_resolver",
-          "type": "pubkey"
-        }
-      ]
-    },
-    {
-      "name": "cancel_market",
-      "discriminator": [
-        205,
-        121,
-        84,
-        210,
-        222,
-        71,
-        150,
-        11
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.creator",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.end_time",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "resolver",
-          "signer": true,
-          "relations": [
-            "market"
-          ]
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "refund_cancelled",
-      "discriminator": [
-        103,
-        244,
-        158,
-        83,
-        225,
-        80,
-        56,
-        62
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.creator",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.end_time",
-                "account": "Market"
-              }
-            ]
-          },
-          "relations": [
-            "position"
-          ]
-        },
-        {
-          "name": "position",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "position"
-          ]
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "sell_shares",
       "discriminator": [
         184,
@@ -817,6 +857,10 @@
           "relations": [
             "position"
           ]
+        },
+        {
+          "name": "treasury",
+          "writable": true
         }
       ],
       "args": [
@@ -833,6 +877,176 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "set_resolver",
+      "discriminator": [
+        137,
+        108,
+        27,
+        51,
+        202,
+        16,
+        33,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver",
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "new_resolver",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_protocol_config",
+      "discriminator": [
+        197,
+        97,
+        123,
+        54,
+        221,
+        168,
+        11,
+        135
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        },
+        {
+          "name": "protocol_fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_residual",
+      "discriminator": [
+        232,
+        75,
+        230,
+        96,
+        215,
+        6,
+        165,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.creator",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.end_time",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -861,6 +1075,19 @@
         247,
         208
       ]
+    },
+    {
+      "name": "ProtocolConfig",
+      "discriminator": [
+        207,
+        91,
+        250,
+        28,
+        152,
+        179,
+        215,
+        209
+      ]
     }
   ],
   "events": [
@@ -875,6 +1102,19 @@
         206,
         32,
         0
+      ]
+    },
+    {
+      "name": "MarketCancelled",
+      "discriminator": [
+        139,
+        163,
+        33,
+        168,
+        19,
+        180,
+        81,
+        170
       ]
     },
     {
@@ -917,16 +1157,55 @@
       ]
     },
     {
-      "name": "MarketCancelled",
+      "name": "ProtocolConfigUpdated",
       "discriminator": [
-        139,
-        163,
-        33,
+        20,
+        99,
+        32,
+        237,
+        111,
+        86,
+        195,
+        199
+      ]
+    },
+    {
+      "name": "ProtocolInitialized",
+      "discriminator": [
+        173,
+        122,
         168,
-        19,
-        180,
-        81,
-        170
+        254,
+        9,
+        118,
+        76,
+        132
+      ]
+    },
+    {
+      "name": "RefundRedeemed",
+      "discriminator": [
+        174,
+        244,
+        248,
+        10,
+        12,
+        200,
+        13,
+        0
+      ]
+    },
+    {
+      "name": "ResidualWithdrawn",
+      "discriminator": [
+        98,
+        254,
+        25,
+        204,
+        179,
+        62,
+        211,
+        19
       ]
     },
     {
@@ -966,19 +1245,6 @@
         236,
         63,
         99
-      ]
-    },
-    {
-      "name": "RefundRedeemed",
-      "discriminator": [
-        174,
-        244,
-        248,
-        10,
-        12,
-        200,
-        13,
-        0
       ]
     }
   ],
@@ -1025,81 +1291,121 @@
     },
     {
       "code": 6008,
+      "name": "UnauthorizedProtocolAuthority",
+      "msg": "Only the protocol authority can perform this action."
+    },
+    {
+      "code": 6009,
+      "name": "UnauthorizedCreator",
+      "msg": "Only the market creator can perform this action."
+    },
+    {
+      "code": 6010,
       "name": "InvalidResolver",
       "msg": "Resolver public key is invalid."
     },
     {
-      "code": 6009,
+      "code": 6011,
+      "name": "InvalidTreasury",
+      "msg": "Treasury public key is invalid."
+    },
+    {
+      "code": 6012,
+      "name": "InvalidProtocolFee",
+      "msg": "Protocol fee is invalid."
+    },
+    {
+      "code": 6013,
       "name": "MarketNotEnded",
       "msg": "Market has not reached its end time."
     },
     {
-      "code": 6010,
+      "code": 6014,
       "name": "MarketNotResolved",
       "msg": "Market has not been resolved."
     },
     {
-      "code": 6011,
+      "code": 6015,
       "name": "MarketCancelled",
       "msg": "Market was cancelled and must be refunded."
     },
     {
-      "code": 6012,
+      "code": 6016,
       "name": "MarketNotCancelled",
       "msg": "Market is not cancelled."
     },
     {
-      "code": 6013,
+      "code": 6017,
       "name": "InvalidInitialLiquidity",
       "msg": "Initial liquidity must be greater than zero."
     },
     {
-      "code": 6014,
+      "code": 6018,
       "name": "NoWinningPosition",
       "msg": "Position has no claimable winning shares."
     },
     {
-      "code": 6015,
+      "code": 6019,
       "name": "NoRefundablePosition",
       "msg": "Position has no refundable shares."
     },
     {
-      "code": 6016,
+      "code": 6020,
+      "name": "OutstandingWinningShares",
+      "msg": "Winning shares are still outstanding."
+    },
+    {
+      "code": 6021,
+      "name": "OutstandingRefundableShares",
+      "msg": "Refundable shares are still outstanding."
+    },
+    {
+      "code": 6022,
+      "name": "NoResidualLiquidity",
+      "msg": "No residual liquidity is available."
+    },
+    {
+      "code": 6023,
+      "name": "ResidualAlreadyClaimed",
+      "msg": "Residual liquidity has already been claimed."
+    },
+    {
+      "code": 6024,
       "name": "MathOverflow",
       "msg": "Math overflow."
     },
     {
-      "code": 6017,
+      "code": 6025,
       "name": "InsufficientMarketLamports",
       "msg": "Insufficient market lamports."
     },
     {
-      "code": 6018,
+      "code": 6026,
       "name": "InvalidPositionOwner",
       "msg": "Invalid position owner."
     },
     {
-      "code": 6019,
+      "code": 6027,
       "name": "InvalidPositionMarket",
       "msg": "Invalid position market."
     },
     {
-      "code": 6020,
+      "code": 6028,
       "name": "SlippageExceeded",
       "msg": "Trade output is below the requested slippage limit."
     },
     {
-      "code": 6021,
+      "code": 6029,
       "name": "InsufficientShares",
       "msg": "Position does not have enough shares."
     },
     {
-      "code": 6022,
+      "code": 6030,
       "name": "InsufficientLiquidity",
       "msg": "AMM pool has insufficient liquidity."
     },
     {
-      "code": 6023,
+      "code": 6031,
       "name": "AmountTooSmall",
       "msg": "Amount is too small for the AMM pool."
     }
@@ -1163,6 +1469,34 @@
             "type": "pubkey"
           },
           {
+            "name": "protocol_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_lp_shares",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fees_collected",
+            "type": "u64"
+          },
+          {
+            "name": "residual_withdrawn",
+            "type": "u64"
+          },
+          {
+            "name": "residual_claimed",
+            "type": "bool"
+          },
+          {
             "name": "yes_pool",
             "docs": [
               "YES-side AMM price weight. Higher value means a higher YES probability."
@@ -1207,6 +1541,42 @@
       }
     },
     {
+      "name": "MarketCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "resolver",
+            "type": "pubkey"
+          },
+          {
+            "name": "yes_pool",
+            "type": "u64"
+          },
+          {
+            "name": "no_pool",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "yes_shares",
+            "type": "u64"
+          },
+          {
+            "name": "no_shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "MarketCreated",
       "type": {
         "kind": "struct",
@@ -1228,6 +1598,10 @@
             "type": "pubkey"
           },
           {
+            "name": "protocol_config",
+            "type": "pubkey"
+          },
+          {
             "name": "question",
             "type": "string"
           },
@@ -1238,6 +1612,18 @@
           {
             "name": "initial_liquidity",
             "type": "u64"
+          },
+          {
+            "name": "creator_lp_shares",
+            "type": "u64"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
           },
           {
             "name": "yes_pool",
@@ -1311,42 +1697,6 @@
       }
     },
     {
-      "name": "MarketCancelled",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "resolver",
-            "type": "pubkey"
-          },
-          {
-            "name": "yes_pool",
-            "type": "u64"
-          },
-          {
-            "name": "no_pool",
-            "type": "u64"
-          },
-          {
-            "name": "total_liquidity",
-            "type": "u64"
-          },
-          {
-            "name": "yes_shares",
-            "type": "u64"
-          },
-          {
-            "name": "no_shares",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Position",
       "type": {
         "kind": "struct",
@@ -1371,6 +1721,138 @@
       }
     },
     {
+      "name": "ProtocolConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_protocol_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RefundRedeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResidualWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "SharesBought",
       "type": {
         "kind": "struct",
@@ -1389,6 +1871,14 @@
           },
           {
             "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "net_amount",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee",
             "type": "u64"
           },
           {
@@ -1440,6 +1930,14 @@
             "type": "u64"
           },
           {
+            "name": "net_lamports_out",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee",
+            "type": "u64"
+          },
+          {
             "name": "yes_pool",
             "type": "u64"
           },
@@ -1474,30 +1972,6 @@
           {
             "name": "outcome",
             "type": "u8"
-          },
-          {
-            "name": "payout",
-            "type": "u64"
-          },
-          {
-            "name": "total_liquidity",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "RefundRedeemed",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
           },
           {
             "name": "payout",

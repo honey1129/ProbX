@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, ImagePlus, Loader2, Pencil, Radio, RefreshCw, Save, ShieldAlert, UsersRound, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, ImagePlus, Loader2, Pencil, Radio, RefreshCw, Save, ShieldAlert, UsersRound, WalletCards, X } from "lucide-react";
 import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
@@ -87,6 +87,8 @@ export default function MarketDetailPage() {
       side: trade.side,
       action: trade.action,
       amountSol: trade.size / 1000,
+      netAmountSol: trade.size / 1000,
+      protocolFeeSol: 0,
       price: trade.confidence / 100,
       signature: "local",
       status: "local",
@@ -239,6 +241,7 @@ export default function MarketDetailPage() {
         </section>
 
         <ResolverPanel market={market} />
+        <ResidualPanel market={market} />
 
         <section className="terminal-panel flex min-h-0 flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -263,6 +266,7 @@ export default function MarketDetailPage() {
                 <tr>
                   <th className="px-4 py-3 text-left">Side</th>
                   <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-right">Fee</th>
                   <th className="px-4 py-3 text-right">Price</th>
                   <th className="px-4 py-3 text-right">Status</th>
                   <th className="px-4 py-3 text-right">Time</th>
@@ -271,7 +275,7 @@ export default function MarketDetailPage() {
               <tbody>
                 {tradesLoading ? (
                   <tr className="border-t border-line bg-slate-950/30">
-                    <td colSpan={5} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={6} className="px-4 py-10 text-center text-muted">
                       <Loader2 size={18} className="mx-auto mb-2 animate-spin text-solBlue" />
                       Loading trade history
                     </td>
@@ -279,7 +283,7 @@ export default function MarketDetailPage() {
                 ) : null}
                 {!recentTrades.length ? (
                   <tr className="border-t border-line bg-slate-950/30">
-                    <td colSpan={5} className="px-4 py-10 text-center">
+                    <td colSpan={6} className="px-4 py-10 text-center">
                       <p className="font-bold text-slate-200">No indexed trades yet</p>
                       <p className="mt-1 text-sm text-muted">Trades will appear here after the API records market activity.</p>
                     </td>
@@ -291,6 +295,7 @@ export default function MarketDetailPage() {
                       {trade.action} {trade.side}
                     </td>
                     <td className="px-4 py-3 text-right font-bold">{formatSol(trade.amountSol, 3)}</td>
+                    <td className="px-4 py-3 text-right text-muted">{formatSol(trade.protocolFeeSol || 0, 4)}</td>
                     <td className="px-4 py-3 text-right">{formatPrice(trade.price)}</td>
                     <td className="px-4 py-3 text-right">
                       <span className={trade.status === "confirmed" ? "rounded border border-yes/30 bg-yes/10 px-2 py-1 text-xs font-bold text-yes" : "rounded border border-solBlue/30 bg-solBlue/10 px-2 py-1 text-xs font-bold text-solBlue"}>
@@ -500,6 +505,81 @@ function ResolverPanel({ market }: { market: Market }) {
   );
 }
 
+function ResidualPanel({ market }: { market: Market }) {
+  const { withdrawResidual, waitForActionConfirmation, backendEnabled, positions } = useMarkets();
+  const { publicKey } = useWallet();
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const walletKey = publicKey?.toBase58() ?? "";
+  const canWithdraw = !backendEnabled || walletKey === market.creator;
+  const outstanding = useMemo(() => {
+    if (!market.resolved || market.outcome === undefined) return 0;
+    return positions
+      .filter((position) => {
+        if (position.marketId !== market.id || position.resolved || position.size <= 0) return false;
+        if (market.outcome === 2) return true;
+        return position.side === (market.outcome === 1 ? "YES" : "NO");
+      })
+      .reduce((total, position) => total + position.size, 0);
+  }, [market.id, market.outcome, market.resolved, positions]);
+  const ready = market.resolved && !market.residualClaimed && market.totalLiquidity > 0 && outstanding <= 1e-9;
+
+  if (!market.resolved && !canWithdraw) return null;
+
+  async function submit() {
+    setPending(true);
+    setMessage(null);
+    try {
+      const signature = await withdrawResidual(market.id);
+      if (signature !== "local" && signature !== "indexed") {
+        setMessage(`Withdrawal tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
+        const confirmation = await waitForActionConfirmation(signature, { eventType: "ResidualWithdrawn", marketId: market.id });
+        setMessage(
+          confirmation === "confirmed"
+            ? `Residual withdrawal indexed: ${signature.slice(0, 12)}...`
+            : confirmation === "timeout"
+              ? `Withdrawal tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
+              : "Residual withdrawal saved."
+        );
+        return;
+      }
+      setMessage(signature === "local" ? "Residual withdrawal updated locally." : "Residual withdrawal saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Residual withdrawal failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="terminal-panel grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-center">
+      <div>
+        <h2 className="flex items-center gap-2 font-black"><WalletCards size={16} className="text-solBlue" /> Funds Economics</h2>
+        <p className="mt-1 text-sm text-muted">
+          Fee {((market.protocolFeeBps || 0) / 100).toFixed(2)}%, treasury {shortAddress(market.treasury || market.creator)}, creator LP {formatSol(market.creatorLpShares || 0, 4)}.
+        </p>
+        <p className="mt-1 text-sm text-muted">
+          Residual: {market.residualClaimed ? `claimed ${formatSol(market.residualWithdrawn || 0, 4)}` : formatSol(market.totalLiquidity || 0, 4)}
+          {outstanding > 0 ? `, outstanding claims ${outstanding.toFixed(4)}` : ""}
+        </p>
+        {message ? <p className="mt-2 text-sm text-slate-300">{message}</p> : null}
+      </div>
+      {canWithdraw ? (
+        <button
+          onClick={submit}
+          disabled={!ready || pending}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-solBlue/35 bg-solBlue/10 px-4 py-2 text-sm font-black text-solBlue transition hover:bg-solBlue/20 disabled:opacity-60"
+        >
+          {pending ? <Loader2 size={14} className="animate-spin" /> : <WalletCards size={14} />}
+          {market.residualClaimed ? "Residual Claimed" : "Withdraw Residual"}
+        </button>
+      ) : (
+        <p className="text-right text-sm text-muted">Creator wallet controls residual withdrawal.</p>
+      )}
+    </section>
+  );
+}
+
 function MetadataPanel({ market, canEdit }: { market: Market; canEdit: boolean }) {
   const { updateMarketMetadata, backendEnabled } = useMarkets();
   const [editing, setEditing] = useState(false);
@@ -627,4 +707,9 @@ function MarketStatePanel({ icon, eyebrow, title, message, action }: { icon: Rea
 
 function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL"; side: Side } {
   return (item.action === "BUY" || item.action === "SELL") && (item.side === "YES" || item.side === "NO");
+}
+
+function shortAddress(value: string) {
+  if (value.length <= 16) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }

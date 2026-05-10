@@ -7,6 +7,13 @@ export type Market = {
   publicKey: string;
   creator: string;
   resolver: string;
+  protocolConfig?: string;
+  treasury?: string;
+  protocolFeeBps: number;
+  creatorLpShares: number;
+  protocolFees: number;
+  residualWithdrawn: number;
+  residualClaimed: boolean;
   endTime: number;
   question: string;
   category: "Crypto" | "Politics" | "Sports" | "On-chain" | "Tech" | "Macro";
@@ -33,12 +40,14 @@ export type Position = {
   resolved?: boolean;
 };
 
+export type ActivityAction = "BUY" | "SELL" | "CREATE" | "RESOLVE" | "REDEEM" | "CANCEL" | "REFUND" | "SET_RESOLVER" | "WITHDRAW";
+
 export type AgentActivity = {
   id: string;
   agent: string;
   marketId: string;
   side: ActivitySide;
-  action: "BUY" | "SELL" | "CREATE" | "RESOLVE" | "REDEEM" | "CANCEL" | "REFUND" | "SET_RESOLVER";
+  action: ActivityAction;
   size: number;
   confidence: number;
   timestamp: number;
@@ -51,6 +60,8 @@ export type Trade = {
   side: Side;
   action: "BUY" | "SELL";
   amountSol: number;
+  netAmountSol: number;
+  protocolFeeSol: number;
   price: number;
   signature: string;
   status: string;

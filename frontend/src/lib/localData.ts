@@ -19,12 +19,25 @@ function seededNoise(index: number, seed: number) {
   return value - Math.floor(value) - 0.5;
 }
 
+function economics(totalLiquidity: number, creator: string) {
+  return {
+    protocolConfig: "local",
+    treasury: creator,
+    protocolFeeBps: 100,
+    creatorLpShares: totalLiquidity,
+    protocolFees: 0,
+    residualWithdrawn: 0,
+    residualClaimed: false
+  };
+}
+
 export const localMarkets: Market[] = [
   {
     id: "fed-rates",
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Fed111",
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqFedCreator111",
     resolver: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqFedCreator111",
+    ...economics(2_125, "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqFedCreator111"),
     endTime: now + 3600 * 24 * 23,
     question: "Will the Fed cut rates in June 2025?",
     category: "Macro",
@@ -42,6 +55,7 @@ export const localMarkets: Market[] = [
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Btc111",
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqBtcCreator111",
     resolver: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqBtcCreator111",
+    ...economics(3_030, "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqBtcCreator111"),
     endTime: now + 3600 * 24 * 8,
     question: "Bitcoin above $100k by May 31?",
     category: "Crypto",
@@ -59,6 +73,7 @@ export const localMarkets: Market[] = [
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Pol111",
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqPolCreator111",
     resolver: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqPolCreator111",
+    ...economics(1_650, "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqPolCreator111"),
     endTime: now + 3600 * 24 * 18,
     question: "Trump approval rating above 50% by June?",
     category: "Politics",
@@ -76,6 +91,7 @@ export const localMarkets: Market[] = [
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Sol111",
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqSolCreator111",
     resolver: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqSolCreator111",
+    ...economics(1_120, "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqSolCreator111"),
     endTime: now + 3600 * 24 * 71,
     question: "Solana ETF approved in 2025?",
     category: "Crypto",
@@ -93,6 +109,7 @@ export const localMarkets: Market[] = [
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Nba111",
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNbaCreator111",
     resolver: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNbaCreator111",
+    ...economics(842, "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNbaCreator111"),
     endTime: now + 3600 * 24 * 39,
     question: "NBA Finals 2025: Celtics win title?",
     category: "Sports",
@@ -110,6 +127,7 @@ export const localMarkets: Market[] = [
     publicKey: "6r4Ph92qKZ7sF2C9o5Z7k9S74L9u2f1XfeDf3Nvda111",
     creator: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNvdaCreator111",
     resolver: "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNvdaCreator111",
+    ...economics(1_370, "7KxG4yqX8Ky8g5pNFr25xXrbR6dcXqNvdaCreator111"),
     endTime: now + 3600 * 24 * 19,
     question: "NVIDIA earnings beat in May?",
     category: "Tech",

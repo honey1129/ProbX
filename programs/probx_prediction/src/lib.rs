@@ -7,10 +7,68 @@ pub const SIDE_NO: u8 = 0;
 pub const SIDE_YES: u8 = 1;
 pub const OUTCOME_CANCELLED: u8 = 2;
 pub const PRICE_SCALE: u64 = 1_000_000_000;
+pub const BPS_DENOMINATOR: u64 = 10_000;
+pub const MAX_PROTOCOL_FEE_BPS: u16 = 1_000;
 
 #[program]
 pub mod probx_prediction {
     use super::*;
+
+    pub fn initialize_protocol(
+        ctx: Context<InitializeProtocol>,
+        treasury: Pubkey,
+        protocol_fee_bps: u16,
+    ) -> Result<()> {
+        require!(treasury != Pubkey::default(), PredictionError::InvalidTreasury);
+        require!(
+            protocol_fee_bps <= MAX_PROTOCOL_FEE_BPS,
+            PredictionError::InvalidProtocolFee
+        );
+
+        let config = &mut ctx.accounts.config;
+        config.authority = ctx.accounts.authority.key();
+        config.treasury = treasury;
+        config.protocol_fee_bps = protocol_fee_bps;
+        config.bump = ctx.bumps.config;
+
+        emit!(ProtocolInitialized {
+            config: config.key(),
+            authority: config.authority,
+            treasury,
+            protocol_fee_bps,
+        });
+
+        Ok(())
+    }
+
+    pub fn update_protocol_config(
+        ctx: Context<UpdateProtocolConfig>,
+        treasury: Pubkey,
+        protocol_fee_bps: u16,
+    ) -> Result<()> {
+        require!(treasury != Pubkey::default(), PredictionError::InvalidTreasury);
+        require!(
+            protocol_fee_bps <= MAX_PROTOCOL_FEE_BPS,
+            PredictionError::InvalidProtocolFee
+        );
+
+        let config = &mut ctx.accounts.config;
+        let previous_treasury = config.treasury;
+        let previous_protocol_fee_bps = config.protocol_fee_bps;
+        config.treasury = treasury;
+        config.protocol_fee_bps = protocol_fee_bps;
+
+        emit!(ProtocolConfigUpdated {
+            config: config.key(),
+            authority: ctx.accounts.authority.key(),
+            previous_treasury,
+            treasury,
+            previous_protocol_fee_bps,
+            protocol_fee_bps,
+        });
+
+        Ok(())
+    }
 
     pub fn create_market(
         ctx: Context<CreateMarket>,
@@ -52,6 +110,13 @@ pub mod probx_prediction {
         market.question = question.clone();
         market.creator = creator;
         market.resolver = creator;
+        market.protocol_config = ctx.accounts.config.key();
+        market.treasury = ctx.accounts.config.treasury;
+        market.protocol_fee_bps = ctx.accounts.config.protocol_fee_bps;
+        market.creator_lp_shares = initial_liquidity;
+        market.protocol_fees_collected = 0;
+        market.residual_withdrawn = 0;
+        market.residual_claimed = false;
         market.yes_pool = initial_liquidity;
         market.no_pool = initial_liquidity;
         market.total_liquidity = initial_liquidity;
@@ -66,9 +131,13 @@ pub mod probx_prediction {
             id: market.id,
             creator,
             resolver: creator,
+            protocol_config: market.protocol_config,
             question,
             end_time,
             initial_liquidity,
+            creator_lp_shares: market.creator_lp_shares,
+            treasury: market.treasury,
+            protocol_fee_bps: market.protocol_fee_bps,
             yes_pool: market.yes_pool,
             no_pool: market.no_pool,
         });
@@ -110,8 +179,16 @@ pub mod probx_prediction {
         );
 
         let quote = ctx.accounts.market.quote_sell(shares, side)?;
+        let protocol_fee = calculate_protocol_fee(
+            quote.lamports_out,
+            ctx.accounts.market.protocol_fee_bps,
+        )?;
+        let net_lamports_out = quote
+            .lamports_out
+            .checked_sub(protocol_fee)
+            .ok_or(PredictionError::MathOverflow)?;
         require!(
-            quote.lamports_out >= min_lamports_out,
+            net_lamports_out >= min_lamports_out,
             PredictionError::SlippageExceeded
         );
 
@@ -161,12 +238,21 @@ pub mod probx_prediction {
                     .checked_sub(shares)
                     .ok_or(PredictionError::MathOverflow)?;
             }
+            market.protocol_fees_collected = market
+                .protocol_fees_collected
+                .checked_add(protocol_fee)
+                .ok_or(PredictionError::MathOverflow)?;
         }
 
         transfer_from_market(
             &ctx.accounts.market.to_account_info(),
             &ctx.accounts.owner.to_account_info(),
-            quote.lamports_out,
+            net_lamports_out,
+        )?;
+        transfer_from_market(
+            &ctx.accounts.market.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
+            protocol_fee,
         )?;
 
         emit!(SharesSold {
@@ -175,6 +261,8 @@ pub mod probx_prediction {
             side,
             shares,
             lamports_out: quote.lamports_out,
+            net_lamports_out,
+            protocol_fee,
             yes_pool: quote.next_yes_pool,
             no_pool: quote.next_no_pool,
             total_liquidity: ctx.accounts.market.total_liquidity,
@@ -326,6 +414,60 @@ pub mod probx_prediction {
 
         Ok(())
     }
+
+    pub fn withdraw_residual(ctx: Context<WithdrawResidual>) -> Result<()> {
+        let payout = {
+            let market = &mut ctx.accounts.market;
+
+            require!(market.resolved, PredictionError::MarketNotResolved);
+            require!(
+                !market.residual_claimed,
+                PredictionError::ResidualAlreadyClaimed
+            );
+
+            match market.outcome {
+                SIDE_YES => require!(
+                    market.yes_shares == 0,
+                    PredictionError::OutstandingWinningShares
+                ),
+                SIDE_NO => require!(
+                    market.no_shares == 0,
+                    PredictionError::OutstandingWinningShares
+                ),
+                OUTCOME_CANCELLED => require!(
+                    market.yes_shares == 0 && market.no_shares == 0,
+                    PredictionError::OutstandingRefundableShares
+                ),
+                _ => return err!(PredictionError::InvalidSide),
+            }
+
+            let residual = market.total_liquidity;
+            require!(residual > 0, PredictionError::NoResidualLiquidity);
+
+            market.total_liquidity = 0;
+            market.creator_lp_shares = 0;
+            market.residual_withdrawn = residual;
+            market.residual_claimed = true;
+
+            residual
+        };
+
+        transfer_from_market(
+            &ctx.accounts.market.to_account_info(),
+            &ctx.accounts.creator.to_account_info(),
+            payout,
+        )?;
+
+        emit!(ResidualWithdrawn {
+            market: ctx.accounts.market.key(),
+            creator: ctx.accounts.creator.key(),
+            outcome: ctx.accounts.market.outcome,
+            payout,
+            total_liquidity: ctx.accounts.market.total_liquidity,
+        });
+
+        Ok(())
+    }
 }
 
 fn buy_shares_impl(
@@ -347,7 +489,13 @@ fn buy_shares_impl(
         PredictionError::MarketClosed
     );
 
-    let quote = ctx.accounts.market.quote_buy(amount, side)?;
+    let protocol_fee = calculate_protocol_fee(amount, ctx.accounts.market.protocol_fee_bps)?;
+    let net_amount = amount
+        .checked_sub(protocol_fee)
+        .ok_or(PredictionError::MathOverflow)?;
+    require!(net_amount > 0, PredictionError::AmountTooSmall);
+
+    let quote = ctx.accounts.market.quote_buy(net_amount, side)?;
     require!(
         quote.shares_out >= min_shares_out,
         PredictionError::SlippageExceeded
@@ -361,7 +509,17 @@ fn buy_shares_impl(
                 to: ctx.accounts.market.to_account_info(),
             },
         ),
-        amount,
+        net_amount,
+    )?;
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.owner.to_account_info(),
+                to: ctx.accounts.treasury.to_account_info(),
+            },
+        ),
+        protocol_fee,
     )?;
 
     {
@@ -390,7 +548,7 @@ fn buy_shares_impl(
         market.no_pool = quote.next_no_pool;
         market.total_liquidity = market
             .total_liquidity
-            .checked_add(amount)
+            .checked_add(net_amount)
             .ok_or(PredictionError::MathOverflow)?;
         if side == SIDE_YES {
             market.yes_shares = market
@@ -403,6 +561,10 @@ fn buy_shares_impl(
                 .checked_add(quote.shares_out)
                 .ok_or(PredictionError::MathOverflow)?;
         }
+        market.protocol_fees_collected = market
+            .protocol_fees_collected
+            .checked_add(protocol_fee)
+            .ok_or(PredictionError::MathOverflow)?;
     }
 
     emit!(SharesBought {
@@ -410,6 +572,8 @@ fn buy_shares_impl(
         owner: ctx.accounts.owner.key(),
         side,
         amount,
+        net_amount,
+        protocol_fee,
         shares_out: quote.shares_out,
         yes_pool: quote.next_yes_pool,
         no_pool: quote.next_no_pool,
@@ -496,6 +660,33 @@ fn redeem_winnings_impl(ctx: Context<RedeemWinnings>) -> Result<()> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeProtocol<'info> {
+    #[account(
+        init,
+        payer = authority,
+        space = ProtocolConfig::SPACE,
+        seeds = [ProtocolConfig::SEED_PREFIX],
+        bump
+    )]
+    pub config: Account<'info, ProtocolConfig>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateProtocolConfig<'info> {
+    #[account(
+        mut,
+        seeds = [ProtocolConfig::SEED_PREFIX],
+        bump = config.bump,
+        has_one = authority @ PredictionError::UnauthorizedProtocolAuthority
+    )]
+    pub config: Account<'info, ProtocolConfig>,
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
 #[instruction(question: String, end_time: i64, initial_liquidity: u64)]
 pub struct CreateMarket<'info> {
     #[account(
@@ -512,6 +703,11 @@ pub struct CreateMarket<'info> {
     pub market: Account<'info, Market>,
     #[account(mut)]
     pub creator: Signer<'info>,
+    #[account(
+        seeds = [ProtocolConfig::SEED_PREFIX],
+        bump = config.bump
+    )]
+    pub config: Account<'info, ProtocolConfig>,
     pub system_program: Program<'info, System>,
 }
 
@@ -543,6 +739,11 @@ pub struct BuyShares<'info> {
     pub position: Account<'info, Position>,
     #[account(mut)]
     pub owner: Signer<'info>,
+    #[account(
+        mut,
+        address = market.treasury @ PredictionError::InvalidTreasury
+    )]
+    pub treasury: SystemAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -572,6 +773,11 @@ pub struct SellShares<'info> {
     pub position: Account<'info, Position>,
     #[account(mut)]
     pub owner: Signer<'info>,
+    #[account(
+        mut,
+        address = market.treasury @ PredictionError::InvalidTreasury
+    )]
+    pub treasury: SystemAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -691,12 +897,50 @@ pub struct RefundCancelled<'info> {
     pub owner: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct WithdrawResidual<'info> {
+    #[account(
+        mut,
+        has_one = creator @ PredictionError::UnauthorizedCreator,
+        seeds = [
+            Market::SEED_PREFIX,
+            market.creator.as_ref(),
+            &market.end_time.to_le_bytes(),
+        ],
+        bump
+    )]
+    pub market: Account<'info, Market>,
+    #[account(mut)]
+    pub creator: Signer<'info>,
+}
+
+#[account]
+pub struct ProtocolConfig {
+    pub authority: Pubkey,
+    pub treasury: Pubkey,
+    pub protocol_fee_bps: u16,
+    pub bump: u8,
+}
+
+impl ProtocolConfig {
+    pub const SEED_PREFIX: &'static [u8] = b"protocol_config";
+    pub const INIT_SPACE: usize = 32 + 32 + 2 + 1;
+    pub const SPACE: usize = 8 + Self::INIT_SPACE;
+}
+
 #[account]
 pub struct Market {
     pub id: u64,
     pub question: String,
     pub creator: Pubkey,
     pub resolver: Pubkey,
+    pub protocol_config: Pubkey,
+    pub treasury: Pubkey,
+    pub protocol_fee_bps: u16,
+    pub creator_lp_shares: u64,
+    pub protocol_fees_collected: u64,
+    pub residual_withdrawn: u64,
+    pub residual_claimed: bool,
     /// YES-side AMM price weight. Higher value means a higher YES probability.
     pub yes_pool: u64,
     /// NO-side AMM price weight. Higher value means a higher NO probability.
@@ -714,7 +958,26 @@ impl Market {
     pub const SEED_PREFIX: &'static [u8] = b"market";
     pub const MAX_QUESTION_BYTES: usize = 280;
     pub const INIT_SPACE: usize =
-        8 + 4 + Self::MAX_QUESTION_BYTES + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
+        8
+        + 4
+        + Self::MAX_QUESTION_BYTES
+        + 32
+        + 32
+        + 32
+        + 32
+        + 2
+        + 8
+        + 8
+        + 8
+        + 1
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 1
+        + 1;
     pub const SPACE: usize = 8 + Self::INIT_SPACE;
 
     pub fn derive_id(creator: &Pubkey, end_time: i64, question: &[u8]) -> u64 {
@@ -887,6 +1150,19 @@ fn require_valid_side(side: u8) -> Result<()> {
     Ok(())
 }
 
+fn calculate_protocol_fee(amount: u64, protocol_fee_bps: u16) -> Result<u64> {
+    require!(
+        protocol_fee_bps <= MAX_PROTOCOL_FEE_BPS,
+        PredictionError::InvalidProtocolFee
+    );
+    let fee = (amount as u128)
+        .checked_mul(protocol_fee_bps as u128)
+        .ok_or(PredictionError::MathOverflow)?
+        .checked_div(BPS_DENOMINATOR as u128)
+        .ok_or(PredictionError::MathOverflow)?;
+    u64::try_from(fee).map_err(|_| PredictionError::MathOverflow.into())
+}
+
 fn transfer_from_market<'info>(
     market_info: &AccountInfo<'info>,
     owner_info: &AccountInfo<'info>,
@@ -914,14 +1190,36 @@ fn transfer_from_market<'info>(
 }
 
 #[event]
+pub struct ProtocolInitialized {
+    pub config: Pubkey,
+    pub authority: Pubkey,
+    pub treasury: Pubkey,
+    pub protocol_fee_bps: u16,
+}
+
+#[event]
+pub struct ProtocolConfigUpdated {
+    pub config: Pubkey,
+    pub authority: Pubkey,
+    pub previous_treasury: Pubkey,
+    pub treasury: Pubkey,
+    pub previous_protocol_fee_bps: u16,
+    pub protocol_fee_bps: u16,
+}
+
+#[event]
 pub struct MarketCreated {
     pub market: Pubkey,
     pub id: u64,
     pub creator: Pubkey,
     pub resolver: Pubkey,
+    pub protocol_config: Pubkey,
     pub question: String,
     pub end_time: i64,
     pub initial_liquidity: u64,
+    pub creator_lp_shares: u64,
+    pub treasury: Pubkey,
+    pub protocol_fee_bps: u16,
     pub yes_pool: u64,
     pub no_pool: u64,
 }
@@ -932,6 +1230,8 @@ pub struct SharesBought {
     pub owner: Pubkey,
     pub side: u8,
     pub amount: u64,
+    pub net_amount: u64,
+    pub protocol_fee: u64,
     pub shares_out: u64,
     pub yes_pool: u64,
     pub no_pool: u64,
@@ -946,6 +1246,8 @@ pub struct SharesSold {
     pub side: u8,
     pub shares: u64,
     pub lamports_out: u64,
+    pub net_lamports_out: u64,
+    pub protocol_fee: u64,
     pub yes_pool: u64,
     pub no_pool: u64,
     pub total_liquidity: u64,
@@ -1010,6 +1312,15 @@ pub struct RefundRedeemed {
     pub total_liquidity: u64,
 }
 
+#[event]
+pub struct ResidualWithdrawn {
+    pub market: Pubkey,
+    pub creator: Pubkey,
+    pub outcome: u8,
+    pub payout: u64,
+    pub total_liquidity: u64,
+}
+
 #[error_code]
 pub enum PredictionError {
     #[msg("Question cannot be empty.")]
@@ -1028,8 +1339,16 @@ pub enum PredictionError {
     MarketAlreadyResolved,
     #[msg("Only the market resolver can perform this action.")]
     UnauthorizedResolver,
+    #[msg("Only the protocol authority can perform this action.")]
+    UnauthorizedProtocolAuthority,
+    #[msg("Only the market creator can perform this action.")]
+    UnauthorizedCreator,
     #[msg("Resolver public key is invalid.")]
     InvalidResolver,
+    #[msg("Treasury public key is invalid.")]
+    InvalidTreasury,
+    #[msg("Protocol fee is invalid.")]
+    InvalidProtocolFee,
     #[msg("Market has not reached its end time.")]
     MarketNotEnded,
     #[msg("Market has not been resolved.")]
@@ -1044,6 +1363,14 @@ pub enum PredictionError {
     NoWinningPosition,
     #[msg("Position has no refundable shares.")]
     NoRefundablePosition,
+    #[msg("Winning shares are still outstanding.")]
+    OutstandingWinningShares,
+    #[msg("Refundable shares are still outstanding.")]
+    OutstandingRefundableShares,
+    #[msg("No residual liquidity is available.")]
+    NoResidualLiquidity,
+    #[msg("Residual liquidity has already been claimed.")]
+    ResidualAlreadyClaimed,
     #[msg("Math overflow.")]
     MathOverflow,
     #[msg("Insufficient market lamports.")]

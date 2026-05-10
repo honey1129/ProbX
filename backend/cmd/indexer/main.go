@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"probx/backend/internal/chain"
@@ -10,8 +13,6 @@ import (
 	"probx/backend/internal/models"
 	"probx/backend/internal/mysqlstore"
 )
-
-const programEventsCursorName = "program_events"
 
 func main() {
 	cfg := config.Load()
@@ -26,47 +27,87 @@ func main() {
 	if err != nil {
 		log.Fatalf("configure Solana account client: %v", err)
 	}
-	log.Printf("ProbX indexer using rpc=%s program=%s", cfg.SolanaRPCURL, cfg.ProgramID)
+	log.Printf(
+		"ProbX indexer using rpc=%s program=%s interval=%s timeout=%s eventLimit=%d",
+		cfg.SolanaRPCURL,
+		cfg.ProgramID,
+		cfg.IndexerInterval,
+		cfg.IndexerTimeout,
+		cfg.IndexerEventLimit,
+	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if cfg.IndexerInterval <= 0 {
+		if err := runOnce(ctx, store, client, cfg.IndexerTimeout, cfg.IndexerEventLimit); err != nil {
+			log.Fatalf("index once: %v", err)
+		}
+		return
+	}
+
+	ticker := time.NewTicker(cfg.IndexerInterval)
+	defer ticker.Stop()
+	for {
+		if err := runOnce(ctx, store, client, cfg.IndexerTimeout, cfg.IndexerEventLimit); err != nil {
+			log.Printf("index cycle failed: %v", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			log.Printf("ProbX indexer stopped")
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runOnce(parent context.Context, store *mysqlstore.Store, client *chain.AccountClient, timeout time.Duration, eventLimit int) error {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	if eventLimit <= 0 {
+		eventLimit = 5000
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	markets, err := client.FetchMarkets(ctx)
 	if err != nil {
-		log.Fatalf("fetch on-chain markets: %v", err)
+		return fmt.Errorf("fetch on-chain markets: %w", err)
 	}
 
 	for _, account := range markets {
 		market, err := store.UpsertIndexedMarket(ctx, account.Model())
 		if err != nil {
-			log.Fatalf("upsert market %s: %v", account.PublicKey, err)
+			return fmt.Errorf("upsert market %s: %w", account.PublicKey, err)
 		}
 		log.Printf("indexed market id=%s publicKey=%s question=%q", market.ID, market.PublicKey, market.Question)
 	}
 
 	positions, err := client.FetchPositions(ctx)
 	if err != nil {
-		log.Fatalf("fetch on-chain positions: %v", err)
+		return fmt.Errorf("fetch on-chain positions: %w", err)
 	}
 	indexedPositions := 0
 	for _, account := range positions {
 		if err := store.UpsertIndexedPosition(ctx, account.Model()); err != nil {
-			log.Fatalf("upsert position %s: %v", account.PublicKey, err)
+			return fmt.Errorf("upsert position %s: %w", account.PublicKey, err)
 		}
 		indexedPositions++
 	}
 
-	cursor, err := store.GetIndexerCursor(ctx, programEventsCursorName)
+	cursor, err := store.GetIndexerCursor(ctx, models.ProgramEventsCursorName)
 	if err != nil {
-		log.Fatalf("load indexer cursor: %v", err)
+		return fmt.Errorf("load indexer cursor: %w", err)
 	}
 	result, err := client.FetchEvents(ctx, chain.EventFetchOptions{
-		Limit:          5000,
+		Limit:          eventLimit,
 		PageSize:       200,
 		UntilSignature: cursor.Signature,
 	})
 	if err != nil {
-		log.Fatalf("fetch program events: %v", err)
+		return fmt.Errorf("fetch program events: %w", err)
 	}
 	events := result.Events
 	signatures := result.Signatures
@@ -76,7 +117,7 @@ func main() {
 	for _, event := range events {
 		inserted, err := store.IndexProgramEvent(ctx, event.Model())
 		if err != nil {
-			log.Fatalf("index event %s type=%s: %v", event.ID, event.Type, err)
+			return fmt.Errorf("index event %s type=%s: %w", event.ID, event.Type, err)
 		}
 		if inserted {
 			indexedEvents++
@@ -90,11 +131,20 @@ func main() {
 			Signature: newest.Signature,
 			Slot:      newest.Slot,
 		}
-		if err := store.SaveIndexerCursor(ctx, programEventsCursorName, nextCursor); err != nil {
-			log.Fatalf("save indexer cursor: %v", err)
+		if err := store.SaveIndexerCursor(ctx, models.ProgramEventsCursorName, nextCursor); err != nil {
+			return fmt.Errorf("save indexer cursor: %w", err)
 		}
 	} else if len(signatures) > 0 {
 		log.Printf("program event backlog exceeded fetch limit; processed %d signature(s) without advancing cursor", len(signatures))
+		if cursor.Signature != "" {
+			if err := store.SaveIndexerCursor(ctx, models.ProgramEventsCursorName, cursor); err != nil {
+				return fmt.Errorf("touch indexer cursor: %w", err)
+			}
+		}
+	} else if cursor.Signature != "" {
+		if err := store.SaveIndexerCursor(ctx, models.ProgramEventsCursorName, cursor); err != nil {
+			return fmt.Errorf("touch indexer cursor: %w", err)
+		}
 	}
 
 	log.Printf(
@@ -107,4 +157,5 @@ func main() {
 		nextCursor.Signature,
 		result.Complete,
 	)
+	return nil
 }

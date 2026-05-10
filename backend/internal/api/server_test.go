@@ -94,6 +94,13 @@ func (f *fakeStore) ListTrades(ctx context.Context, filter models.TradeFilter) (
 	}, nil
 }
 
+func (f *fakeStore) GetIndexerCursor(ctx context.Context, name string) (models.IndexerCursor, error) {
+	if name != models.ProgramEventsCursorName {
+		return models.IndexerCursor{}, mysqlstore.ErrNotFound
+	}
+	return models.IndexerCursor{Signature: "cursor_sig", Slot: 42, UpdatedAt: 1}, nil
+}
+
 func (f *fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error) {
 	f.recordCalled = true
 	if req.MarketID == "" {
@@ -216,6 +223,14 @@ func TestStatusReportsRuntimeConfig(t *testing.T) {
 		TradeVerification string   `json:"tradeVerification"`
 		CORSOrigins       []string `json:"corsOrigins"`
 		CORSAllowAll      bool     `json:"corsAllowAll"`
+		Indexer           struct {
+			Cursor struct {
+				Signature string `json:"signature"`
+				Slot      uint64 `json:"slot"`
+				UpdatedAt int64  `json:"updatedAt"`
+			} `json:"cursor"`
+			LagSeconds int64 `json:"lagSeconds"`
+		} `json:"indexer"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -229,6 +244,9 @@ func TestStatusReportsRuntimeConfig(t *testing.T) {
 	}
 	if payload.TradeVerification != "confirmed" {
 		t.Fatalf("unexpected trade verification mode %q", payload.TradeVerification)
+	}
+	if payload.Indexer.Cursor.Signature != "cursor_sig" || payload.Indexer.Cursor.Slot != 42 || payload.Indexer.LagSeconds <= 0 {
+		t.Fatalf("unexpected indexer payload: %+v", payload.Indexer)
 	}
 	if payload.CORSAllowAll {
 		t.Fatalf("did not expect allow-all CORS")

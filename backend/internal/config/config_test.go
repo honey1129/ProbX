@@ -13,6 +13,9 @@ func TestLoadReadsDotEnv(t *testing.T) {
 		"PROBX_SOLANA_RPC_URL",
 		"PROBX_PROGRAM_ID",
 		"PROBX_TRADE_VERIFICATION",
+		"PROBX_INDEXER_INTERVAL",
+		"PROBX_INDEXER_TIMEOUT",
+		"PROBX_INDEXER_EVENT_LIMIT",
 	)
 	chdir(t, t.TempDir())
 	writeDotEnv(t, `
@@ -22,6 +25,9 @@ PROBX_CORS_ORIGINS=http://localhost:3000, https://app.probx.example
 PROBX_SOLANA_RPC_URL=https://api.devnet.solana.com
 PROBX_PROGRAM_ID=program_abc
 PROBX_TRADE_VERIFICATION=CONFIRMED
+PROBX_INDEXER_INTERVAL=15s
+PROBX_INDEXER_TIMEOUT=45s
+PROBX_INDEXER_EVENT_LIMIT=250
 `)
 
 	cfg := Load()
@@ -36,6 +42,9 @@ PROBX_TRADE_VERIFICATION=CONFIRMED
 	}
 	if cfg.TradeVerification != "confirmed" {
 		t.Fatalf("expected normalized trade verification, got %q", cfg.TradeVerification)
+	}
+	if cfg.IndexerInterval.String() != "15s" || cfg.IndexerTimeout.String() != "45s" || cfg.IndexerEventLimit != 250 {
+		t.Fatalf("unexpected indexer config: interval=%s timeout=%s limit=%d", cfg.IndexerInterval, cfg.IndexerTimeout, cfg.IndexerEventLimit)
 	}
 	if len(cfg.CORSOrigins) != 2 || cfg.CORSOrigins[1] != "https://app.probx.example" {
 		t.Fatalf("unexpected CORS origins: %+v", cfg.CORSOrigins)

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -14,6 +15,9 @@ type Config struct {
 	SolanaRPCURL      string
 	ProgramID         string
 	TradeVerification string
+	IndexerInterval   time.Duration
+	IndexerTimeout    time.Duration
+	IndexerEventLimit int
 }
 
 func Load() Config {
@@ -26,6 +30,9 @@ func Load() Config {
 		SolanaRPCURL:      env("PROBX_SOLANA_RPC_URL", "http://127.0.0.1:8899"),
 		ProgramID:         env("PROBX_PROGRAM_ID", "4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL"),
 		TradeVerification: strings.ToLower(env("PROBX_TRADE_VERIFICATION", "off")),
+		IndexerInterval:   durationEnv("PROBX_INDEXER_INTERVAL", 0),
+		IndexerTimeout:    durationEnv("PROBX_INDEXER_TIMEOUT", 30*time.Second),
+		IndexerEventLimit: intEnv("PROBX_INDEXER_EVENT_LIMIT", 5000),
 	}
 }
 
@@ -102,6 +109,30 @@ func env(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	value := env(key, "")
+	if value == "" {
+		return fallback
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration < 0 {
+		return fallback
+	}
+	return duration
+}
+
+func intEnv(key string, fallback int) int {
+	value := env(key, "")
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func splitCSV(value string) []string {

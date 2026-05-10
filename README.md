@@ -112,9 +112,14 @@ PROBX_CORS_ORIGINS=http://localhost:3000
 PROBX_SOLANA_RPC_URL=http://127.0.0.1:8899
 PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 PROBX_TRADE_VERIFICATION=off
+PROBX_INDEXER_INTERVAL=0s
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
 ```
 
 `PROBX_TRADE_VERIFICATION=off` 适合本地 demo。testnet 或生产类环境建议设为 `confirmed`，此时创建市场、交易、结算和赎回请求都必须提供已确认的 Solana 交易签名、真实钱包身份，并且交易需要引用 `PROBX_PROGRAM_ID`。
+
+`PROBX_INDEXER_INTERVAL=0s` 表示 `cmd/indexer` 只同步一次。设成 `15s` 这类 duration 后会作为常驻 worker 循环同步；`PROBX_INDEXER_TIMEOUT` 控制单次同步超时，`PROBX_INDEXER_EVENT_LIMIT` 控制每轮最多拉取的事件签名数。
 
 ### 前端
 
@@ -187,6 +192,7 @@ wallet = "~/.config/solana/id.json"
 
 ```text
 GET  /health
+GET  /api/status
 GET  /api/bootstrap?owner=local
 GET  /api/markets
 POST /api/markets
@@ -243,9 +249,15 @@ cd /root/ProbX/backend
 go run ./cmd/indexer
 ```
 
+作为常驻 worker 运行：
+
+```bash
+PROBX_INDEXER_INTERVAL=15s go run ./cmd/indexer
+```
+
 上面的命令会读取 `backend/.env`，所以 `PROBX_DATABASE_DSN`、`PROBX_SOLANA_RPC_URL` 和 `PROBX_PROGRAM_ID` 可以直接写在 `.env` 里。
 
-如果 API 已经跑在 `:8081`，索引器不用占用 HTTP 端口，可以直接并行执行。上线前可以用 cron 或 systemd timer 定时运行，先做到“链上事件 -> MySQL -> 前端/API 查询”这条路径稳定。
+如果 API 已经跑在 `:8081`，索引器不用占用 HTTP 端口，可以直接并行执行。`GET /api/status` 会返回 program-event cursor 和 indexer lag，方便确认 worker 是否在追链。
 
 ## PM2 自动部署
 

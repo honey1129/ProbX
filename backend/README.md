@@ -25,9 +25,14 @@ PROBX_CORS_ORIGINS=http://localhost:3000
 PROBX_SOLANA_RPC_URL=http://127.0.0.1:8899
 PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 PROBX_TRADE_VERIFICATION=off
+PROBX_INDEXER_INTERVAL=0s
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
 ```
 
 `PROBX_TRADE_VERIFICATION=off` keeps the local demo flow available. Set it to `confirmed` for testnet/prod-like environments; in that mode create, trade, resolve, and redeem requests require a confirmed Solana signature, a non-local wallet, and a transaction that references `PROBX_PROGRAM_ID`.
+
+`PROBX_INDEXER_INTERVAL=0s` keeps `cmd/indexer` as a one-shot sync. Set it to a duration such as `15s` to run it as a long-lived worker. `PROBX_INDEXER_TIMEOUT` caps each cycle and `PROBX_INDEXER_EVENT_LIMIT` caps event signatures fetched per cycle.
 
 ## Run With Docker MySQL
 
@@ -60,18 +65,25 @@ go run ./cmd/server
 
 The indexer reads on-chain Anchor `Market` and `Position` accounts from `PROBX_SOLANA_RPC_URL`, then replays ProbX program events into MySQL. Event replay is idempotent and updates market history, trades, activity, settlement, and redemption state.
 
-Run it from `backend/`:
+Run one sync from `backend/`:
 
 ```bash
 go run ./cmd/indexer
 ```
 
-It is a one-shot sync command, so production can run it from cron or a systemd timer while the API keeps serving requests on its own port.
+Run it as a worker:
+
+```bash
+PROBX_INDEXER_INTERVAL=15s go run ./cmd/indexer
+```
+
+The API exposes the saved program-event cursor and indexer lag through `GET /api/status`.
 
 ## API
 
 ```text
 GET  /health
+GET  /api/status
 GET  /api/bootstrap?owner=local
 GET  /api/markets
 POST /api/markets

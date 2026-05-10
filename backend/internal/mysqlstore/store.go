@@ -338,10 +338,10 @@ func (s *Store) GetIndexerCursor(ctx context.Context, name string) (models.Index
 	}
 	var cursor models.IndexerCursor
 	row := s.db.QueryRowContext(ctx, `
-		SELECT cursor_signature, cursor_slot
+		SELECT cursor_signature, cursor_slot, updated_at
 		FROM indexer_state
 		WHERE name = ?`, name)
-	err := row.Scan(&cursor.Signature, &cursor.Slot)
+	err := row.Scan(&cursor.Signature, &cursor.Slot, &cursor.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.IndexerCursor{}, nil
 	}

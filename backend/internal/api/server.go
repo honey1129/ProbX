@@ -24,6 +24,7 @@ type Store interface {
 	ListPositions(ctx context.Context, owner string) ([]models.Position, error)
 	ListActivity(ctx context.Context, marketID string, limit int) ([]models.AgentActivity, error)
 	ListTrades(ctx context.Context, filter models.TradeFilter) (models.TradePage, error)
+	GetIndexerCursor(ctx context.Context, name string) (models.IndexerCursor, error)
 	RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error)
 	ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error)
 	RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error)
@@ -136,6 +137,18 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		markets = nil
 	}
 
+	indexerCursor, cursorErr := s.store.GetIndexerCursor(ctx, models.ProgramEventsCursorName)
+	if cursorErr != nil {
+		dbOK = false
+		if dbError == "" {
+			dbError = cursorErr.Error()
+		}
+	}
+	indexerLagSeconds := int64(0)
+	if indexerCursor.UpdatedAt > 0 {
+		indexerLagSeconds = max(0, time.Now().UnixMilli()-indexerCursor.UpdatedAt) / 1000
+	}
+
 	origins := make([]string, 0, len(s.corsOrigin))
 	for origin := range s.corsOrigin {
 		origins = append(origins, origin)
@@ -148,8 +161,12 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		"solanaRpcUrl":      s.solanaRPCURL,
 		"programId":         s.programID,
 		"tradeVerification": s.tradeVerification,
-		"corsOrigins":       origins,
-		"corsAllowAll":      s.allowAll,
+		"indexer": map[string]any{
+			"cursor":     indexerCursor,
+			"lagSeconds": indexerLagSeconds,
+		},
+		"corsOrigins":  origins,
+		"corsAllowAll": s.allowAll,
 	})
 }
 

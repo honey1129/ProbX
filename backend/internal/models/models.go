@@ -1,5 +1,7 @@
 package models
 
+const ProgramEventsCursorName = "program_events"
+
 type Market struct {
 	ID                 string    `json:"id"`
 	PublicKey          string    `json:"publicKey"`
@@ -164,6 +166,7 @@ type IndexedEvent struct {
 }
 
 type IndexerCursor struct {
-	Signature string
-	Slot      uint64
+	Signature string `json:"signature"`
+	Slot      uint64 `json:"slot"`
+	UpdatedAt int64  `json:"updatedAt"`
 }

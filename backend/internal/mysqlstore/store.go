@@ -409,7 +409,7 @@ func (s *Store) IndexProgramEvent(ctx context.Context, event models.IndexedEvent
 	}
 
 	switch event.Type {
-	case "SharesBought", "SharesSold":
+	case "SharesBought", "SharesSold", "BetPlaced":
 		if err := indexTradeEvent(ctx, tx, market, event); err != nil {
 			return false, err
 		}
@@ -924,6 +924,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureColumn(ctx, db, "markets", "avatar_url", "MEDIUMTEXT NULL AFTER category"); err != nil {
 		return err
 	}
+	if err := ensureIndex(ctx, db, "trades", "idx_trades_signature", "CREATE INDEX idx_trades_signature ON trades (signature)"); err != nil {
+		return err
+	}
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS indexed_events (
 		  id VARCHAR(120) NOT NULL PRIMARY KEY,
@@ -962,6 +965,25 @@ func ensureColumn(ctx context.Context, db *sql.DB, tableName string, columnName 
 		return nil
 	}
 	_, err = db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition))
+	return err
+}
+
+func ensureIndex(ctx context.Context, db *sql.DB, tableName string, indexName string, statement string) error {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+		tableName,
+		indexName,
+	).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err = db.ExecContext(ctx, statement)
 	return err
 }
 
@@ -1106,6 +1128,12 @@ func indexTradeEvent(ctx context.Context, tx *sql.Tx, market models.Market, even
 	if event.Side != "YES" && event.Side != "NO" {
 		return fmt.Errorf("%w: event side must be YES or NO", ErrInvalid)
 	}
+	if event.Type == "BetPlaced" && hasIndexedSignatureType(ctx, tx, event.Signature, "SharesBought") {
+		return nil
+	}
+	if hasRecordedTradeSignature(ctx, tx, event.Signature) {
+		return nil
+	}
 	size := event.AmountSOL
 	if event.Action == "SELL" && event.Shares > 0 {
 		size = event.Shares
@@ -1144,6 +1172,38 @@ func indexTradeEvent(ctx context.Context, tx *sql.Tx, market models.Market, even
 		Confidence: 100,
 		Timestamp:  event.TimestampMillis,
 	})
+}
+
+func hasIndexedSignatureType(ctx context.Context, tx *sql.Tx, signature string, eventType string) bool {
+	var count int
+	err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM indexed_events
+		WHERE signature = ? AND event_type = ?`,
+		signature,
+		eventType,
+	).Scan(&count)
+	return err == nil && count > 0
+}
+
+func hasRecordedTradeSignature(ctx context.Context, tx *sql.Tx, signature string) bool {
+	signature = strings.TrimSpace(signature)
+	if isSyntheticSignature(signature) {
+		return false
+	}
+	var count int
+	err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM trades
+		WHERE signature = ?`,
+		signature,
+	).Scan(&count)
+	return err == nil && count > 0
+}
+
+func isSyntheticSignature(signature string) bool {
+	signature = strings.TrimSpace(signature)
+	return signature == "" || signature == "indexed" || signature == "simulated" || signature == "local"
 }
 
 func indexResolvedEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {

@@ -142,6 +142,34 @@ func TestDecodeSharesBoughtEvent(t *testing.T) {
 	}
 }
 
+func TestDecodeBetPlacedEvent(t *testing.T) {
+	market := bytes.Repeat([]byte{17}, 32)
+	owner := bytes.Repeat([]byte{18}, 32)
+	raw := append([]byte{}, betPlacedEventDiscriminator...)
+	raw = append(raw, market...)
+	raw = append(raw, owner...)
+	raw = append(raw, 0)
+	raw = appendU64(raw, 750_000_000)
+	raw = appendU64(raw, 3_000_000_000)
+	raw = appendU64(raw, 2_000_000_000)
+	raw = appendU64(raw, 5_000_000_000)
+
+	event, ok := DecodeProgramEvent("Program data: " + base64.StdEncoding.EncodeToString(raw))
+	if !ok {
+		t.Fatalf("expected event decode")
+	}
+	if event.Type != "BetPlaced" || event.Action != "BUY" || event.Side != 0 {
+		t.Fatalf("unexpected event header: %+v", event)
+	}
+	if event.MarketPublicKey != base58Encode(market) || event.Owner != base58Encode(owner) {
+		t.Fatalf("unexpected event pubkeys: %+v", event)
+	}
+	model := event.Model()
+	if model.AmountSOL != 0.75 || model.Side != "NO" || model.TotalLiquidity != 5 {
+		t.Fatalf("unexpected model: %+v", model)
+	}
+}
+
 func TestAccountClientFetchMarkets(t *testing.T) {
 	marketRaw := marketAccountBytes(t, marketAccountFixture{
 		OnchainID:              7,

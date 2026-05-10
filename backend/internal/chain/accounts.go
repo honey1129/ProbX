@@ -23,6 +23,7 @@ var positionDiscriminator = accountDiscriminator("Position")
 var marketCreatedEventDiscriminator = eventDiscriminator("MarketCreated")
 var sharesBoughtEventDiscriminator = eventDiscriminator("SharesBought")
 var sharesSoldEventDiscriminator = eventDiscriminator("SharesSold")
+var betPlacedEventDiscriminator = eventDiscriminator("BetPlaced")
 var marketResolvedEventDiscriminator = eventDiscriminator("MarketResolved")
 var winningsRedeemedEventDiscriminator = eventDiscriminator("WinningsRedeemed")
 
@@ -453,6 +454,16 @@ func DecodeProgramEvent(logLine string) (ProgramEvent, bool) {
 		event.NoPoolLamports = reader.readU64()
 		event.TotalLiquidity = reader.readU64()
 		event.PriceAfter = reader.readU64()
+		return event, reader.err == nil
+	case bytes.Equal(discriminator, betPlacedEventDiscriminator):
+		event := ProgramEvent{Type: "BetPlaced", Action: "BUY"}
+		event.MarketPublicKey = base58Encode(reader.readBytes(32))
+		event.Owner = base58Encode(reader.readBytes(32))
+		event.Side = reader.readU8()
+		event.AmountLamports = reader.readU64()
+		event.YesPoolLamports = reader.readU64()
+		event.NoPoolLamports = reader.readU64()
+		event.TotalLiquidity = reader.readU64()
 		return event, reader.err == nil
 	case bytes.Equal(discriminator, sharesSoldEventDiscriminator):
 		event := ProgramEvent{Type: "SharesSold", Action: "SELL"}

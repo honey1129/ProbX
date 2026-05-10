@@ -75,6 +75,25 @@ func (f *fakeStore) ListActivity(ctx context.Context, marketID string, limit int
 	return []models.AgentActivity{}, nil
 }
 
+func (f *fakeStore) ListTrades(ctx context.Context, filter models.TradeFilter) (models.TradePage, error) {
+	return models.TradePage{
+		Trades: []models.Trade{
+			{
+				ID:        "trade_1",
+				Owner:     normalizeTestOwner(filter.Owner),
+				MarketID:  f.market.ID,
+				Side:      "YES",
+				Action:    "BUY",
+				AmountSOL: 1.5,
+				Price:     0.6,
+				Signature: "sig_1",
+				Status:    "confirmed",
+				CreatedAt: 1234,
+			},
+		},
+	}, nil
+}
+
 func (f *fakeStore) RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error) {
 	f.recordCalled = true
 	if req.MarketID == "" {
@@ -249,6 +268,26 @@ func TestRecordTrade(t *testing.T) {
 	}
 	if payload.Position.Size != 1.5 || payload.Activity.Action != "BUY" {
 		t.Fatalf("unexpected trade response: %+v", payload)
+	}
+}
+
+func TestListTrades(t *testing.T) {
+	handler := NewServer(&fakeStore{market: testMarket()}, nil).Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/trades?marketId=fed-rates&owner=local&limit=25", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var payload models.TradePage
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Trades) != 1 || payload.Trades[0].Action != "BUY" || payload.Trades[0].Status != "confirmed" {
+		t.Fatalf("unexpected trades response: %+v", payload)
 	}
 }
 
@@ -434,6 +473,13 @@ func TestStoreErrorMapping(t *testing.T) {
 			t.Fatalf("expected %d for %v, got %d", tt.status, tt.err, res.Code)
 		}
 	}
+}
+
+func normalizeTestOwner(owner string) string {
+	if strings.TrimSpace(owner) == "" {
+		return "local"
+	}
+	return owner
 }
 
 func contains(values []string, target string) bool {

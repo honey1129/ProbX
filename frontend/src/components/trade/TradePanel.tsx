@@ -15,7 +15,7 @@ type TradeTab = "TRADE" | "INFO";
 export function TradePanel({ market }: { market: Market }) {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
-  const { buy, sell, positions, isLoading, error, backendEnabled, dataSource } = useMarkets();
+  const { buy, sell, positions, isLoading, error, backendEnabled, dataSource, waitForTradeConfirmation } = useMarkets();
   const onchainEnabled = process.env.NEXT_PUBLIC_ENABLE_ONCHAIN === "true";
   const [tab, setTab] = useState<TradeTab>("TRADE");
   const [mode, setMode] = useState<TradeMode>("BUY");
@@ -109,7 +109,7 @@ export function TradePanel({ market }: { market: Market }) {
   }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.endTime, market.resolved, mode, onchainEnabled, orderLimit, side]);
 
   const percentUsed = hasFiniteLimit && orderLimit > 0 ? Math.max(0, Math.min(100, (amountNumber / orderLimit) * 100 || 0)) : 0;
-  const successStatus = status ? status.includes("updated") || status.includes("API") || status.includes("Tx") : false;
+  const successStatus = status ? status.includes("updated") || status.includes("API") || status.includes("Tx") || status.includes("saved") : false;
   const primaryButtonLabel = isSubmitting
     ? connected && onchainEnabled
       ? "Signing..."
@@ -159,6 +159,22 @@ export function TradePanel({ market }: { market: Market }) {
         mode === "BUY"
           ? await buy(market.id, side, amountNumber, { slippageBps })
           : await sell(market.id, side, amountNumber, { slippageBps });
+      if (signature !== "local" && signature !== "indexed") {
+        setStatus(`Tx sent: ${signature.slice(0, 12)}... waiting for indexer`);
+        const confirmation = await waitForTradeConfirmation(signature, { marketId: market.id });
+        if (confirmation === "confirmed") {
+          setStatus(`Tx confirmed and indexed: ${signature.slice(0, 12)}...`);
+          return;
+        }
+        if (confirmation === "sent") {
+          setStatus(`Tx saved, waiting for indexer: ${signature.slice(0, 12)}...`);
+          return;
+        }
+        if (confirmation === "timeout") {
+          setStatus(`Tx sent: ${signature.slice(0, 12)}... indexer still catching up`);
+          return;
+        }
+      }
       setStatus(
         signature === "local"
           ? "Local preview trade updated"

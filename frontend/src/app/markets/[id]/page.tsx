@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, Loader2, Radio, RefreshCw, UsersRound } from "lucide-react";
 import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { TradePanel } from "@/components/trade/TradePanel";
-import { formatPercent, formatPrice, formatSol, formatUsd, probability, timeRemaining } from "@/lib/format";
-import type { Market, Side } from "@/lib/types";
+import { fetchTrades } from "@/lib/backendApi";
+import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
+import type { AgentActivity, Market, Side, Trade } from "@/lib/types";
 import { RouterLink as Link, useParams } from "@/router";
 
 const timeframes: ChartTimeframe[] = ["1H", "1D", "1W", "ALL"];
@@ -23,11 +24,87 @@ export default function MarketDetailPage() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const market = markets.find((item) => item.id === id);
   const marketActivity = useMemo(() => (market ? activity.filter((item) => item.marketId === market.id) : []), [activity, market]);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradesCursor, setTradesCursor] = useState("");
+  const [tradesLoading, setTradesLoading] = useState(false);
+  const [tradesLoadingMore, setTradesLoadingMore] = useState(false);
+  const [tradesError, setTradesError] = useState<string | null>(null);
+  const [tradesRefreshToken, setTradesRefreshToken] = useState(0);
+
+  useEffect(() => {
+    if (!market || !backendEnabled) {
+      setTrades([]);
+      setTradesCursor("");
+      setTradesError(null);
+      setTradesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setTradesLoading(true);
+    setTradesError(null);
+    fetchTrades({ marketId: market.id, limit: 50 })
+      .then((page) => {
+        if (cancelled) return;
+        setTrades(page.trades);
+        setTradesCursor(page.nextCursor ?? "");
+      })
+      .catch((error) => {
+        if (!cancelled) setTradesError(error instanceof Error ? error.message : "Trade history unavailable.");
+      })
+      .finally(() => {
+        if (!cancelled) setTradesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backendEnabled, market?.id, activity.length, tradesRefreshToken]);
+
+  useEffect(() => {
+    function handleTradesUpdated(event: Event) {
+      const detail = (event as CustomEvent<{ marketId?: string }>).detail;
+      if (!detail?.marketId || detail.marketId === market?.id) {
+        setTradesRefreshToken((token) => token + 1);
+      }
+    }
+
+    window.addEventListener("probx:trades-updated", handleTradesUpdated);
+    return () => window.removeEventListener("probx:trades-updated", handleTradesUpdated);
+  }, [market?.id]);
 
   const recentTrades = useMemo(() => {
-    const trades = tradeFilter === "ALL" ? marketActivity : marketActivity.filter((trade) => trade.side === tradeFilter);
-    return trades;
-  }, [marketActivity, tradeFilter]);
+    if (backendEnabled) return tradeFilter === "ALL" ? trades : trades.filter((trade) => trade.side === tradeFilter);
+    const tradeActivity = marketActivity.filter(isTradeActivity);
+    const localTrades = tradeFilter === "ALL" ? tradeActivity : tradeActivity.filter((trade) => trade.side === tradeFilter);
+    return localTrades.map((trade) => ({
+      id: trade.id,
+      owner: trade.agent,
+      marketId: trade.marketId,
+      side: trade.side,
+      action: trade.action,
+      amountSol: trade.size / 1000,
+      price: trade.confidence / 100,
+      signature: "local",
+      status: "local",
+      createdAt: trade.timestamp
+    })) satisfies Trade[];
+  }, [backendEnabled, marketActivity, tradeFilter, trades]);
+
+  async function loadMoreTrades() {
+    if (!market || !tradesCursor || tradesLoadingMore) return;
+    setTradesLoadingMore(true);
+    setTradesError(null);
+    try {
+      const page = await fetchTrades({ marketId: market.id, limit: 50, cursor: tradesCursor });
+      setTrades((current) => [...current, ...page.trades]);
+      setTradesCursor(page.nextCursor ?? "");
+    } catch (error) {
+      setTradesError(error instanceof Error ? error.message : "Trade history unavailable.");
+    } finally {
+      setTradesLoadingMore(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -179,15 +256,24 @@ export default function MarketDetailPage() {
               <thead className="bg-slate-950/80 text-xs uppercase text-muted">
                 <tr>
                   <th className="px-4 py-3 text-left">Side</th>
-                  <th className="px-4 py-3 text-right">Size</th>
-                  <th className="px-4 py-3 text-right">Confidence</th>
+                  <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-right">Price</th>
+                  <th className="px-4 py-3 text-right">Status</th>
                   <th className="px-4 py-3 text-right">Time</th>
                 </tr>
               </thead>
               <tbody>
+                {tradesLoading ? (
+                  <tr className="border-t border-line bg-slate-950/30">
+                    <td colSpan={5} className="px-4 py-10 text-center text-muted">
+                      <Loader2 size={18} className="mx-auto mb-2 animate-spin text-solBlue" />
+                      Loading trade history
+                    </td>
+                  </tr>
+                ) : null}
                 {!recentTrades.length ? (
                   <tr className="border-t border-line bg-slate-950/30">
-                    <td colSpan={4} className="px-4 py-10 text-center">
+                    <td colSpan={5} className="px-4 py-10 text-center">
                       <p className="font-bold text-slate-200">No indexed trades yet</p>
                       <p className="mt-1 text-sm text-muted">Trades will appear here after the API records market activity.</p>
                     </td>
@@ -198,13 +284,31 @@ export default function MarketDetailPage() {
                     <td className={trade.side === "YES" ? "px-4 py-3 font-black text-yes" : "px-4 py-3 font-black text-no"}>
                       {trade.action} {trade.side}
                     </td>
-                    <td className="px-4 py-3 text-right font-bold">{formatUsd(trade.size)}</td>
-                    <td className="px-4 py-3 text-right">{trade.confidence}%</td>
-                    <td className="px-4 py-3 text-right text-muted">{relativeTime(trade.timestamp)}</td>
+                    <td className="px-4 py-3 text-right font-bold">{formatSol(trade.amountSol, 3)}</td>
+                    <td className="px-4 py-3 text-right">{formatPrice(trade.price)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={trade.status === "confirmed" ? "rounded border border-yes/30 bg-yes/10 px-2 py-1 text-xs font-bold text-yes" : "rounded border border-solBlue/30 bg-solBlue/10 px-2 py-1 text-xs font-bold text-solBlue"}>
+                        {trade.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted">{relativeTime(trade.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {tradesError ? <div className="border-t border-line px-4 py-3 text-sm text-no">{tradesError}</div> : null}
+            {backendEnabled && tradesCursor ? (
+              <div className="border-t border-line px-4 py-3 text-center">
+                <button
+                  onClick={loadMoreTrades}
+                  disabled={tradesLoadingMore}
+                  className="inline-flex items-center gap-2 rounded-lg border border-line bg-black/25 px-4 py-2 text-xs font-bold text-slate-200 transition hover:border-solBlue/50 disabled:opacity-60"
+                >
+                  {tradesLoadingMore ? <Loader2 size={14} className="animate-spin" /> : null}
+                  Load more
+                </button>
+              </div>
+            ) : null}
           </div>
         </section>
       </main>
@@ -321,4 +425,8 @@ function relativeTime(timestamp: number) {
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL" } {
+  return item.action === "BUY" || item.action === "SELL";
 }

@@ -3,9 +3,11 @@ package mysqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -381,6 +383,9 @@ func (s *Store) IndexProgramEvent(ctx context.Context, event models.IndexedEvent
 	if event.TimestampMillis <= 0 {
 		event.TimestampMillis = nowMillis()
 	}
+	if event.Action == "" {
+		event.Action = "BUY"
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -500,6 +505,100 @@ func (s *Store) ListActivity(ctx context.Context, marketID string, limit int) ([
 	return items, rows.Err()
 }
 
+func (s *Store) ListTrades(ctx context.Context, filter models.TradeFilter) (models.TradePage, error) {
+	filter.Owner = strings.TrimSpace(filter.Owner)
+	filter.MarketID = strings.TrimSpace(filter.MarketID)
+	filter.Signature = strings.TrimSpace(filter.Signature)
+	filter.Side = strings.ToUpper(strings.TrimSpace(filter.Side))
+	filter.Action = strings.ToUpper(strings.TrimSpace(filter.Action))
+	filter.Status = strings.TrimSpace(strings.ToLower(filter.Status))
+	filter.Cursor = strings.TrimSpace(filter.Cursor)
+	if isSyntheticSignature(filter.Signature) {
+		filter.Signature = ""
+	}
+	if filter.Limit <= 0 || filter.Limit > 100 {
+		filter.Limit = 50
+	}
+	if filter.Side != "" && filter.Side != "YES" && filter.Side != "NO" {
+		return models.TradePage{}, fmt.Errorf("%w: side must be YES or NO", ErrInvalid)
+	}
+	if filter.Action != "" && filter.Action != "BUY" && filter.Action != "SELL" {
+		return models.TradePage{}, fmt.Errorf("%w: action must be BUY or SELL", ErrInvalid)
+	}
+
+	conditions := []string{"1=1"}
+	args := []any{}
+	if filter.Owner != "" {
+		conditions = append(conditions, "owner = ?")
+		args = append(args, filter.Owner)
+	}
+	if filter.MarketID != "" {
+		conditions = append(conditions, "market_id = ?")
+		args = append(args, filter.MarketID)
+	}
+	if filter.Signature != "" {
+		conditions = append(conditions, "signature = ?")
+		args = append(args, filter.Signature)
+	}
+	if filter.Side != "" {
+		conditions = append(conditions, "side = ?")
+		args = append(args, filter.Side)
+	}
+	if filter.Action != "" {
+		conditions = append(conditions, "action = ?")
+		args = append(args, filter.Action)
+	}
+	if filter.Status != "" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, filter.Status)
+	}
+	if filter.Signature == "" && filter.Owner == "" && filter.MarketID == "" {
+		return models.TradePage{}, fmt.Errorf("%w: owner, marketId, or signature is required", ErrInvalid)
+	}
+	if filter.Cursor != "" {
+		cursorTime, cursorID, err := decodeTradeCursor(filter.Cursor)
+		if err != nil {
+			return models.TradePage{}, err
+		}
+		conditions = append(conditions, "(created_at < ? OR (created_at = ? AND id < ?))")
+		args = append(args, cursorTime, cursorTime, cursorID)
+	}
+
+	query := `
+		SELECT id, owner, market_id, side, action, amount_sol, price, signature, status, created_at
+		FROM trades
+		WHERE ` + strings.Join(conditions, " AND ") + `
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?`
+	args = append(args, filter.Limit+1)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return models.TradePage{}, err
+	}
+	defer rows.Close()
+
+	trades := []models.Trade{}
+	for rows.Next() {
+		trade, err := scanTrade(rows)
+		if err != nil {
+			return models.TradePage{}, err
+		}
+		trades = append(trades, trade)
+	}
+	if err := rows.Err(); err != nil {
+		return models.TradePage{}, err
+	}
+
+	page := models.TradePage{Trades: trades}
+	if len(trades) > filter.Limit {
+		last := trades[filter.Limit-1]
+		page.Trades = trades[:filter.Limit]
+		page.NextCursor = encodeTradeCursor(last)
+	}
+	return page, nil
+}
+
 func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error) {
 	req.MarketID = strings.TrimSpace(req.MarketID)
 	req.Owner = normalizeText(req.Owner, "local")
@@ -614,9 +713,9 @@ func (s *Store) RecordTrade(ctx context.Context, req models.TradeRequest) (model
 
 	tradeID := newID("trade")
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO trades (id, owner, market_id, side, amount_sol, price, signature, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		tradeID, req.Owner, req.MarketID, req.Side, req.AmountSOL, entryProbability, req.Signature, req.Status, now,
+		INSERT INTO trades (id, owner, market_id, side, action, amount_sol, price, signature, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tradeID, req.Owner, req.MarketID, req.Side, req.Action, req.AmountSOL, entryProbability, req.Signature, req.Status, now,
 	)
 	if err != nil {
 		return models.TradeResponse{}, err
@@ -924,6 +1023,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureColumn(ctx, db, "markets", "avatar_url", "MEDIUMTEXT NULL AFTER category"); err != nil {
 		return err
 	}
+	if err := ensureColumn(ctx, db, "trades", "action", "VARCHAR(12) NOT NULL DEFAULT 'BUY' AFTER side"); err != nil {
+		return err
+	}
 	if err := ensureIndex(ctx, db, "trades", "idx_trades_signature", "CREATE INDEX idx_trades_signature ON trades (signature)"); err != nil {
 		return err
 	}
@@ -1035,6 +1137,26 @@ func scanActivity(row scanner) (models.AgentActivity, error) {
 	return item, err
 }
 
+func scanTrade(row scanner) (models.Trade, error) {
+	var trade models.Trade
+	err := row.Scan(
+		&trade.ID,
+		&trade.Owner,
+		&trade.MarketID,
+		&trade.Side,
+		&trade.Action,
+		&trade.AmountSOL,
+		&trade.Price,
+		&trade.Signature,
+		&trade.Status,
+		&trade.CreatedAt,
+	)
+	if trade.Action == "" {
+		trade.Action = "BUY"
+	}
+	return trade, err
+}
+
 func selectMarketByPublicKeyForUpdate(ctx context.Context, tx *sql.Tx, publicKey string) (models.Market, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, public_key, creator, question, category, avatar_url, yes_pool, no_pool,
@@ -1128,11 +1250,14 @@ func indexTradeEvent(ctx context.Context, tx *sql.Tx, market models.Market, even
 	if event.Side != "YES" && event.Side != "NO" {
 		return fmt.Errorf("%w: event side must be YES or NO", ErrInvalid)
 	}
+	if event.Action != "BUY" && event.Action != "SELL" {
+		return fmt.Errorf("%w: event action must be BUY or SELL", ErrInvalid)
+	}
 	if event.Type == "BetPlaced" && hasIndexedSignatureType(ctx, tx, event.Signature, "SharesBought") {
 		return nil
 	}
 	if hasRecordedTradeSignature(ctx, tx, event.Signature) {
-		return nil
+		return confirmPendingTrade(ctx, tx, event)
 	}
 	size := event.AmountSOL
 	if event.Action == "SELL" && event.Shares > 0 {
@@ -1143,12 +1268,13 @@ func indexTradeEvent(ctx context.Context, tx *sql.Tx, market models.Market, even
 		price = 1 - price
 	}
 	_, err := tx.ExecContext(ctx, `
-		INSERT IGNORE INTO trades (id, owner, market_id, side, amount_sol, price, signature, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
-		"evt_"+event.ID,
+		INSERT IGNORE INTO trades (id, owner, market_id, side, action, amount_sol, price, signature, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
+		indexedTradeID(event),
 		normalizeText(event.Owner, "unknown"),
 		market.ID,
 		event.Side,
+		event.Action,
 		size,
 		price,
 		event.Signature,
@@ -1201,9 +1327,30 @@ func hasRecordedTradeSignature(ctx context.Context, tx *sql.Tx, signature string
 	return err == nil && count > 0
 }
 
+func confirmPendingTrade(ctx context.Context, tx *sql.Tx, event models.IndexedEvent) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE trades
+		SET status = 'confirmed',
+		    action = ?,
+		    created_at = LEAST(created_at, ?)
+		WHERE signature = ? AND status <> 'confirmed'`,
+		event.Action,
+		event.TimestampMillis,
+		event.Signature,
+	)
+	return err
+}
+
 func isSyntheticSignature(signature string) bool {
 	signature = strings.TrimSpace(signature)
 	return signature == "" || signature == "indexed" || signature == "simulated" || signature == "local"
+}
+
+func indexedTradeID(event models.IndexedEvent) string {
+	if strings.TrimSpace(event.Signature) != "" && event.InstructionIndex >= 0 {
+		return fmt.Sprintf("trade_%s_%d", stableToken(event.Signature), event.InstructionIndex)
+	}
+	return "evt_" + event.ID
 }
 
 func indexResolvedEvent(ctx context.Context, tx *sql.Tx, market models.Market, event models.IndexedEvent) error {
@@ -1495,6 +1642,26 @@ func stableToken(value string) string {
 		return value[:32]
 	}
 	return value
+}
+
+func encodeTradeCursor(trade models.Trade) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d:%s", trade.CreatedAt, trade.ID)))
+}
+
+func decodeTradeCursor(cursor string) (int64, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return 0, "", fmt.Errorf("%w: invalid trade cursor", ErrInvalid)
+	}
+	timestamp, id, ok := strings.Cut(string(raw), ":")
+	if !ok || id == "" {
+		return 0, "", fmt.Errorf("%w: invalid trade cursor", ErrInvalid)
+	}
+	createdAt, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil || createdAt <= 0 {
+		return 0, "", fmt.Errorf("%w: invalid trade cursor", ErrInvalid)
+	}
+	return createdAt, id, nil
 }
 
 func newID(prefix string) string {

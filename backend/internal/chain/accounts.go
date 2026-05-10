@@ -58,27 +58,28 @@ type PositionAccount struct {
 }
 
 type ProgramEvent struct {
-	ID              string
-	Signature       string
-	Slot            uint64
-	Type            string
-	Action          string
-	OnchainID       uint64
-	MarketPublicKey string
-	Owner           string
-	Resolver        string
-	Question        string
-	EndTime         int64
-	Side            uint8
-	AmountLamports  uint64
-	SharesLamports  uint64
-	PayoutLamports  uint64
-	Outcome         *int
-	YesPoolLamports uint64
-	NoPoolLamports  uint64
-	TotalLiquidity  uint64
-	PriceAfter      uint64
-	BlockTime       int64
+	ID               string
+	Signature        string
+	Slot             uint64
+	Type             string
+	Action           string
+	InstructionIndex int
+	OnchainID        uint64
+	MarketPublicKey  string
+	Owner            string
+	Resolver         string
+	Question         string
+	EndTime          int64
+	Side             uint8
+	AmountLamports   uint64
+	SharesLamports   uint64
+	PayoutLamports   uint64
+	Outcome          *int
+	YesPoolLamports  uint64
+	NoPoolLamports   uint64
+	TotalLiquidity   uint64
+	PriceAfter       uint64
+	BlockTime        int64
 }
 
 type EventFetchOptions struct {
@@ -197,6 +198,7 @@ func (c *AccountClient) FetchEvents(ctx context.Context, options EventFetchOptio
 				continue
 			}
 			event.ID = fmt.Sprintf("%s_%d", item.Signature, index)
+			event.InstructionIndex = index
 			event.Signature = item.Signature
 			event.Slot = logs.Slot
 			event.BlockTime = logs.BlockTime
@@ -561,27 +563,28 @@ func (e ProgramEvent) Model() models.IndexedEvent {
 		timestamp = e.BlockTime * 1000
 	}
 	return models.IndexedEvent{
-		ID:              e.ID,
-		Signature:       e.Signature,
-		Slot:            e.Slot,
-		Type:            e.Type,
-		OnchainID:       e.OnchainID,
-		MarketPublicKey: e.MarketPublicKey,
-		Owner:           e.Owner,
-		Resolver:        e.Resolver,
-		Question:        e.Question,
-		EndTime:         e.EndTime,
-		Side:            sideLabel(e.Side),
-		Action:          e.Action,
-		AmountSOL:       lamportsToSOL(e.AmountLamports),
-		Shares:          lamportsToSOL(e.SharesLamports),
-		PayoutSOL:       lamportsToSOL(e.PayoutLamports),
-		Outcome:         outcome,
-		YesPool:         lamportsToSOL(e.YesPoolLamports),
-		NoPool:          lamportsToSOL(e.NoPoolLamports),
-		TotalLiquidity:  lamportsToSOL(e.TotalLiquidity),
-		PriceAfter:      float64(e.PriceAfter) / lamportsPerSOL,
-		TimestampMillis: timestamp,
+		ID:               e.ID,
+		Signature:        e.Signature,
+		Slot:             e.Slot,
+		Type:             e.Type,
+		InstructionIndex: e.InstructionIndex,
+		OnchainID:        e.OnchainID,
+		MarketPublicKey:  e.MarketPublicKey,
+		Owner:            e.Owner,
+		Resolver:         e.Resolver,
+		Question:         e.Question,
+		EndTime:          e.EndTime,
+		Side:             sideLabel(e.Side),
+		Action:           e.Action,
+		AmountSOL:        lamportsToSOL(e.AmountLamports),
+		Shares:           lamportsToSOL(e.SharesLamports),
+		PayoutSOL:        lamportsToSOL(e.PayoutLamports),
+		Outcome:          outcome,
+		YesPool:          lamportsToSOL(e.YesPoolLamports),
+		NoPool:           lamportsToSOL(e.NoPoolLamports),
+		TotalLiquidity:   lamportsToSOL(e.TotalLiquidity),
+		PriceAfter:       float64(e.PriceAfter) / lamportsPerSOL,
+		TimestampMillis:  timestamp,
 	}
 }
 

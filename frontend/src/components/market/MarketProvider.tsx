@@ -14,7 +14,7 @@ import {
   sellShares as sellSharesIx,
   type AnchorWalletLike
 } from "@/lib/anchorClient";
-import { createBackendMarket, fetchBootstrap, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket } from "@/lib/backendApi";
+import { createBackendMarket, fetchBootstrap, fetchTrades, isBackendApiConfigured, recordBackendTrade, redeemBackendPosition, resolveBackendMarket } from "@/lib/backendApi";
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
@@ -35,6 +35,7 @@ type MarketContextValue = {
   resolve: (marketId: string, outcome: 0 | 1) => Promise<string>;
   createMarket: (question: string, endTime: number, options?: CreateMarketOptions) => Promise<string>;
   addLocalMarket: (question: string, endTime: number, options?: CreateMarketOptions) => void;
+  waitForTradeConfirmation: (signature: string, options?: TradeConfirmationOptions) => Promise<TradeConfirmationState>;
 };
 
 const MarketContext = createContext<MarketContextValue | null>(null);
@@ -49,6 +50,14 @@ type CreateMarketOptions = {
 
 type TradeOptions = {
   slippageBps?: number;
+};
+
+export type TradeConfirmationState = "local" | "indexed" | "sent" | "confirmed" | "timeout";
+
+type TradeConfirmationOptions = {
+  marketId?: string;
+  attempts?: number;
+  intervalMs?: number;
 };
 
 export function MarketProvider({ children }: { children: ReactNode }) {
@@ -534,6 +543,45 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     [addLocalMarket, apiReady, backendEnabled, connection, error, onchainEnabled, ownerId, wallet]
   );
 
+  const waitForTradeConfirmation = useCallback(
+    async (signature: string, options?: TradeConfirmationOptions): Promise<TradeConfirmationState> => {
+      const normalized = signature.trim();
+      if (!backendEnabled) return "local";
+      if (normalized === "" || normalized === "local") return "local";
+      if (normalized === "indexed" || normalized === "simulated") return "indexed";
+
+      const attempts = options?.attempts ?? 10;
+      const intervalMs = options?.intervalMs ?? 1600;
+      let sawSent = false;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        if (attempt > 0) await delay(intervalMs);
+        try {
+          const page = await fetchTrades({
+            signature: normalized,
+            marketId: options?.marketId,
+            owner: ownerId,
+            limit: 1
+          });
+          const trade = page.trades.find((item) => item.signature === normalized);
+          if (trade?.status === "confirmed") {
+            notifyTradesUpdated(options?.marketId);
+            refresh();
+            return "confirmed";
+          }
+          if (trade?.status === "sent") {
+            sawSent = true;
+            continue;
+          }
+          if (trade) return "indexed";
+        } catch {
+          // Polling is best-effort; the submitted transaction remains visible by signature.
+        }
+      }
+      return sawSent ? "sent" : "timeout";
+    },
+    [backendEnabled, ownerId, refresh]
+  );
+
   const value = useMemo(
     () => {
       const dataSource: MarketContextValue["dataSource"] = backendEnabled ? "api" : "local";
@@ -552,10 +600,11 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         redeem,
         resolve,
         createMarket,
-        addLocalMarket
+        addLocalMarket,
+        waitForTradeConfirmation
       };
     },
-    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, addLocalMarket]
+    [markets, positions, activity, isLoading, error, backendEnabled, refresh, selectedMarket, buy, sell, redeem, resolve, createMarket, addLocalMarket, waitForTradeConfirmation]
   );
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;
@@ -619,6 +668,14 @@ function reduceLocalPositions(items: Position[], marketId: string, side: Side, s
       };
     })
     .filter((position) => position.size > 1e-9 || position.resolved);
+}
+
+function notifyTradesUpdated(marketId?: string) {
+  window.dispatchEvent(new CustomEvent("probx:trades-updated", { detail: { marketId } }));
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function errorMessage(error: unknown, fallback: string) {

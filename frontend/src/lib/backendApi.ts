@@ -1,4 +1,4 @@
-import type { AgentActivity, Market, Position, Side } from "./types";
+import type { AgentActivity, Market, Position, Side, Trade } from "./types";
 
 const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
 
@@ -37,6 +37,22 @@ export type TradeResult = {
   market: Market;
   position: Position;
   activity: AgentActivity;
+};
+
+export type TradePage = {
+  trades: Trade[];
+  nextCursor?: string;
+};
+
+export type TradeQuery = {
+  marketId?: string;
+  owner?: string;
+  signature?: string;
+  side?: Side | "ALL";
+  action?: "BUY" | "SELL";
+  status?: string;
+  limit?: number;
+  cursor?: string;
 };
 
 export type ResolveMarketPayload = {
@@ -80,6 +96,20 @@ export async function recordBackendTrade(payload: TradePayload) {
     method: "POST",
     body: JSON.stringify(payload)
   });
+}
+
+export async function fetchTrades(query: TradeQuery) {
+  const params = new URLSearchParams();
+  if (query.marketId) params.set("marketId", query.marketId);
+  if (query.owner) params.set("owner", query.owner);
+  if (query.signature) params.set("signature", query.signature);
+  if (query.side && query.side !== "ALL") params.set("side", query.side);
+  if (query.action) params.set("action", query.action);
+  if (query.status) params.set("status", query.status);
+  if (query.limit) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiFetch<TradePage>(`/api/trades${suffix}`);
 }
 
 export async function resolveBackendMarket(marketId: string, payload: ResolveMarketPayload) {

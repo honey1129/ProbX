@@ -27,7 +27,7 @@ PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 PROBX_TRADE_VERIFICATION=off
 ```
 
-`PROBX_TRADE_VERIFICATION=off` keeps the local demo flow available. Set it to `confirmed` for testnet/prod-like environments; in that mode `POST /api/trades` requires a confirmed Solana signature, a non-local owner wallet, and a transaction that references `PROBX_PROGRAM_ID`.
+`PROBX_TRADE_VERIFICATION=off` keeps the local demo flow available. Set it to `confirmed` for testnet/prod-like environments; in that mode create, trade, resolve, and redeem requests require a confirmed Solana signature, a non-local wallet, and a transaction that references `PROBX_PROGRAM_ID`.
 
 ## Run With Docker MySQL
 
@@ -58,7 +58,7 @@ go run ./cmd/server
 
 ## Run The Indexer
 
-The indexer reads on-chain Anchor `Market` accounts from `PROBX_SOLANA_RPC_URL` and upserts them into MySQL by `public_key`. This first version indexes Market accounts only; Position accounts and full trade history are still separate follow-up work.
+The indexer reads on-chain Anchor `Market` and `Position` accounts from `PROBX_SOLANA_RPC_URL`, then replays ProbX program events into MySQL. Event replay is idempotent and updates market history, trades, activity, settlement, and redemption state.
 
 Run it from `backend/`:
 
@@ -78,6 +78,7 @@ POST /api/markets
 GET  /api/markets/{id}
 GET  /api/positions?owner=local
 GET  /api/activity?marketId=fed-rates&limit=40
+GET  /api/trades?marketId=fed-rates&owner=local&limit=50
 POST /api/trades
 ```
 
@@ -111,6 +112,12 @@ curl -X POST http://localhost:8080/api/trades \
 ```
 
 When trade verification is enabled, replace the demo `owner` and `signature` values with the connected wallet public key and confirmed transaction signature from the frontend.
+
+Example trade history:
+
+```bash
+curl 'http://localhost:8080/api/trades?marketId=fed-rates&limit=50'
+```
 
 ## Checks
 

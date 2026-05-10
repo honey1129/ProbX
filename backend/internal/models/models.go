@@ -41,6 +41,35 @@ type AgentActivity struct {
 	Timestamp  int64   `json:"timestamp"`
 }
 
+type Trade struct {
+	ID        string  `json:"id"`
+	Owner     string  `json:"owner"`
+	MarketID  string  `json:"marketId"`
+	Side      string  `json:"side"`
+	Action    string  `json:"action"`
+	AmountSOL float64 `json:"amountSol"`
+	Price     float64 `json:"price"`
+	Signature string  `json:"signature"`
+	Status    string  `json:"status"`
+	CreatedAt int64   `json:"createdAt"`
+}
+
+type TradeFilter struct {
+	Owner     string
+	MarketID  string
+	Signature string
+	Side      string
+	Action    string
+	Status    string
+	Limit     int
+	Cursor    string
+}
+
+type TradePage struct {
+	Trades     []Trade `json:"trades"`
+	NextCursor string  `json:"nextCursor,omitempty"`
+}
+
 type Bootstrap struct {
 	Markets   []Market        `json:"markets"`
 	Positions []Position      `json:"positions"`
@@ -110,27 +139,28 @@ type IndexedPosition struct {
 }
 
 type IndexedEvent struct {
-	ID              string
-	Signature       string
-	Slot            uint64
-	Type            string
-	OnchainID       uint64
-	MarketPublicKey string
-	Owner           string
-	Resolver        string
-	Question        string
-	EndTime         int64
-	Side            string
-	Action          string
-	AmountSOL       float64
-	Shares          float64
-	PayoutSOL       float64
-	Outcome         *int
-	YesPool         float64
-	NoPool          float64
-	TotalLiquidity  float64
-	PriceAfter      float64
-	TimestampMillis int64
+	ID               string
+	Signature        string
+	Slot             uint64
+	Type             string
+	InstructionIndex int
+	OnchainID        uint64
+	MarketPublicKey  string
+	Owner            string
+	Resolver         string
+	Question         string
+	EndTime          int64
+	Side             string
+	Action           string
+	AmountSOL        float64
+	Shares           float64
+	PayoutSOL        float64
+	Outcome          *int
+	YesPool          float64
+	NoPool           float64
+	TotalLiquidity   float64
+	PriceAfter       float64
+	TimestampMillis  int64
 }
 
 type IndexerCursor struct {

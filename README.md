@@ -114,7 +114,7 @@ PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 PROBX_TRADE_VERIFICATION=off
 ```
 
-`PROBX_TRADE_VERIFICATION=off` 适合本地 demo。testnet 或生产类环境建议设为 `confirmed`，此时 `POST /api/trades` 必须提供已确认的 Solana 交易签名、真实钱包 owner，并且交易需要引用 `PROBX_PROGRAM_ID`。
+`PROBX_TRADE_VERIFICATION=off` 适合本地 demo。testnet 或生产类环境建议设为 `confirmed`，此时创建市场、交易、结算和赎回请求都必须提供已确认的 Solana 交易签名、真实钱包身份，并且交易需要引用 `PROBX_PROGRAM_ID`。
 
 ### 前端
 
@@ -193,6 +193,7 @@ POST /api/markets
 GET  /api/markets/{id}
 GET  /api/positions?owner=local
 GET  /api/activity?marketId=fed-rates&limit=40
+GET  /api/trades?marketId=fed-rates&owner=local&limit=50
 POST /api/trades
 ```
 
@@ -225,9 +226,15 @@ curl -X POST http://localhost:8080/api/trades \
   }'
 ```
 
+查询交易历史示例：
+
+```bash
+curl 'http://localhost:8080/api/trades?marketId=fed-rates&limit=50'
+```
+
 ## 链上索引器
 
-索引器会从 `PROBX_SOLANA_RPC_URL` 读取 `PROBX_PROGRAM_ID` 下的 Anchor `Market` 账户，并按 `public_key` upsert 到 MySQL。当前版本先同步市场、池子、结束时间和结算结果；`Position` 账户和完整链上交易历史是下一步。
+索引器会从 `PROBX_SOLANA_RPC_URL` 读取 `PROBX_PROGRAM_ID` 下的 Anchor `Market` 和 `Position` 账户，并重放 ProbX 程序事件到 MySQL。事件重放是幂等的，会更新市场历史、交易、活动、结算和赎回状态。
 
 在已有 MySQL 的 VPS 上运行一次同步：
 
@@ -238,7 +245,7 @@ go run ./cmd/indexer
 
 上面的命令会读取 `backend/.env`，所以 `PROBX_DATABASE_DSN`、`PROBX_SOLANA_RPC_URL` 和 `PROBX_PROGRAM_ID` 可以直接写在 `.env` 里。
 
-如果 API 已经跑在 `:8081`，索引器不用占用 HTTP 端口，可以直接并行执行。上线前可以用 cron 或 systemd timer 定时运行，先做到“链上 Market -> MySQL -> 前端/API 查询”这条路径稳定。
+如果 API 已经跑在 `:8081`，索引器不用占用 HTTP 端口，可以直接并行执行。上线前可以用 cron 或 systemd timer 定时运行，先做到“链上事件 -> MySQL -> 前端/API 查询”这条路径稳定。
 
 ## PM2 自动部署
 

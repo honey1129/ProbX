@@ -23,6 +23,7 @@ type Store interface {
 	CreateMarket(ctx context.Context, req models.CreateMarketRequest) (models.Market, error)
 	ListPositions(ctx context.Context, owner string) ([]models.Position, error)
 	ListActivity(ctx context.Context, marketID string, limit int) ([]models.AgentActivity, error)
+	ListTrades(ctx context.Context, filter models.TradeFilter) (models.TradePage, error)
 	RecordTrade(ctx context.Context, req models.TradeRequest) (models.TradeResponse, error)
 	ResolveMarket(ctx context.Context, marketID string, req models.ResolveMarketRequest) (models.Market, error)
 	RedeemPosition(ctx context.Context, positionID string, req models.RedeemPositionRequest) (models.RedeemPositionResponse, error)
@@ -100,6 +101,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/positions", s.positions)
 	mux.HandleFunc("POST /api/positions/{id}/redeem", s.redeemPosition)
 	mux.HandleFunc("GET /api/activity", s.activity)
+	mux.HandleFunc("GET /api/trades", s.trades)
 	mux.HandleFunc("POST /api/trades", s.recordTrade)
 	return s.withCORS(s.withLogging(mux))
 }
@@ -227,6 +229,27 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) trades(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := requestContext(r)
+	defer cancel()
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	page, err := s.store.ListTrades(ctx, models.TradeFilter{
+		Owner:     r.URL.Query().Get("owner"),
+		MarketID:  r.URL.Query().Get("marketId"),
+		Signature: r.URL.Query().Get("signature"),
+		Side:      r.URL.Query().Get("side"),
+		Action:    r.URL.Query().Get("action"),
+		Status:    r.URL.Query().Get("status"),
+		Limit:     limit,
+		Cursor:    r.URL.Query().Get("cursor"),
+	})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) recordTrade(w http.ResponseWriter, r *http.Request) {

@@ -35,10 +35,23 @@ export type AgentActivity = {
   agent: string;
   marketId: string;
   side: Side;
-  action: "BUY" | "SELL" | "RESOLVE" | "REDEEM";
+  action: "BUY" | "SELL" | "CREATE" | "RESOLVE" | "REDEEM";
   size: number;
   confidence: number;
   timestamp: number;
+};
+
+export type Trade = {
+  id: string;
+  owner: string;
+  marketId: string;
+  side: Side;
+  action: "BUY" | "SELL";
+  amountSol: number;
+  price: number;
+  signature: string;
+  status: string;
+  createdAt: number;
 };
 
 export type AgentStats = {

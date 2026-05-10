@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { AlertTriangle, CheckCircle2, ChevronDown, Info, Loader2, Wallet2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Info, Loader2, Wallet2, X } from "lucide-react";
 import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import { protocolFeeSol, quoteBuyShares, quoteSellShares } from "@/lib/anchorClient";
 import type { Market, Side } from "@/lib/types";
@@ -11,6 +11,21 @@ import { useMarkets } from "@/components/market/MarketProvider";
 
 type TradeMode = "BUY" | "SELL";
 type TradeTab = "TRADE" | "INFO";
+type ReceiptStatus = "local" | "indexed" | "sent" | "confirmed" | "timeout";
+type TradeReceipt = {
+  marketQuestion: string;
+  mode: TradeMode;
+  side: Side;
+  status: ReceiptStatus;
+  signature: string;
+  fillPrice: string;
+  expectedReceive: string;
+  minimumReceive: string;
+  slippage: string;
+  priceImpact: string;
+  protocolFee: string;
+  explorerUrl: string | null;
+};
 
 export function TradePanel({ market }: { market: Market }) {
   const { connection } = useConnection();
@@ -24,6 +39,7 @@ export function TradePanel({ market }: { market: Market }) {
   const [orderType, setOrderType] = useState("Market");
   const [slippage, setSlippage] = useState("0.5");
   const [status, setStatus] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<TradeReceipt | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -31,6 +47,7 @@ export function TradePanel({ market }: { market: Market }) {
 
   useEffect(() => {
     setStatus(null);
+    setReceipt(null);
   }, [market.id, mode, side]);
 
   useEffect(() => {
@@ -86,6 +103,17 @@ export function TradePanel({ market }: { market: Market }) {
   const netBuyAmount = Math.max(0, amountNumber - fee);
   const netProceeds = Math.max(0, grossProceeds - fee);
   const expectedTotal = mode === "BUY" ? amountNumber : netProceeds;
+  const slippageNumber = Math.max(0, Math.min(100, Number(slippage) || 0));
+  const slippageMultiplier = Math.max(0, 1 - slippageNumber / 100);
+  const minimumShares = shares * slippageMultiplier;
+  const minimumProceeds = netProceeds * slippageMultiplier;
+  const fillPrice = mode === "BUY"
+    ? shares > 0
+      ? netBuyAmount / shares
+      : p
+    : amountNumber > 0
+      ? grossProceeds / amountNumber
+      : p;
   const impact = useMemo(() => {
     const nextTotal = nextYesPool + nextNoPool;
     if (!amountNumber || nextTotal <= 0) return 0;
@@ -155,36 +183,52 @@ export function TradePanel({ market }: { market: Market }) {
       setStatus(validationMessage);
       return;
     }
+    const receiptSnapshot = {
+      marketQuestion: market.question,
+      mode,
+      side,
+      fillPrice: formatPrice(fillPrice),
+      expectedReceive: mode === "BUY" ? `${shares.toFixed(4)} ${side}` : formatSol(netProceeds, 4),
+      minimumReceive: mode === "BUY" ? `${minimumShares.toFixed(4)} ${side}` : formatSol(minimumProceeds, 4),
+      slippage: `${slippageNumber.toFixed(slippageNumber % 1 === 0 ? 0 : 1)}%`,
+      priceImpact: `${impact.toFixed(2)}%`,
+      protocolFee: formatSol(fee, 4)
+    };
     setIsSubmitting(true);
     try {
-      const slippageBps = Math.round(Number(slippage) * 100);
+      const slippageBps = Math.round(slippageNumber * 100);
       const signature =
         mode === "BUY"
           ? await buy(market.id, side, amountNumber, { slippageBps })
           : await sell(market.id, side, amountNumber, { slippageBps });
-      if (signature !== "local" && signature !== "indexed") {
-        setStatus(`Tx sent: ${signature.slice(0, 12)}... waiting for indexer`);
-        const confirmation = await waitForTradeConfirmation(signature, { marketId: market.id });
-        if (confirmation === "confirmed") {
-          setStatus(`Tx confirmed and indexed: ${signature.slice(0, 12)}...`);
-          return;
-        }
-        if (confirmation === "sent") {
-          setStatus(`Tx saved, waiting for indexer: ${signature.slice(0, 12)}...`);
-          return;
-        }
-        if (confirmation === "timeout") {
-          setStatus(`Tx sent: ${signature.slice(0, 12)}... indexer still catching up`);
-          return;
-        }
-      }
-      setStatus(
+      let receiptStatus: ReceiptStatus = signature === "local" || signature === "indexed" ? signature : "sent";
+      let nextStatus =
         signature === "local"
           ? "Local preview trade updated"
           : signature === "indexed"
             ? "Trade saved to ProbX API"
-            : `Tx sent: ${signature.slice(0, 12)}...`
-      );
+            : `Tx sent: ${signature.slice(0, 12)}...`;
+      if (signature !== "local" && signature !== "indexed") {
+        setStatus(`Tx sent: ${signature.slice(0, 12)}... waiting for indexer`);
+        const confirmation = await waitForTradeConfirmation(signature, { marketId: market.id });
+        receiptStatus = confirmation;
+        if (confirmation === "confirmed") {
+          nextStatus = `Tx confirmed and indexed: ${signature.slice(0, 12)}...`;
+        } else if (confirmation === "sent") {
+          nextStatus = `Tx saved, waiting for indexer: ${signature.slice(0, 12)}...`;
+        } else if (confirmation === "timeout") {
+          nextStatus = `Tx sent: ${signature.slice(0, 12)}... indexer still catching up`;
+        } else {
+          nextStatus = `Tx indexed: ${signature.slice(0, 12)}...`;
+        }
+      }
+      setStatus(nextStatus);
+      setReceipt({
+        ...receiptSnapshot,
+        status: receiptStatus,
+        signature,
+        explorerUrl: explorerUrlForSignature(signature)
+      });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Trade failed");
     } finally {
@@ -194,6 +238,7 @@ export function TradePanel({ market }: { market: Market }) {
 
   return (
     <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-2.5">
+      <TradeReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} />
       <div className="mb-2 flex items-center border-b border-line pb-1.5 text-sm">
         <button
           onClick={() => setTab("TRADE")}
@@ -396,6 +441,88 @@ function QuoteItem({ label, value, strong }: { label: string; value: string; str
   );
 }
 
+function TradeReceiptDialog({ receipt, onClose }: { receipt: TradeReceipt | null; onClose: () => void }) {
+  if (!receipt) return null;
+
+  const isFinal = receipt.status === "confirmed" || receipt.status === "indexed" || receipt.status === "local";
+  const title = isFinal ? "Trade Confirmed" : "Trade Sent";
+  const statusLabel =
+    receipt.status === "confirmed"
+      ? "Confirmed and indexed"
+      : receipt.status === "indexed"
+        ? "Indexed"
+        : receipt.status === "local"
+          ? "Local preview"
+          : receipt.status === "sent"
+            ? "Saved, waiting for indexer"
+            : "Indexer catching up";
+
+  return (
+    <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Trade confirmation">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-line bg-panel shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-line bg-black/30 px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-black text-white">
+              <CheckCircle2 size={17} className={isFinal ? "text-yes" : "text-solBlue"} />
+              {title}
+            </div>
+            <p className="mt-1 truncate text-xs text-muted">{receipt.marketQuestion}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-line bg-black/30 text-muted transition hover:text-white"
+            aria-label="Close confirmation"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="grid gap-3 p-4">
+          <div className={`rounded-md border px-3 py-2 text-xs font-bold ${isFinal ? "border-yes/30 bg-yes/10 text-yes" : "border-solBlue/30 bg-solBlue/10 text-solBlue"}`}>
+            {receipt.mode} {receipt.side} · {statusLabel}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <ReceiptItem label="Fill Price" value={receipt.fillPrice} strong />
+            <ReceiptItem label="Expected" value={receipt.expectedReceive} strong />
+            <ReceiptItem label="Minimum" value={receipt.minimumReceive} />
+            <ReceiptItem label="Slippage" value={receipt.slippage} />
+            <ReceiptItem label="Price Impact" value={receipt.priceImpact} />
+            <ReceiptItem label="Protocol Fee" value={receipt.protocolFee} />
+          </div>
+
+          <div className="rounded-md border border-line bg-black/25 p-3">
+            <div className="mb-1 text-[11px] uppercase text-muted">Transaction Hash</div>
+            <code className="block break-all text-xs text-slate-200">{receipt.signature}</code>
+          </div>
+
+          {receipt.explorerUrl ? (
+            <a
+              href={receipt.explorerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-solBlue/40 bg-solBlue/10 text-sm font-black text-solBlue transition hover:border-solBlue hover:bg-solBlue/15"
+            >
+              View on Explorer
+              <ExternalLink size={15} />
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReceiptItem({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-md border border-line bg-black/20 px-3 py-2">
+      <div className="truncate text-[11px] text-muted">{label}</div>
+      <div className={`mt-1 truncate text-right text-sm font-black ${strong ? "text-white" : "text-slate-200"}`}>{value}</div>
+    </div>
+  );
+}
+
 function MarketInfo({ market }: { market: Market }) {
   const yesProbability = probability(market);
   const liquidity = market.totalLiquidity;
@@ -461,4 +588,21 @@ function CodeRow({ label, value }: { label: string; value: string }) {
 function shortAddress(value: string) {
   if (value.length <= 18) return value;
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function explorerUrlForSignature(signature: string) {
+  if (signature === "local" || signature === "indexed" || signature === "simulated") return null;
+  const configuredCluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER?.trim();
+  const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim() || "";
+  const cluster = configuredCluster || inferExplorerCluster(rpcUrl);
+  const clusterQuery = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
+  return `https://explorer.solana.com/tx/${signature}${clusterQuery}`;
+}
+
+function inferExplorerCluster(rpcUrl: string) {
+  const lower = rpcUrl.toLowerCase();
+  if (lower.includes("mainnet")) return "mainnet-beta";
+  if (lower.includes("testnet")) return "testnet";
+  if (lower.includes("localhost") || lower.includes("127.0.0.1")) return "custom";
+  return "devnet";
 }

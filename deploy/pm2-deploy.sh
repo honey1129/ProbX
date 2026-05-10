@@ -136,11 +136,7 @@ if [ "$TRADE_VERIFICATION" != "confirmed" ]; then
   printf 'PROBX_TRADE_VERIFICATION must be confirmed for devnet deploy, got %s\n' "${PROBX_TRADE_VERIFICATION:-unset}" >&2
   exit 1
 fi
-if [ -n "${PROBX_MYSQL_CLI_DSN:-}" ]; then
-  "$PROJECT_DIR/backend/scripts/migrate.sh"
-else
-  log "skipping migrations; set PROBX_MYSQL_CLI_DSN in backend/.env to enable automatic migrations"
-fi
+"$PROJECT_DIR/backend/scripts/migrate.sh"
 
 log "installing frontend dependencies"
 cd "$PROJECT_DIR/frontend"

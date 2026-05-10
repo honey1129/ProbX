@@ -57,7 +57,7 @@ GRANT ALL PRIVILEGES ON probx.* TO 'probx'@'%';
 ```
 
 ```bash
-PROBX_MYSQL_CLI_DSN=mysql://probx:probx@127.0.0.1:3306/probx ./scripts/migrate.sh
+PROBX_DATABASE_DSN='probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true' ./scripts/migrate.sh
 go run ./cmd/server
 ```
 

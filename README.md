@@ -319,6 +319,7 @@ git pull
 ```bash
 # backend/.env
 PROBX_HTTP_ADDR=:8081
+PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true
 PROBX_CORS_ORIGINS=http://185.214.135.24:3001
 PROBX_TRADE_VERIFICATION=confirmed
 PROBX_INDEXER_TIMEOUT=30s
@@ -340,7 +341,7 @@ PROBX_EXPECTED_API_URL=http://185.214.135.24:8081 \
 bash deploy/pm2-deploy.sh
 ```
 
-部署脚本会依次执行：拉取并重置到远程分支、构建 Go 后端、安装并构建 Vite 前端、用 PM2 启动或重载 `probx-api`、`probx-indexer` 和 `probx-frontend`。
+部署脚本会依次执行：拉取并重置到远程分支、构建 Go 后端、自动执行 `backend/migrations/` 下的 MySQL 迁移、安装并构建 Vite 前端、用 PM2 启动或重载 `probx-api`、`probx-indexer` 和 `probx-frontend`。
 
 `probx-indexer` 是 PM2 常驻 worker，默认每 `15s` 同步一次链上市场、持仓和程序事件。需要调整频率时：
 
@@ -391,7 +392,11 @@ PROBX_EXPECTED_API_URL=http://185.214.135.24:8081
 手动迁移已有数据库：
 
 ```bash
-(cd backend && PROBX_MYSQL_CLI_DSN=mysql://probx:probx@127.0.0.1:3306/probx ./scripts/migrate.sh)
+cd /root/ProbX/backend
+set -a
+. ./.env
+set +a
+./scripts/migrate.sh
 ```
 
 ## Python Agent

@@ -387,7 +387,7 @@ PROBX_PM2_INDEXER_INTERVAL=15s
 PROBX_EXPECTED_API_URL=http://185.214.135.24:8081
 ```
 
-之后每次 push 到 `main`，GitHub Actions 会 SSH 到 VPS 并执行 `deploy/pm2-deploy.sh`。
+之后每次 push 到 `main`，GitHub Actions 会先执行 `go test ./...` 和前端 `npm run typecheck`，通过后再 SSH 到 VPS 并执行 `deploy/pm2-deploy.sh`。
 
 手动迁移已有数据库：
 

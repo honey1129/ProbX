@@ -4,6 +4,7 @@ set -euo pipefail
 BRANCH="${PROBX_DEPLOY_BRANCH:-main}"
 PROJECT_DIR="${PROBX_PROJECT_DIR:-/root/ProbX}"
 FRONTEND_PORT="${PROBX_FRONTEND_PORT:-3001}"
+PM2_INDEXER_INTERVAL="${PROBX_PM2_INDEXER_INTERVAL:-15s}"
 ECOSYSTEM_FILE="$PROJECT_DIR/deploy/pm2/ecosystem.config.cjs"
 FRONTEND_ENV_FILE="$PROJECT_DIR/frontend/.env.local"
 FRONTEND_ENV_BACKUP=""
@@ -183,15 +184,11 @@ process.stdout.write(JSON.stringify({
 NODE
 npm run build
 
-log "starting or reloading PM2 apps on frontend port $FRONTEND_PORT"
+log "starting or reloading PM2 apps on frontend port $FRONTEND_PORT with indexer interval $PM2_INDEXER_INTERVAL"
 cd "$PROJECT_DIR"
 pm2 delete probx-frontend >/dev/null 2>&1 || true
-PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" pm2 startOrReload "$ECOSYSTEM_FILE" --update-env
+PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" PROBX_PM2_INDEXER_INTERVAL="$PM2_INDEXER_INTERVAL" pm2 startOrReload "$ECOSYSTEM_FILE" --update-env
 pm2 save
-
-log "indexing devnet markets"
-cd "$PROJECT_DIR/backend"
-./probx-indexer || log "indexer failed; API and frontend were still deployed"
 
 log "verifying API devnet config"
 for attempt in $(seq 1 30); do

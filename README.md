@@ -320,22 +320,44 @@ git pull
 # backend/.env
 PROBX_HTTP_ADDR=:8081
 PROBX_CORS_ORIGINS=http://185.214.135.24:3001
+PROBX_TRADE_VERIFICATION=confirmed
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
 ```
 
 ```bash
 # frontend/.env.local
 NEXT_PUBLIC_API_URL=http://185.214.135.24:8081
-NEXT_PUBLIC_ENABLE_ONCHAIN=false
+NEXT_PUBLIC_ENABLE_ONCHAIN=true
 ```
 
 手动执行一次部署：
 
 ```bash
 cd /root/ProbX
-PROBX_FRONTEND_PORT=3001 bash deploy/pm2-deploy.sh
+PROBX_FRONTEND_PORT=3001 \
+PROBX_EXPECTED_API_URL=http://185.214.135.24:8081 \
+bash deploy/pm2-deploy.sh
 ```
 
-部署脚本会依次执行：拉取并重置到远程分支、构建 Go 后端、安装并构建 Vite 前端、用 PM2 启动或重载 `probx-api` 和 `probx-frontend`。
+部署脚本会依次执行：拉取并重置到远程分支、构建 Go 后端、安装并构建 Vite 前端、用 PM2 启动或重载 `probx-api`、`probx-indexer` 和 `probx-frontend`。
+
+`probx-indexer` 是 PM2 常驻 worker，默认每 `15s` 同步一次链上市场、持仓和程序事件。需要调整频率时：
+
+```bash
+PROBX_FRONTEND_PORT=3001 PROBX_PM2_INDEXER_INTERVAL=10s bash deploy/pm2-deploy.sh
+```
+
+常用 PM2 检查命令：
+
+```bash
+pm2 list
+pm2 logs probx-api --lines 80
+pm2 logs probx-indexer --lines 120
+pm2 restart probx-indexer --update-env
+```
+
+API 的 `GET /api/status` 会返回 indexer cursor 和 lag，可以用来确认 worker 是否在追链。
 
 设置 PM2 开机自启：
 
@@ -360,6 +382,8 @@ VPS_PROJECT_DIR=/root/ProbX
 
 ```text
 PROBX_FRONTEND_PORT=3001
+PROBX_PM2_INDEXER_INTERVAL=15s
+PROBX_EXPECTED_API_URL=http://185.214.135.24:8081
 ```
 
 之后每次 push 到 `main`，GitHub Actions 会 SSH 到 VPS 并执行 `deploy/pm2-deploy.sh`。

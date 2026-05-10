@@ -45,4 +45,6 @@ jobs:
             PROBX_PROJECT_DIR="${{ secrets.VPS_PROJECT_DIR }}" \
             PROBX_DEPLOY_BRANCH="${{ github.ref_name }}" \
             PROBX_FRONTEND_PORT="${{ vars.PROBX_FRONTEND_PORT || 3001 }}" \
+            PROBX_PM2_INDEXER_INTERVAL="${{ vars.PROBX_PM2_INDEXER_INTERVAL || '15s' }}" \
+            PROBX_EXPECTED_API_URL="${{ vars.PROBX_EXPECTED_API_URL || 'https://api.probx.site' }}" \
             bash deploy/pm2-deploy.sh

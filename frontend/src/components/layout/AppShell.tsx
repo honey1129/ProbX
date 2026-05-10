@@ -1,9 +1,11 @@
 "use client";
 
 import { Bot, CirclePlus, Github, Layers3, MessageCircle, Send, WalletCards } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { ElementType } from "react";
 import { WalletConnect } from "@/components/WalletConnect";
 import { useMarkets } from "@/components/market/MarketProvider";
+import { fetchApiStatus, type ApiStatus } from "@/lib/backendApi";
 import { formatPercent, probability } from "@/lib/format";
 import { RouterLink as Link, usePathname } from "@/router";
 
@@ -35,14 +37,68 @@ const socialLinks: SocialLink[] = socialLinkConfigs;
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { backendEnabled, isLoading, error } = useMarkets();
-  const statusLabel = backendEnabled ? (isLoading ? "API loading" : error ? "API error" : "API connected") : "Local preview";
+  const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
+  const [apiStatusError, setApiStatusError] = useState<string | null>(null);
+  const statusLabel = useMemo(() => {
+    if (!backendEnabled) return "Local preview";
+    if (isLoading) return "API loading";
+    if (error || apiStatusError) return "API error";
+    if (!apiStatus) return "API connected";
+    const lag = apiStatus.indexer?.lagSeconds ?? 0;
+    const lagLabel = lag > 0 ? ` · indexer ${formatLag(lag)}` : "";
+    return `API live · ${apiStatus.marketCount} markets${lagLabel}`;
+  }, [apiStatus, apiStatusError, backendEnabled, error, isLoading]);
   const statusClass = backendEnabled
     ? isLoading
       ? "bg-solBlue shadow-[0_0_14px_rgba(49,185,255,0.35)]"
-      : error
+      : error || apiStatusError || apiStatus?.ok === false
         ? "bg-no shadow-[0_0_14px_rgba(255,78,92,0.35)]"
         : "bg-yes shadow-[0_0_14px_rgba(25,245,140,0.35)]"
     : "bg-muted shadow-[0_0_14px_rgba(148,163,184,0.25)]";
+  const statusTitle = useMemo(() => {
+    if (!backendEnabled) return "Using local preview data";
+    if (error) return error;
+    if (apiStatusError) return apiStatusError;
+    if (!apiStatus) return "ProbX API connected";
+    const cursor = apiStatus.indexer?.cursor;
+    const parts = [
+      `Database: ${apiStatus.database?.ok ? "ok" : "error"}`,
+      `Markets: ${apiStatus.marketCount}`,
+      `Indexer lag: ${formatLag(apiStatus.indexer?.lagSeconds ?? 0)}`,
+      `Cursor slot: ${cursor?.slot ?? 0}`,
+      `Verification: ${apiStatus.tradeVerification}`
+    ];
+    return parts.join(" | ");
+  }, [apiStatus, apiStatusError, backendEnabled, error]);
+
+  useEffect(() => {
+    if (!backendEnabled) {
+      setApiStatus(null);
+      setApiStatusError(null);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadStatus() {
+      try {
+        const status = await fetchApiStatus();
+        if (cancelled) return;
+        setApiStatus(status);
+        setApiStatusError(null);
+      } catch (error) {
+        if (cancelled) return;
+        setApiStatus(null);
+        setApiStatusError(error instanceof Error ? error.message : "API status unavailable");
+      }
+    }
+
+    void loadStatus();
+    const id = window.setInterval(loadStatus, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [backendEnabled]);
 
   return (
     <div className="h-screen overflow-hidden bg-canvas text-slate-100">
@@ -80,9 +136,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="flex min-w-0 items-center justify-end gap-2 xl:gap-3">
-            <div className="hidden h-10 items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-slate-200 lg:flex xl:px-4">
+            <div
+              className="hidden h-10 max-w-[360px] items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-slate-200 lg:flex xl:px-4"
+              title={statusTitle}
+            >
               <span className={`h-2 w-2 rounded-full ${statusClass}`} />
-              {statusLabel}
+              <span className="truncate">{statusLabel}</span>
             </div>
             <SocialLinks placement="header" />
             <WalletConnect />
@@ -185,6 +244,14 @@ function SocialLinks({ placement }: { placement: "header" | "footer" }) {
       })}
     </div>
   );
+}
+
+function formatLag(seconds: number) {
+  if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  return `${hours}h`;
 }
 
 function XIcon({ size = 16, className }: { size?: string | number; className?: string }) {

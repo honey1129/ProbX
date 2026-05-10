@@ -190,6 +190,10 @@ pm2 delete probx-frontend >/dev/null 2>&1 || true
 PROBX_PROJECT_DIR="$PROJECT_DIR" PROBX_FRONTEND_PORT="$FRONTEND_PORT" PROBX_PM2_INDEXER_INTERVAL="$PM2_INDEXER_INTERVAL" pm2 startOrReload "$ECOSYSTEM_FILE" --update-env
 pm2 save
 
+log "verifying PM2 worker processes"
+pm2 describe probx-api >/dev/null
+pm2 describe probx-indexer >/dev/null
+
 log "verifying API devnet config"
 for attempt in $(seq 1 30); do
   if status_json="$(curl -fsS "http://127.0.0.1:${API_PORT}/api/status" 2>/dev/null)"; then

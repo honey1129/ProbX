@@ -8,6 +8,28 @@ export type BootstrapPayload = {
   activity: AgentActivity[];
 };
 
+export type ApiStatus = {
+  ok: boolean;
+  database?: {
+    ok: boolean;
+    error?: string;
+  };
+  marketCount: number;
+  solanaRpcUrl: string;
+  programId: string;
+  tradeVerification: string;
+  indexer?: {
+    cursor?: {
+      signature?: string;
+      slot?: number;
+      updatedAt?: number;
+    };
+    lagSeconds?: number;
+  };
+  corsOrigins?: string[];
+  corsAllowAll?: boolean;
+};
+
 export type CreateMarketPayload = {
   id?: string;
   publicKey?: string;
@@ -108,6 +130,10 @@ export function isBackendApiConfigured() {
 export async function fetchBootstrap(owner?: string) {
   const query = owner ? `?owner=${encodeURIComponent(owner)}` : "";
   return apiFetch<BootstrapPayload>(`/api/bootstrap${query}`);
+}
+
+export async function fetchApiStatus() {
+  return apiFetch<ApiStatus>("/api/status");
 }
 
 export async function createBackendMarket(payload: CreateMarketPayload) {

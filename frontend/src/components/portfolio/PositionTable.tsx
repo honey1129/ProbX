@@ -40,21 +40,34 @@ export function PositionTable({ positions, markets, compact = false }: { positio
           eventType: isCancelled ? "RefundRedeemed" : "WinningsRedeemed",
           marketId: position.marketId
         });
+        const confirmed = confirmation === "confirmed";
+        const chainConfirmed = confirmation === "chain-confirmed";
+        const failed = confirmation === "failed";
         setChainProgress({
           title: isCancelled ? "Refund Position" : "Claim Winnings",
-          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          phase: confirmed ? "confirmed" : chainConfirmed ? "chain-confirmed" : failed ? "error" : "timeout",
           signature,
           message:
-            confirmation === "confirmed"
+            confirmed
               ? "Transaction is confirmed and indexed by ProbX."
+              : chainConfirmed
+                ? "Transaction is confirmed on Solana. ProbX indexing is still catching up."
+                : failed
+                  ? "Solana reported this transaction as failed."
               : "Transaction was sent; indexing is still catching up."
         });
-        setClaimed((current) => ({ ...current, [position.id]: true }));
+        if (!failed) {
+          setClaimed((current) => ({ ...current, [position.id]: true }));
+        }
         setMessages((current) => ({
           ...current,
           [position.id]:
-            confirmation === "confirmed"
+            confirmed
               ? `${isCancelled ? "Refund" : "Claim"} confirmed: ${signature.slice(0, 8)}...`
+              : chainConfirmed
+                ? `${isCancelled ? "Refund" : "Claim"} confirmed on-chain: ${signature.slice(0, 8)}...`
+                : failed
+                  ? `Tx failed: ${signature.slice(0, 8)}...`
               : `Tx ${signature.slice(0, 8)}... indexer still catching up`
         }));
         return;

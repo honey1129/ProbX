@@ -88,22 +88,36 @@ export default function CreateMarketPage() {
         });
         setStatus(`Create transaction sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketCreated" });
+        const confirmed = confirmation === "confirmed";
+        const chainConfirmed = confirmation === "chain-confirmed";
+        const failed = confirmation === "failed";
         setChainProgress({
           title: "Create Market",
-          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          phase: confirmed ? "confirmed" : chainConfirmed ? "chain-confirmed" : failed ? "error" : "timeout",
           signature,
           message:
-            confirmation === "confirmed"
+            confirmed
               ? "Market is confirmed on-chain and indexed by ProbX."
+              : chainConfirmed
+                ? "Market is confirmed on Solana. ProbX indexing is still catching up."
+                : failed
+                  ? "Solana reported this transaction as failed."
               : "Transaction was sent; indexing is still catching up."
         });
         setStatus(
-          confirmation === "confirmed"
+          confirmed
             ? `Market confirmed and indexed: ${signature.slice(0, 12)}...`
+            : chainConfirmed
+              ? `Market confirmed on-chain: ${signature.slice(0, 12)}... indexing is catching up.`
+              : failed
+                ? `Create transaction failed: ${signature.slice(0, 12)}...`
             : confirmation === "timeout"
               ? `Create transaction sent: ${signature.slice(0, 12)}... indexer still catching up.`
               : "Market saved to ProbX API."
         );
+        if (failed || confirmation === "timeout") {
+          refresh();
+        }
         return;
       }
       setChainProgress(null);

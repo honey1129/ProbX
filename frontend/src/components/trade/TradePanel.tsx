@@ -15,7 +15,7 @@ import { useMarkets } from "@/components/market/MarketProvider";
 
 type TradeMode = "BUY" | "SELL";
 type TradeTab = "TRADE" | "INFO";
-type ReceiptStatus = "local" | "indexed" | "sent" | "confirmed" | "timeout";
+type ReceiptStatus = "local" | "indexed" | "sent" | "chain-confirmed" | "confirmed" | "failed" | "timeout";
 type TradeReceipt = {
   marketQuestion: string;
   mode: TradeMode;
@@ -229,6 +229,10 @@ export function TradePanel({ market }: { market: Market }) {
         receiptStatus = confirmation;
         if (confirmation === "confirmed") {
           nextStatus = `Tx confirmed and indexed: ${signature.slice(0, 12)}...`;
+        } else if (confirmation === "chain-confirmed") {
+          nextStatus = `Tx confirmed on-chain: ${signature.slice(0, 12)}... indexer catching up`;
+        } else if (confirmation === "failed") {
+          nextStatus = `Tx failed on Solana: ${signature.slice(0, 12)}...`;
         } else if (confirmation === "sent") {
           nextStatus = `Tx saved, waiting for indexer: ${signature.slice(0, 12)}...`;
         } else if (confirmation === "timeout") {
@@ -238,11 +242,24 @@ export function TradePanel({ market }: { market: Market }) {
         }
         setChainProgress({
           title: `${mode} ${side}`,
-          phase: confirmation === "confirmed" || confirmation === "indexed" ? "confirmed" : confirmation === "timeout" ? "timeout" : "confirming",
+          phase:
+            confirmation === "confirmed" || confirmation === "indexed"
+              ? "confirmed"
+              : confirmation === "chain-confirmed"
+                ? "chain-confirmed"
+                : confirmation === "failed"
+                  ? "error"
+                  : confirmation === "timeout"
+                    ? "timeout"
+                    : "confirming",
           signature,
           message:
             confirmation === "confirmed" || confirmation === "indexed"
               ? "Trade is confirmed and indexed by ProbX."
+              : confirmation === "chain-confirmed"
+                ? "Trade is confirmed on Solana. ProbX indexing is still catching up."
+                : confirmation === "failed"
+                  ? "Solana reported this transaction as failed."
               : confirmation === "sent"
                 ? "Trade was accepted and is waiting for indexer reconciliation."
                 : "Transaction was sent; indexing is still catching up."
@@ -478,13 +495,18 @@ function QuoteItem({ label, value, strong }: { label: string; value: string; str
 function TradeReceiptDialog({ receipt, onClose }: { receipt: TradeReceipt | null; onClose: () => void }) {
   if (!receipt) return null;
 
-  const isFinal = receipt.status === "confirmed" || receipt.status === "indexed" || receipt.status === "local";
-  const title = isFinal ? "Trade Confirmed" : "Trade Sent";
+  const isFailed = receipt.status === "failed";
+  const isFinal = receipt.status === "confirmed" || receipt.status === "indexed" || receipt.status === "local" || receipt.status === "chain-confirmed";
+  const title = isFailed ? "Trade Failed" : isFinal ? "Trade Confirmed" : "Trade Sent";
   const statusLabel =
     receipt.status === "confirmed"
       ? "Confirmed and indexed"
       : receipt.status === "indexed"
         ? "Indexed"
+        : receipt.status === "chain-confirmed"
+          ? "Confirmed on-chain, indexing"
+          : receipt.status === "failed"
+            ? "Failed on Solana"
         : receipt.status === "local"
           ? "Local preview"
           : receipt.status === "sent"
@@ -497,7 +519,7 @@ function TradeReceiptDialog({ receipt, onClose }: { receipt: TradeReceipt | null
         <div className="flex items-start justify-between gap-4 border-b border-line bg-black/30 px-4 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-black text-white">
-              <CheckCircle2 size={17} className={isFinal ? "text-yes" : "text-solBlue"} />
+              <CheckCircle2 size={17} className={isFailed ? "text-no" : isFinal ? "text-yes" : "text-solBlue"} />
               {title}
             </div>
             <p className="mt-1 truncate text-xs text-muted">{receipt.marketQuestion}</p>
@@ -513,7 +535,7 @@ function TradeReceiptDialog({ receipt, onClose }: { receipt: TradeReceipt | null
         </div>
 
         <div className="grid gap-3 p-4">
-          <div className={`rounded-md border px-3 py-2 text-xs font-bold ${isFinal ? "border-yes/30 bg-yes/10 text-yes" : "border-solBlue/30 bg-solBlue/10 text-solBlue"}`}>
+          <div className={`rounded-md border px-3 py-2 text-xs font-bold ${isFailed ? "border-no/30 bg-no/10 text-no" : isFinal ? "border-yes/30 bg-yes/10 text-yes" : "border-solBlue/30 bg-solBlue/10 text-solBlue"}`}>
             {receipt.mode} {receipt.side} · {statusLabel}
           </div>
 

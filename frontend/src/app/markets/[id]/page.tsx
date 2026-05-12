@@ -7,7 +7,7 @@ import { TransactionProgressModal, type TransactionProgressState } from "@/compo
 import { MarketMediaPicker } from "@/components/market/MarketMediaPicker";
 import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
-import { useMarkets } from "@/components/market/MarketProvider";
+import { type ActionConfirmationState, useMarkets } from "@/components/market/MarketProvider";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { fetchTrades } from "@/lib/backendApi";
 import { formatPercent, formatPrice, formatSol, probability, relativeTime, timeRemaining } from "@/lib/format";
@@ -390,19 +390,8 @@ function ResolverPanel({ market }: { market: Market }) {
         });
         setMessage(`Resolve tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketResolved", marketId: market.id });
-        setChainProgress({
-          title: `Resolve ${outcome === 1 ? "YES" : "NO"}`,
-          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
-          signature,
-          message: confirmation === "confirmed" ? "Resolution is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
-        });
-        setMessage(
-          confirmation === "confirmed"
-            ? `Resolve confirmed and indexed: ${signature.slice(0, 12)}...`
-            : confirmation === "timeout"
-              ? `Resolve tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
-              : "Market resolved in ProbX API."
-        );
+        setChainProgress(actionProgressState(`Resolve ${outcome === 1 ? "YES" : "NO"}`, signature, confirmation, "Resolution"));
+        setMessage(actionStatusMessage("Resolve", signature, confirmation));
         return;
       }
       setMessage(
@@ -433,19 +422,8 @@ function ResolverPanel({ market }: { market: Market }) {
         });
         setMessage(`Cancel tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketCancelled", marketId: market.id });
-        setChainProgress({
-          title: "Cancel Market",
-          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
-          signature,
-          message: confirmation === "confirmed" ? "Cancellation is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
-        });
-        setMessage(
-          confirmation === "confirmed"
-            ? `Cancel confirmed and indexed: ${signature.slice(0, 12)}...`
-            : confirmation === "timeout"
-              ? `Cancel tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
-              : "Market cancelled in ProbX API."
-        );
+        setChainProgress(actionProgressState("Cancel Market", signature, confirmation, "Cancellation"));
+        setMessage(actionStatusMessage("Cancel", signature, confirmation));
         return;
       }
       setMessage(signature === "local" ? "Market cancelled locally." : "Market cancelled in ProbX API.");
@@ -472,19 +450,8 @@ function ResolverPanel({ market }: { market: Market }) {
         });
         setMessage(`Resolver tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketResolverUpdated", marketId: market.id });
-        setChainProgress({
-          title: "Set Resolver",
-          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
-          signature,
-          message: confirmation === "confirmed" ? "Resolver update is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
-        });
-        setMessage(
-          confirmation === "confirmed"
-            ? `Resolver updated and indexed: ${signature.slice(0, 12)}...`
-            : confirmation === "timeout"
-              ? `Resolver tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
-              : "Resolver updated in ProbX API."
-        );
+        setChainProgress(actionProgressState("Set Resolver", signature, confirmation, "Resolver update"));
+        setMessage(actionStatusMessage("Resolver update", signature, confirmation));
         setNewResolver("");
         return;
       }
@@ -622,19 +589,8 @@ function ResidualPanel({ market }: { market: Market }) {
         });
         setMessage(`Withdrawal tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "ResidualWithdrawn", marketId: market.id });
-        setChainProgress({
-          title: "Withdraw Residual",
-          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
-          signature,
-          message: confirmation === "confirmed" ? "Withdrawal is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
-        });
-        setMessage(
-          confirmation === "confirmed"
-            ? `Residual withdrawal indexed: ${signature.slice(0, 12)}...`
-            : confirmation === "timeout"
-              ? `Withdrawal tx sent: ${signature.slice(0, 12)}... indexer still catching up.`
-              : "Residual withdrawal saved."
-        );
+        setChainProgress(actionProgressState("Withdraw Residual", signature, confirmation, "Withdrawal"));
+        setMessage(actionStatusMessage("Withdrawal", signature, confirmation));
         return;
       }
       setMessage(signature === "local" ? "Residual withdrawal updated locally." : "Residual withdrawal saved.");
@@ -805,6 +761,37 @@ function MarketStatePanel({ icon, eyebrow, title, message, action }: { icon: Rea
 
 function isTradeActivity(item: AgentActivity): item is AgentActivity & { action: "BUY" | "SELL"; side: Side } {
   return (item.action === "BUY" || item.action === "SELL") && (item.side === "YES" || item.side === "NO");
+}
+
+function actionProgressState(
+  title: string,
+  signature: string,
+  confirmation: ActionConfirmationState,
+  noun: string
+): TransactionProgressState {
+  const confirmed = confirmation === "confirmed";
+  const chainConfirmed = confirmation === "chain-confirmed";
+  const failed = confirmation === "failed";
+  return {
+    title,
+    phase: confirmed ? "confirmed" : chainConfirmed ? "chain-confirmed" : failed ? "error" : "timeout",
+    signature,
+    message: confirmed
+      ? `${noun} is confirmed and indexed by ProbX.`
+      : chainConfirmed
+        ? `${noun} is confirmed on Solana. ProbX indexing is still catching up.`
+        : failed
+          ? "Solana reported this transaction as failed."
+          : "Transaction was sent; indexing is still catching up."
+  };
+}
+
+function actionStatusMessage(label: string, signature: string, confirmation: ActionConfirmationState) {
+  if (confirmation === "confirmed") return `${label} confirmed and indexed: ${signature.slice(0, 12)}...`;
+  if (confirmation === "chain-confirmed") return `${label} confirmed on-chain: ${signature.slice(0, 12)}... indexing is catching up.`;
+  if (confirmation === "failed") return `${label} transaction failed: ${signature.slice(0, 12)}...`;
+  if (confirmation === "timeout") return `${label} tx sent: ${signature.slice(0, 12)}... indexer still catching up.`;
+  return `${label} saved.`;
 }
 
 function shortAddress(value: string) {

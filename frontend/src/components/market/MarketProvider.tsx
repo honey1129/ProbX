@@ -1,7 +1,7 @@
 "use client";
 
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   buyShares as buySharesIx,
@@ -71,8 +71,8 @@ type MarketMetadataInput = {
   avatarUrl?: string;
 };
 
-export type TradeConfirmationState = "local" | "indexed" | "sent" | "confirmed" | "timeout";
-export type ActionConfirmationState = "local" | "indexed" | "confirmed" | "timeout";
+export type TradeConfirmationState = "local" | "indexed" | "sent" | "chain-confirmed" | "confirmed" | "failed" | "timeout";
+export type ActionConfirmationState = "local" | "indexed" | "chain-confirmed" | "confirmed" | "failed" | "timeout";
 
 type TradeConfirmationOptions = {
   marketId?: string;
@@ -792,6 +792,10 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     ]);
   }, []);
 
+  const upsertPendingMarket = useCallback((input: Parameters<typeof pendingMarketFromCreate>[0]) => {
+    setMarkets((current) => upsertById(current, pendingMarketFromCreate(input)));
+  }, []);
+
   const createMarket = useCallback(
     async (question: string, endTime: number, options?: CreateMarketOptions) => {
       let signature = backendEnabled ? "indexed" : "local";
@@ -809,6 +813,16 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         });
         creator = creatorKey.toBase58();
         publicKey = getMarketPda(creatorKey, endTime).toBase58();
+        upsertPendingMarket({
+          id: publicKey,
+          publicKey,
+          creator,
+          question,
+          endTime,
+          category: options?.category,
+          avatarUrl: options?.avatarUrl,
+          initialLiquidity: options?.initialLiquidity
+        });
         if (backendEnabled && apiReady) {
           void createBackendMarket({
             id: publicKey,
@@ -868,7 +882,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       });
       return signature;
     },
-    [addLocalMarket, apiReady, backendEnabled, connection, error, onchainEnabled, ownerId, wallet]
+    [addLocalMarket, apiReady, backendEnabled, connection, error, onchainEnabled, ownerId, upsertPendingMarket, wallet]
   );
 
   const updateMarketMetadata = useCallback(
@@ -921,11 +935,15 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (normalized === "" || normalized === "local") return "local";
       if (normalized === "indexed" || normalized === "simulated") return "indexed";
 
-      const attempts = options?.attempts ?? 10;
-      const intervalMs = options?.intervalMs ?? 1600;
+      const attempts = options?.attempts ?? 18;
+      const intervalMs = options?.intervalMs ?? 2000;
       let sawSent = false;
+      let sawChainConfirmed = false;
       for (let attempt = 0; attempt < attempts; attempt++) {
         if (attempt > 0) await delay(intervalMs);
+        const chainStatus = await readSignatureStatus(connection, normalized);
+        if (chainStatus === "failed") return "failed";
+        if (chainStatus === "confirmed") sawChainConfirmed = true;
         try {
           const page = await fetchTrades({
             signature: normalized,
@@ -939,6 +957,11 @@ export function MarketProvider({ children }: { children: ReactNode }) {
             refresh();
             return "confirmed";
           }
+          if (trade?.status === "indexed") {
+            notifyTradesUpdated(options?.marketId);
+            refresh();
+            return "indexed";
+          }
           if (trade?.status === "sent") {
             sawSent = true;
             continue;
@@ -948,9 +971,9 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           // Polling is best-effort; the submitted transaction remains visible by signature.
         }
       }
-      return sawSent ? "sent" : "timeout";
+      return sawChainConfirmed ? "chain-confirmed" : sawSent ? "sent" : "timeout";
     },
-    [backendEnabled, ownerId, refresh]
+    [backendEnabled, connection, ownerId, refresh]
   );
 
   const waitForActionConfirmation = useCallback(
@@ -960,10 +983,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (normalized === "" || normalized === "local") return "local";
       if (normalized === "indexed" || normalized === "simulated") return "indexed";
 
-      const attempts = options.attempts ?? 10;
-      const intervalMs = options.intervalMs ?? 1600;
+      const attempts = options.attempts ?? 18;
+      const intervalMs = options.intervalMs ?? 2000;
+      let sawChainConfirmed = false;
       for (let attempt = 0; attempt < attempts; attempt++) {
         if (attempt > 0) await delay(intervalMs);
+        const chainStatus = await readSignatureStatus(connection, normalized);
+        if (chainStatus === "failed") return "failed";
+        if (chainStatus === "confirmed") sawChainConfirmed = true;
         try {
           const page = await fetchIndexedEvents({
             signature: normalized,
@@ -979,9 +1006,9 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           // Best effort; the action remains submitted and can be reconciled by refresh.
         }
       }
-      return "timeout";
+      return sawChainConfirmed ? "chain-confirmed" : "timeout";
     },
-    [backendEnabled, refresh]
+    [backendEnabled, connection, refresh]
   );
 
   const value = useMemo(
@@ -1147,6 +1174,60 @@ function base58Encode(input: Uint8Array) {
 
 function notifyTradesUpdated(marketId?: string) {
   window.dispatchEvent(new CustomEvent("probx:trades-updated", { detail: { marketId } }));
+}
+
+function pendingMarketFromCreate(input: {
+  id: string;
+  publicKey: string;
+  creator: string;
+  question: string;
+  endTime: number;
+  category?: Market["category"];
+  avatarUrl?: string;
+  initialLiquidity?: number;
+}): Market {
+  const liquidity = Math.max(0.01, input.initialLiquidity ?? 1);
+  return {
+    id: input.id,
+    publicKey: input.publicKey,
+    creator: input.creator,
+    resolver: input.creator,
+    protocolConfig: "pending",
+    treasury: input.creator,
+    protocolFeeBps: 100,
+    creatorLpShares: liquidity,
+    protocolFees: 0,
+    residualWithdrawn: 0,
+    residualClaimed: false,
+    endTime: input.endTime,
+    question: input.question,
+    category: input.category ?? "Crypto",
+    avatarUrl: input.avatarUrl,
+    yesPool: liquidity,
+    noPool: liquidity,
+    totalLiquidity: liquidity,
+    volume24h: 0,
+    participants: 1,
+    change24h: 0,
+    probabilityHistory: Array.from({ length: 72 }, () => 0.5)
+  };
+}
+
+async function readSignatureStatus(connection: Connection, signature: string): Promise<"pending" | "confirmed" | "failed"> {
+  try {
+    const response = await connection.getSignatureStatuses([signature], {
+      searchTransactionHistory: true
+    });
+    const status = response.value[0];
+    if (!status) return "pending";
+    if (status.err) return "failed";
+    if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") {
+      return "confirmed";
+    }
+    return "pending";
+  } catch {
+    return "pending";
+  }
 }
 
 function delay(ms: number) {

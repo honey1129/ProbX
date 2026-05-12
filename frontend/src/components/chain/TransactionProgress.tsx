@@ -12,7 +12,7 @@ export type TransactionProgressStep = {
   state: TransactionStepState;
 };
 
-export type TransactionProgressPhase = "idle" | "signing" | "broadcasted" | "confirming" | "confirmed" | "timeout" | "error";
+export type TransactionProgressPhase = "idle" | "signing" | "broadcasted" | "confirming" | "chain-confirmed" | "confirmed" | "timeout" | "error";
 
 export type TransactionProgressState = {
   title: string;
@@ -34,6 +34,7 @@ export function TransactionProgress({ state, explorerCluster }: TransactionProgr
   const isError = state.phase === "error";
   const isTimeout = state.phase === "timeout";
   const isDone = state.phase === "confirmed";
+  const isChainConfirmed = state.phase === "chain-confirmed";
   const steps = buildSteps(state);
 
   return (
@@ -43,7 +44,9 @@ export function TransactionProgress({ state, explorerCluster }: TransactionProgr
           ? "border-no/35 bg-no/10"
           : isDone
             ? "border-yes/35 bg-yes/10"
-            : "border-solBlue/35 bg-solBlue/10"
+            : isChainConfirmed
+              ? "border-yes/25 bg-yes/5"
+              : "border-solBlue/35 bg-solBlue/10"
       }`}
       aria-live="polite"
     >
@@ -53,7 +56,7 @@ export function TransactionProgress({ state, explorerCluster }: TransactionProgr
             <ProgressIcon phase={state.phase} />
             <span>{state.title}</span>
           </div>
-          <p className={`mt-1 text-xs ${isError ? "text-no" : isDone ? "text-yes" : "text-slate-300"}`}>
+          <p className={`mt-1 text-xs ${isError ? "text-no" : isDone || isChainConfirmed ? "text-yes" : "text-slate-300"}`}>
             {state.error || state.message || defaultMessage(state.phase)}
           </p>
         </div>
@@ -146,12 +149,16 @@ function buildSteps(state: TransactionProgressState): TransactionProgressStep[] 
       detail:
         phase === "confirmed"
           ? "Indexed by ProbX"
+          : phase === "chain-confirmed"
+            ? "On-chain confirmed; waiting for indexer"
           : phase === "timeout"
             ? "Still catching up"
             : "Waiting for confirmed event",
       state:
         phase === "confirmed"
           ? "complete"
+          : phase === "chain-confirmed"
+            ? "active"
           : phase === "timeout"
             ? "active"
             : phase === "confirming"
@@ -187,6 +194,7 @@ function ProgressStep({ step, dimmed }: { step: TransactionProgressStep; dimmed?
 
 function ProgressIcon({ phase }: { phase: TransactionProgressPhase }) {
   if (phase === "confirmed") return <CheckCircle2 size={16} className="text-yes" />;
+  if (phase === "chain-confirmed") return <RadioTower size={16} className="text-yes animate-pulse" />;
   if (phase === "error") return <XCircle size={16} className="text-no" />;
   if (phase === "broadcasted" || phase === "confirming" || phase === "timeout") {
     return <RadioTower size={16} className={phase === "timeout" ? "text-solBlue" : "text-solBlue animate-pulse"} />;
@@ -198,6 +206,7 @@ function defaultMessage(phase: TransactionProgressPhase) {
   if (phase === "signing") return "Confirm the transaction in your wallet.";
   if (phase === "broadcasted") return "Transaction sent to Solana.";
   if (phase === "confirming") return "Waiting for the ProbX indexer.";
+  if (phase === "chain-confirmed") return "Confirmed on Solana; waiting for ProbX indexing.";
   if (phase === "confirmed") return "Transaction confirmed and indexed.";
   if (phase === "timeout") return "Transaction was sent; the indexer is still catching up.";
   if (phase === "error") return "Transaction failed.";

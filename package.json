@@ -5,7 +5,9 @@
   "scripts": {
     "test": "anchor test",
     "test:ts": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts",
-    "protocol:config": "ts-node -P ./tsconfig.json scripts/protocol_config.ts"
+    "protocol:config": "ts-node -P ./tsconfig.json scripts/protocol_config.ts",
+    "market:create": "ts-node -P ./tsconfig.json scripts/create_market.ts",
+    "market:buy": "ts-node -P ./tsconfig.json scripts/buy_shares.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1"

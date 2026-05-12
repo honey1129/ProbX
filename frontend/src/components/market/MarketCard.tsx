@@ -28,21 +28,21 @@ export function MarketCard({ market }: { market: Market }) {
   return (
     <Link
       href={`/markets/${market.id}`}
-      className="market-tile group grid gap-2 rounded-lg border border-line px-2.5 py-2 transition hover:border-solBlue/50 hover:bg-slate-900/70 hover:shadow-[0_0_26px_rgba(49,185,255,0.12)]"
+      className="market-tile group grid min-w-0 gap-2 rounded-lg border border-line px-2.5 py-2 transition hover:border-solBlue/50 hover:bg-slate-900/70 hover:shadow-[0_0_26px_rgba(49,185,255,0.12)]"
     >
-      <div className="relative z-[1] flex items-start gap-2.5">
+      <div className="relative z-[1] flex min-w-0 items-start gap-2 sm:gap-2.5">
         <MarketVisual market={market} />
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-start justify-between gap-1.5">
             <div className="min-w-0">
               <h3 className="line-clamp-2 text-sm font-black leading-snug text-white">{market.question}</h3>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
                 <span>{market.category}</span>
                 <span>/</span>
-                <span>{isCancelled ? "Void" : marketSubtitle(market)}</span>
+                <span className="truncate">{isCancelled ? "Void" : marketSubtitle(market)}</span>
               </div>
             </div>
-            <div className="grid shrink-0 justify-items-end gap-1">
+            <div className="hidden shrink-0 justify-items-end gap-1 min-[380px]:grid">
               <Star size={14} className="text-muted transition group-hover:text-violet-200" />
               <span className="inline-flex items-center gap-1 rounded-full border border-line bg-black/25 px-2 py-0.5 text-[10px] text-muted">
                 <Clock3 size={10} /> {isCancelled ? "Cancelled" : timeRemaining(market.endTime)}
@@ -50,7 +50,7 @@ export function MarketCard({ market }: { market: Market }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-[66px_1fr_66px] items-end gap-2">
+          <div className="grid min-w-0 grid-cols-[54px_minmax(0,1fr)_54px] items-end gap-2 sm:grid-cols-[66px_minmax(0,1fr)_66px]">
             <div>
               <div className="text-[11px] font-black text-yes">YES</div>
               <div className={`text-base font-black text-yes ${flash ? "number-flash" : ""}`}>{formatPrice(p)}</div>
@@ -68,11 +68,11 @@ export function MarketCard({ market }: { market: Market }) {
 
           <ProbabilityBar probability={p} />
 
-          <div className="mt-1.5 grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-[11px] text-muted">
-            <span>Vol ${(market.volume24h / 1_000_000).toFixed(2)}M</span>
-            <span>Liq {formatSol(market.totalLiquidity, 0)}</span>
-            <span>OI ${((market.yesPool + market.noPool) / 1000).toFixed(2)}M</span>
-            <span className={positive ? "text-yes" : "text-no"}>
+          <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-muted min-[380px]:grid-cols-[1fr_1fr_1fr_auto]">
+            <span className="truncate">Vol ${(market.volume24h / 1_000_000).toFixed(2)}M</span>
+            <span className="truncate">Liq {formatSol(market.totalLiquidity, 0)}</span>
+            <span className="truncate">OI ${((market.yesPool + market.noPool) / 1000).toFixed(2)}M</span>
+            <span className={positive ? "truncate text-yes" : "truncate text-no"}>
               {positive ? <TrendingUp className="inline" size={11} /> : <TrendingDown className="inline" size={11} />} {Math.abs(market.change24h * 100).toFixed(1)}%
             </span>
           </div>

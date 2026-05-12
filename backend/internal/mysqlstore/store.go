@@ -141,11 +141,14 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 	if req.InitialLiquidity <= 0 {
 		req.InitialLiquidity = 1
 	}
-	if req.ID == "" {
-		req.ID = newID("market")
-	}
 	if req.PublicKey == "" {
+		if req.ID == "" {
+			req.ID = newID("market")
+		}
 		req.PublicKey = req.ID
+	}
+	if req.ID == "" {
+		req.ID = req.PublicKey
 	}
 
 	now := nowMillis()
@@ -164,7 +167,11 @@ func (s *Store) CreateMarket(ctx context.Context, req models.CreateMarketRequest
 			creator_lp_shares, question, category, avatar_url, yes_pool, no_pool,
 			total_liquidity, volume_24h, participants, change_24h, end_time,
 			resolved, outcome, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 0, ?, FALSE, NULL, ?, ?)
+		ON DUPLICATE KEY UPDATE
+		  category = VALUES(category),
+		  avatar_url = VALUES(avatar_url),
+		  updated_at = GREATEST(updated_at, VALUES(updated_at))`,
 		req.ID, req.PublicKey, req.Creator, req.Creator, localProtocolConfig, req.Creator, defaultProtocolFeeBps,
 		req.InitialLiquidity, req.Question, req.Category, nullableString(req.AvatarURL),
 		yesPool, noPool, req.InitialLiquidity, req.EndTime, now, now,
@@ -1753,7 +1760,16 @@ func indexCreatedEvent(ctx context.Context, tx *sql.Tx, event models.IndexedEven
 		marketID = fmt.Sprintf("market_%d", event.OnchainID)
 	}
 	creator := normalizeText(event.Owner, "unknown")
-	_, err := tx.ExecContext(ctx, `
+	var existingID string
+	row := tx.QueryRowContext(ctx, `SELECT id FROM markets WHERE public_key = ? FOR UPDATE`, event.MarketPublicKey)
+	err := row.Scan(&existingID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if existingID != "" {
+		marketID = existingID
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO markets (
 			protocol_config, treasury, protocol_fee_bps, creator_lp_shares,
 			id, public_key, creator, resolver, question, category, avatar_url, yes_pool, no_pool,

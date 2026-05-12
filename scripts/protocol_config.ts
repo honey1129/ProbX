@@ -1,4 +1,4 @@
-import anchor from "@coral-xyz/anchor";
+import * as anchor from "@coral-xyz/anchor";
 import type { ProbxPrediction } from "../target/types/probx_prediction";
 
 const { web3 } = anchor;

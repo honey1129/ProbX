@@ -1,11 +1,10 @@
 "use client";
 
 import { Bot, CirclePlus, Github, Layers3, MessageCircle, Send, WalletCards } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { ElementType } from "react";
 import { WalletConnect } from "@/components/WalletConnect";
 import { useMarkets } from "@/components/market/MarketProvider";
-import { fetchApiStatus, type ApiStatus } from "@/lib/backendApi";
 import { formatPercent, probability } from "@/lib/format";
 import { getRuntimeConfig } from "@/lib/runtimeConfig";
 import { RouterLink as Link, usePathname } from "@/router";
@@ -37,86 +36,28 @@ const socialLinks: SocialLink[] = socialLinkConfigs;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { backendEnabled, isLoading, error } = useMarkets();
   const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
-  const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
-  const [apiStatusError, setApiStatusError] = useState<string | null>(null);
-  const statusLabel = useMemo(() => {
-    if (!backendEnabled) return "Local preview";
-    if (isLoading) return "API loading";
-    if (error || apiStatusError) return "API error";
-    if (!apiStatus) return "API connected";
-    const lag = apiStatus.indexer?.lagSeconds ?? 0;
-    const lagLabel = lag > 0 ? ` · indexer ${formatLag(lag)}` : "";
-    return `API live · ${apiStatus.marketCount} markets${lagLabel}`;
-  }, [apiStatus, apiStatusError, backendEnabled, error, isLoading]);
-  const statusClass = backendEnabled
-    ? isLoading
-      ? "bg-solBlue shadow-[0_0_14px_rgba(49,185,255,0.35)]"
-      : error || apiStatusError || apiStatus?.ok === false
-        ? "bg-no shadow-[0_0_14px_rgba(255,78,92,0.35)]"
-        : "bg-yes shadow-[0_0_14px_rgba(25,245,140,0.35)]"
-    : "bg-muted shadow-[0_0_14px_rgba(148,163,184,0.25)]";
-  const statusTitle = useMemo(() => {
-    if (!backendEnabled) return "Using local preview data";
-    if (error) return error;
-    if (apiStatusError) return apiStatusError;
-    if (!apiStatus) return "ProbX API connected";
-    const cursor = apiStatus.indexer?.cursor;
-      const parts = [
-      `Network: ${runtimeConfig.label}`,
-      `Database: ${apiStatus.database?.ok ? "ok" : "error"}`,
-      `Markets: ${apiStatus.marketCount}`,
-      `Indexer lag: ${formatLag(apiStatus.indexer?.lagSeconds ?? 0)}`,
-      `Cursor slot: ${cursor?.slot ?? 0}`,
-      `Verification: ${apiStatus.tradeVerification}`
-    ];
-    return parts.join(" | ");
-  }, [apiStatus, apiStatusError, backendEnabled, error, runtimeConfig.label]);
-
-  useEffect(() => {
-    if (!backendEnabled) {
-      setApiStatus(null);
-      setApiStatusError(null);
-      return;
-    }
-
-    let cancelled = false;
-    async function loadStatus() {
-      try {
-        const status = await fetchApiStatus();
-        if (cancelled) return;
-        setApiStatus(status);
-        setApiStatusError(null);
-      } catch (error) {
-        if (cancelled) return;
-        setApiStatus(null);
-        setApiStatusError(error instanceof Error ? error.message : "API status unavailable");
-      }
-    }
-
-    void loadStatus();
-    const id = window.setInterval(loadStatus, 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [backendEnabled]);
+  const hasTestnetBanner = runtimeConfig.isTestnetMode;
 
   return (
-    <div className="h-screen overflow-hidden bg-canvas text-slate-100">
+    <div className="h-dvh overflow-hidden bg-canvas text-slate-100">
+      {hasTestnetBanner ? (
+        <div className="flex h-8 w-full items-center justify-center bg-[#e11d2e] px-3 text-center text-xs font-black uppercase tracking-wide text-white shadow-[0_8px_24px_rgba(225,29,46,0.22)] sm:text-sm">
+          <span className="truncate">Testnet Mode - Solana Testnet - Test Funds Only</span>
+        </div>
+      ) : null}
       <header className="h-[60px] border-b border-line bg-black/80 backdrop-blur-xl">
-        <div className="grid h-full w-full grid-cols-[minmax(160px,auto)_1fr_auto] items-center gap-3 px-3 sm:px-4 2xl:px-6">
-          <Link href="/" className="flex w-max items-center gap-3">
+        <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 sm:px-4 md:grid-cols-[minmax(160px,auto)_1fr_auto] md:gap-3 2xl:px-6">
+          <Link href="/" className="flex min-w-0 items-center gap-2 md:w-max md:gap-3">
             <span className="probx-logo-mark" aria-hidden="true">
               <span className="probx-logo-slice slice-a" />
               <span className="probx-logo-slice slice-b" />
               <span className="probx-logo-slice slice-c" />
               <span className="probx-logo-slice slice-d" />
             </span>
-            <span className="text-[27px] font-black tracking-tight">ProbX</span>
+            <span className="text-2xl font-black tracking-tight md:text-[27px]">ProbX</span>
             {runtimeConfig.isTestnetMode ? (
-              <span className="rounded border border-solBlue/40 bg-solBlue/10 px-2 py-1 text-[11px] font-black uppercase text-solBlue">
+              <span className="hidden rounded border border-solBlue/40 bg-solBlue/10 px-2 py-1 text-[11px] font-black uppercase text-solBlue sm:inline-flex">
                 Testnet
               </span>
             ) : null}
@@ -144,28 +85,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="flex min-w-0 items-center justify-end gap-2 xl:gap-3">
-            <div
-              className="hidden h-10 max-w-[360px] items-center gap-2 rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-slate-200 lg:flex xl:px-4"
-              title={statusTitle}
-            >
-              <span className={`rounded border px-1.5 py-0.5 text-[10px] font-black uppercase ${runtimeConfig.isTestnetMode ? "border-solBlue/40 bg-solBlue/10 text-solBlue" : "border-line bg-black/20 text-muted"}`}>
-                {runtimeConfig.label}
-              </span>
-              <span className={`h-2 w-2 rounded-full ${statusClass}`} />
-              <span className="truncate">{statusLabel}</span>
-            </div>
             <SocialLinks placement="header" />
             <WalletConnect />
           </div>
         </div>
       </header>
-      <main className="h-[calc(100vh-104px)] w-full overflow-x-hidden overflow-y-scroll px-2.5 py-2.5 2xl:px-4">
+      <main className={`${hasTestnetBanner ? "h-[calc(100dvh-164px)] md:h-[calc(100dvh-136px)]" : "h-[calc(100dvh-132px)] md:h-[calc(100dvh-104px)]"} w-full overflow-x-hidden overflow-y-scroll px-2.5 py-2.5 pb-[calc(76px+env(safe-area-inset-bottom))] md:pb-2.5 2xl:px-4`}>
         {children}
       </main>
       <footer className="fixed bottom-2.5 left-2.5 right-2.5 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 shadow-[0_0_28px_rgba(49,185,255,0.10)] backdrop-blur-xl xl:block">
         <Ticker />
       </footer>
+      <MobileNav pathname={pathname} />
     </div>
+  );
+}
+
+function MobileNav({ pathname }: { pathname: string }) {
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-solBlue/20 bg-slate-950/95 px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-14px_34px_rgba(0,0,0,0.38)] backdrop-blur-xl md:hidden">
+      <div className="grid grid-cols-4 gap-1">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = tab.href === "/" ? pathname === "/" || pathname.startsWith("/markets") : pathname.startsWith(tab.href);
+          return (
+            <Link
+              key={tab.href}
+              href={tab.href}
+              className={`grid min-h-[52px] place-items-center gap-1 rounded-lg border px-1 py-1 text-[11px] font-black transition ${
+                active
+                  ? "border-solPurple/60 bg-solPurple/20 text-white shadow-glow"
+                  : "border-transparent text-slate-400 active:bg-white/5"
+              }`}
+            >
+              <Icon size={18} className={active ? "text-white" : "text-violet-300"} />
+              <span className="leading-none">{tab.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -255,14 +214,6 @@ function SocialLinks({ placement }: { placement: "header" | "footer" }) {
       })}
     </div>
   );
-}
-
-function formatLag(seconds: number) {
-  if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  return `${hours}h`;
 }
 
 function XIcon({ size = 16, className }: { size?: string | number; className?: string }) {

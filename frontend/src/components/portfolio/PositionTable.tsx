@@ -1,26 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { TransactionProgressModal, type TransactionProgressState } from "@/components/chain/TransactionProgress";
 import { useMarkets } from "@/components/market/MarketProvider";
 import { formatPercent } from "@/lib/format";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 import type { Market, Position } from "@/lib/types";
 import { RouterLink as Link } from "@/router";
 
 export function PositionTable({ positions, markets, compact = false }: { positions: Position[]; markets: Market[]; compact?: boolean }) {
   const { redeem, refund, waitForActionConfirmation } = useMarkets();
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
   const [claimed, setClaimed] = useState<Record<string, boolean>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<Record<string, string>>({});
+  const [chainProgress, setChainProgress] = useState<TransactionProgressState | null>(null);
   const showAction = !compact;
 
   async function claim(position: Position) {
     setMessages((current) => ({ ...current, [position.id]: "" }));
+    setChainProgress(null);
     setPending((current) => ({ ...current, [position.id]: true }));
     try {
       const market = markets.find((item) => item.id === position.marketId);
       const isCancelled = Boolean(market?.resolved && market.outcome === 2);
       const signature = isCancelled ? await refund(position.id) : await redeem(position.id);
       if (signature !== "local" && signature !== "indexed") {
+        setChainProgress({
+          title: isCancelled ? "Refund Position" : "Claim Winnings",
+          phase: "confirming",
+          signature,
+          message: "Transaction broadcasted. Waiting for confirmation and ProbX indexing."
+        });
         setMessages((current) => ({
           ...current,
           [position.id]: `Tx ${signature.slice(0, 8)}... waiting for indexer`
@@ -28,6 +39,15 @@ export function PositionTable({ positions, markets, compact = false }: { positio
         const confirmation = await waitForActionConfirmation(signature, {
           eventType: isCancelled ? "RefundRedeemed" : "WinningsRedeemed",
           marketId: position.marketId
+        });
+        setChainProgress({
+          title: isCancelled ? "Refund Position" : "Claim Winnings",
+          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          signature,
+          message:
+            confirmation === "confirmed"
+              ? "Transaction is confirmed and indexed by ProbX."
+              : "Transaction was sent; indexing is still catching up."
         });
         setClaimed((current) => ({ ...current, [position.id]: true }));
         setMessages((current) => ({
@@ -52,6 +72,7 @@ export function PositionTable({ positions, markets, compact = false }: { positio
               : "Claim indexed"
       }));
     } catch (error) {
+      setChainProgress(null);
       setMessages((current) => ({
         ...current,
         [position.id]: error instanceof Error ? error.message : "Action failed"
@@ -63,7 +84,65 @@ export function PositionTable({ positions, markets, compact = false }: { positio
 
   return (
     <div className="overflow-hidden rounded-lg border border-line">
-      <table className={compact ? "w-full table-fixed border-collapse text-xs" : "w-full border-collapse text-sm"}>
+      <TransactionProgressModal
+        state={chainProgress}
+        explorerCluster={runtimeConfig.explorerCluster}
+        onClose={() => setChainProgress(null)}
+      />
+      <div className="grid gap-2 p-2 md:hidden">
+        {!positions.length ? (
+          <div className="rounded-lg bg-slate-950/35 px-4 py-10 text-center">
+            <p className="font-bold text-slate-200">No positions yet</p>
+            <p className="mt-1 text-sm text-muted">Your open and resolved positions will appear here after trades are recorded.</p>
+          </div>
+        ) : null}
+        {positions.map((position) => {
+          const market = markets.find((item) => item.id === position.marketId);
+          const pnlClass = position.pnl >= 0 ? "text-yes" : "text-no";
+          const isCancelled = Boolean(market?.resolved && market.outcome === 2);
+          const winningSide = market?.outcome === 1 ? "YES" : market?.outcome === 0 ? "NO" : position.side;
+          const isResolved = Boolean(position.resolved || market?.resolved);
+          const isWinning = isCancelled || !market?.resolved || position.side === winningSide;
+          const isClaimed = claimed[position.id] || position.size <= 0;
+          return (
+            <article key={position.id} className="rounded-lg border border-line bg-slate-950/35 p-3">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <Link href={`/markets/${position.marketId}`} className="min-w-0 flex-1 text-sm font-black leading-snug text-white">
+                  {market?.question ?? position.marketId}
+                </Link>
+                <span className={position.side === "YES" ? "shrink-0 font-black text-yes" : "shrink-0 font-black text-no"}>
+                  {position.side}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <MobileStat label="Size" value={`${position.size.toFixed(compact ? 0 : 2)}${compact ? "" : " SOL"}`} />
+                <MobileStat label="PnL" value={`${position.pnl >= 0 ? "+" : "-"}$${Math.abs(position.pnl).toFixed(2)}`} valueClassName={pnlClass} />
+                <MobileStat label="Entry" value={formatPercent(position.entryProbability)} />
+                <MobileStat label="Current" value={formatPercent(position.currentProbability)} />
+              </div>
+              {showAction ? (
+                <div className="mt-3">
+                  {isResolved && isWinning ? (
+                    <button
+                      onClick={() => claim(position)}
+                      disabled={isClaimed || pending[position.id]}
+                      className="h-9 w-full rounded border border-yes/40 bg-yes/10 px-3 text-xs font-bold text-yes transition hover:bg-yes/20 disabled:border-line disabled:bg-white/5 disabled:text-muted"
+                    >
+                      {pending[position.id] ? (isCancelled ? "Refunding" : "Claiming") : isClaimed ? (isCancelled ? "Refunded" : "Claimed") : isCancelled ? "Refund" : "Claim"}
+                    </button>
+                  ) : isResolved ? (
+                    <span className="text-xs text-muted">Lost</span>
+                  ) : (
+                    <span className="text-xs text-muted">Open</span>
+                  )}
+                  {messages[position.id] ? <div className="mt-2 text-[11px] text-muted">{messages[position.id]}</div> : null}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+      <table className={compact ? "hidden w-full table-fixed border-collapse text-xs md:table" : "hidden w-full border-collapse text-sm md:table"}>
         <thead className="bg-slate-950/80 text-xs uppercase text-muted">
           <tr>
             <th className={compact ? "w-[34%] px-3 py-2 text-left" : "px-4 py-3 text-left"}>Market</th>
@@ -131,6 +210,15 @@ export function PositionTable({ positions, markets, compact = false }: { positio
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function MobileStat({ label, value, valueClassName = "text-slate-100" }: { label: string; value: string; valueClassName?: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-line bg-black/20 px-2.5 py-2">
+      <div className="text-[11px] uppercase text-muted">{label}</div>
+      <div className={`mt-1 truncate text-sm font-black ${valueClassName}`}>{value}</div>
     </div>
   );
 }

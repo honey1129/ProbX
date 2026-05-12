@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AlertTriangle, ArrowLeft, Bot, Clock3, Droplets, Loader2, Pencil, Radio, RefreshCw, Save, ShieldAlert, UsersRound, WalletCards, X } from "lucide-react";
+import { TransactionProgressModal, type TransactionProgressState } from "@/components/chain/TransactionProgress";
 import { MarketMediaPicker } from "@/components/market/MarketMediaPicker";
 import { TradingViewKlineChart, type ChartTimeframe } from "@/components/charts/TradingViewKlineChart";
 import { ProbabilityBar } from "@/components/market/ProbabilityBar";
@@ -10,6 +11,7 @@ import { useMarkets } from "@/components/market/MarketProvider";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { fetchTrades } from "@/lib/backendApi";
 import { formatPercent, formatPrice, formatSol, probability, relativeTime, timeRemaining } from "@/lib/format";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 import type { AgentActivity, Market, Side, Trade } from "@/lib/types";
 import { RouterLink as Link, useParams } from "@/router";
 
@@ -19,7 +21,7 @@ const categories: Market["category"][] = ["Crypto", "Politics", "Sports", "Tech"
 
 export default function MarketDetailPage() {
   const params = useParams<{ id: string }>();
-  const { markets, activity, isLoading, error, backendEnabled, dataSource, refresh } = useMarkets();
+  const { markets, activity, isLoading, error, backendEnabled, refresh } = useMarkets();
   const { publicKey } = useWallet();
   const [chartSide, setChartSide] = useState<Side>("YES");
   const [timeframe, setTimeframe] = useState<ChartTimeframe>("1D");
@@ -127,8 +129,8 @@ export default function MarketDetailPage() {
     return (
       <MarketStatePanel
         icon={<AlertTriangle size={26} className="text-no" />}
-        eyebrow="API error"
-        title="ProbX API is unavailable"
+        eyebrow="Service error"
+        title="ProbX is unavailable"
         message={error}
         action={
           <button onClick={refresh} className="inline-flex items-center gap-2 rounded-lg border border-solBlue/50 bg-solBlue/10 px-4 py-2 font-bold text-solBlue transition hover:bg-solBlue/20">
@@ -160,10 +162,10 @@ export default function MarketDetailPage() {
   const canEditMetadata = !backendEnabled || publicKey?.toBase58() === market.creator;
 
   return (
-    <div className="grid min-h-full grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_clamp(330px,23vw,390px)]">
-      <main className="grid min-h-0 gap-3">
-        <section className="terminal-panel p-5">
-          <div className="mb-4 flex items-start justify-between gap-5">
+    <div className="grid min-h-full w-full max-w-[calc(100vw-20px)] grid-cols-1 gap-3 md:max-w-none xl:grid-cols-[minmax(0,1fr)_clamp(330px,23vw,390px)]">
+      <main className="flex min-h-0 w-full min-w-0 max-w-full flex-col gap-3">
+        <section className="terminal-panel w-full min-w-0 max-w-full overflow-hidden p-4 sm:p-5">
+          <div className="mb-4 flex min-w-0 flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-5">
             <div className="min-w-0">
               <Link href="/" className="mb-4 inline-flex items-center gap-2 text-sm font-bold text-muted transition hover:text-solBlue">
                 <ArrowLeft size={16} /> Markets
@@ -173,14 +175,11 @@ export default function MarketDetailPage() {
                 <span className="flex items-center gap-1">
                   <Clock3 size={13} /> Ends in {timeRemaining(market.endTime)}
                 </span>
-                <span className={dataSource === "api" ? "flex items-center gap-1 text-yes" : "flex items-center gap-1 text-muted"}>
-                  <Radio size={13} /> {dataSource === "api" ? "API indexed" : "Local preview"}
-                </span>
               </div>
-              <h1 className="max-w-5xl text-3xl font-black leading-tight">{market.question}</h1>
+              <h1 className="max-w-5xl break-words text-2xl font-black leading-tight sm:text-3xl">{market.question}</h1>
             </div>
-            <div className="shrink-0 rounded-lg border border-yes/30 bg-yes/10 px-5 py-4 text-right shadow-yes">
-              <div className="text-5xl font-black text-yes">{formatPrice(activePrice)}</div>
+            <div className="min-w-0 rounded-lg border border-yes/30 bg-yes/10 px-4 py-3 shadow-yes md:shrink-0 md:px-5 md:py-4 md:text-right">
+              <div className="text-4xl font-black text-yes md:text-5xl">{formatPrice(activePrice)}</div>
               <div className="mt-1 text-xs uppercase text-muted">{chartSide} probability</div>
             </div>
           </div>
@@ -190,16 +189,14 @@ export default function MarketDetailPage() {
 
         <MetadataPanel market={market} canEdit={canEditMetadata} />
 
-        <section className="terminal-panel p-4">
-          <div className="mb-4 flex items-center justify-between gap-4">
+        <section className="terminal-panel w-full min-w-0 max-w-full overflow-hidden p-4">
+          <div className="mb-4 flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
             <div>
               <h2 className="text-lg font-black">TradingView K-Line</h2>
-              <p className="text-xs text-muted">
-                {dataSource === "api" ? "Candles built from indexed market probability history." : "Candles built from local preview probability history."}
-              </p>
+              <p className="text-xs text-muted">Candles built from market probability history.</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-lg border border-line bg-black/25 p-1">
+            <div className="grid gap-2 sm:flex sm:items-center">
+              <div className="grid grid-cols-2 rounded-lg border border-line bg-black/25 p-1 sm:flex">
                 {(["YES", "NO"] as const).map((side) => (
                   <button
                     key={side}
@@ -216,7 +213,7 @@ export default function MarketDetailPage() {
                   </button>
                 ))}
               </div>
-              <div className="flex rounded-lg border border-line bg-black/25 p-1">
+              <div className="grid grid-cols-4 rounded-lg border border-line bg-black/25 p-1 sm:flex">
                 {timeframes.map((item) => (
                   <button
                     key={item}
@@ -234,7 +231,7 @@ export default function MarketDetailPage() {
           <TradingViewKlineChart market={market} side={chartSide} timeframe={timeframe} />
         </section>
 
-        <section className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
+        <section className="grid w-full min-w-0 max-w-full grid-cols-2 gap-3 2xl:grid-cols-4">
           <StatCard label="Total Liquidity" value={formatSol(market.totalLiquidity)} icon={<Droplets size={16} />} />
           <StatCard label="24h Volume" value={`$${(market.volume24h / 1_000_000).toFixed(2)}M`} icon={<Radio size={16} />} />
           <StatCard label="Participants" value={market.participants.toLocaleString()} icon={<UsersRound size={16} />} />
@@ -244,7 +241,7 @@ export default function MarketDetailPage() {
         <ResolverPanel market={market} />
         <ResidualPanel market={market} />
 
-        <section className="terminal-panel flex min-h-0 flex-col overflow-hidden">
+        <section className="terminal-panel flex min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <h2 className="font-black">Trade History</h2>
             <div className="flex rounded-lg border border-line bg-black/25 p-1">
@@ -262,7 +259,39 @@ export default function MarketDetailPage() {
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <table className="w-full border-collapse text-sm">
+            <div className="grid gap-2 p-2 md:hidden">
+              {tradesLoading ? (
+                <div className="rounded-lg bg-slate-950/30 px-4 py-10 text-center text-muted">
+                  <Loader2 size={18} className="mx-auto mb-2 animate-spin text-solBlue" />
+                  Loading trade history
+                </div>
+              ) : null}
+              {!recentTrades.length ? (
+                <div className="rounded-lg bg-slate-950/30 px-4 py-10 text-center">
+                  <p className="font-bold text-slate-200">No indexed trades yet</p>
+                  <p className="mt-1 text-sm text-muted">Trades will appear here after the API records market activity.</p>
+                </div>
+              ) : null}
+              {recentTrades.map((trade) => (
+                <article key={trade.id} className="rounded-lg border border-line bg-slate-950/30 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <span className={trade.side === "YES" ? "font-black text-yes" : "font-black text-no"}>
+                      {trade.action} {trade.side}
+                    </span>
+                    <span className={trade.status === "confirmed" ? "rounded border border-yes/30 bg-yes/10 px-2 py-1 text-xs font-bold text-yes" : "rounded border border-solBlue/30 bg-solBlue/10 px-2 py-1 text-xs font-bold text-solBlue"}>
+                      {trade.status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <MobileTradeStat label="Amount" value={formatSol(trade.amountSol, 3)} strong />
+                    <MobileTradeStat label="Fee" value={formatSol(trade.protocolFeeSol || 0, 4)} />
+                    <MobileTradeStat label="Price" value={formatPrice(trade.price)} />
+                    <MobileTradeStat label="Time" value={relativeTime(trade.createdAt)} />
+                  </div>
+                </article>
+              ))}
+            </div>
+            <table className="hidden w-full border-collapse text-sm md:table">
               <thead className="bg-slate-950/80 text-xs uppercase text-muted">
                 <tr>
                   <th className="px-4 py-3 text-left">Side</th>
@@ -325,7 +354,7 @@ export default function MarketDetailPage() {
         </section>
       </main>
 
-      <aside className="h-full min-h-0 overflow-hidden">
+      <aside className="min-h-[560px] overflow-hidden xl:h-full xl:min-h-0">
         <TradePanel market={market} />
       </aside>
     </div>
@@ -335,9 +364,11 @@ export default function MarketDetailPage() {
 function ResolverPanel({ market }: { market: Market }) {
   const { resolve, cancelMarket, setMarketResolver, waitForActionConfirmation, backendEnabled } = useMarkets();
   const { publicKey } = useWallet();
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
   const [pending, setPending] = useState<0 | 1 | "cancel" | "resolver" | null>(null);
   const [newResolver, setNewResolver] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [chainProgress, setChainProgress] = useState<TransactionProgressState | null>(null);
   const hasEnded = market.endTime <= Math.floor(Date.now() / 1000);
   const walletKey = publicKey?.toBase58() ?? "";
   const canGovern = !backendEnabled || walletKey === market.resolver;
@@ -346,12 +377,25 @@ function ResolverPanel({ market }: { market: Market }) {
 
   async function submit(outcome: 0 | 1) {
     setMessage(null);
+    setChainProgress(null);
     setPending(outcome);
     try {
       const signature = await resolve(market.id, outcome);
       if (signature !== "local" && signature !== "indexed") {
+        setChainProgress({
+          title: `Resolve ${outcome === 1 ? "YES" : "NO"}`,
+          phase: "confirming",
+          signature,
+          message: "Transaction broadcasted. Waiting for confirmation and ProbX indexing."
+        });
         setMessage(`Resolve tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketResolved", marketId: market.id });
+        setChainProgress({
+          title: `Resolve ${outcome === 1 ? "YES" : "NO"}`,
+          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          signature,
+          message: confirmation === "confirmed" ? "Resolution is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
+        });
         setMessage(
           confirmation === "confirmed"
             ? `Resolve confirmed and indexed: ${signature.slice(0, 12)}...`
@@ -367,6 +411,7 @@ function ResolverPanel({ market }: { market: Market }) {
           : "Market resolved in ProbX API."
       );
     } catch (error) {
+      setChainProgress(null);
       setMessage(error instanceof Error ? error.message : "Resolve failed.");
     } finally {
       setPending(null);
@@ -375,12 +420,25 @@ function ResolverPanel({ market }: { market: Market }) {
 
   async function submitCancel() {
     setMessage(null);
+    setChainProgress(null);
     setPending("cancel");
     try {
       const signature = await cancelMarket(market.id);
       if (signature !== "local" && signature !== "indexed") {
+        setChainProgress({
+          title: "Cancel Market",
+          phase: "confirming",
+          signature,
+          message: "Transaction broadcasted. Waiting for confirmation and ProbX indexing."
+        });
         setMessage(`Cancel tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketCancelled", marketId: market.id });
+        setChainProgress({
+          title: "Cancel Market",
+          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          signature,
+          message: confirmation === "confirmed" ? "Cancellation is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
+        });
         setMessage(
           confirmation === "confirmed"
             ? `Cancel confirmed and indexed: ${signature.slice(0, 12)}...`
@@ -392,6 +450,7 @@ function ResolverPanel({ market }: { market: Market }) {
       }
       setMessage(signature === "local" ? "Market cancelled locally." : "Market cancelled in ProbX API.");
     } catch (error) {
+      setChainProgress(null);
       setMessage(error instanceof Error ? error.message : "Cancel failed.");
     } finally {
       setPending(null);
@@ -400,12 +459,25 @@ function ResolverPanel({ market }: { market: Market }) {
 
   async function submitResolver() {
     setMessage(null);
+    setChainProgress(null);
     setPending("resolver");
     try {
       const signature = await setMarketResolver(market.id, newResolver);
       if (signature !== "local" && signature !== "indexed") {
+        setChainProgress({
+          title: "Set Resolver",
+          phase: "confirming",
+          signature,
+          message: "Transaction broadcasted. Waiting for confirmation and ProbX indexing."
+        });
         setMessage(`Resolver tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketResolverUpdated", marketId: market.id });
+        setChainProgress({
+          title: "Set Resolver",
+          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          signature,
+          message: confirmation === "confirmed" ? "Resolver update is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
+        });
         setMessage(
           confirmation === "confirmed"
             ? `Resolver updated and indexed: ${signature.slice(0, 12)}...`
@@ -419,6 +491,7 @@ function ResolverPanel({ market }: { market: Market }) {
       setMessage(signature === "local" ? "Resolver updated locally." : "Resolver updated in ProbX API.");
       setNewResolver("");
     } catch (error) {
+      setChainProgress(null);
       setMessage(error instanceof Error ? error.message : "Resolver update failed.");
     } finally {
       setPending(null);
@@ -444,6 +517,11 @@ function ResolverPanel({ market }: { market: Market }) {
 
   return (
     <section className="terminal-panel grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-center">
+      <TransactionProgressModal
+        state={chainProgress}
+        explorerCluster={runtimeConfig.explorerCluster}
+        onClose={() => setChainProgress(null)}
+      />
       <div>
         <h2 className="font-black">Settlement Governance</h2>
         <p className="mt-1 text-sm text-muted">
@@ -509,8 +587,10 @@ function ResolverPanel({ market }: { market: Market }) {
 function ResidualPanel({ market }: { market: Market }) {
   const { withdrawResidual, waitForActionConfirmation, backendEnabled, positions } = useMarkets();
   const { publicKey } = useWallet();
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [chainProgress, setChainProgress] = useState<TransactionProgressState | null>(null);
   const walletKey = publicKey?.toBase58() ?? "";
   const canWithdraw = !backendEnabled || walletKey === market.creator;
   const outstanding = useMemo(() => {
@@ -530,11 +610,24 @@ function ResidualPanel({ market }: { market: Market }) {
   async function submit() {
     setPending(true);
     setMessage(null);
+    setChainProgress(null);
     try {
       const signature = await withdrawResidual(market.id);
       if (signature !== "local" && signature !== "indexed") {
+        setChainProgress({
+          title: "Withdraw Residual",
+          phase: "confirming",
+          signature,
+          message: "Transaction broadcasted. Waiting for confirmation and ProbX indexing."
+        });
         setMessage(`Withdrawal tx sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "ResidualWithdrawn", marketId: market.id });
+        setChainProgress({
+          title: "Withdraw Residual",
+          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          signature,
+          message: confirmation === "confirmed" ? "Withdrawal is confirmed and indexed by ProbX." : "Transaction was sent; indexing is still catching up."
+        });
         setMessage(
           confirmation === "confirmed"
             ? `Residual withdrawal indexed: ${signature.slice(0, 12)}...`
@@ -546,6 +639,7 @@ function ResidualPanel({ market }: { market: Market }) {
       }
       setMessage(signature === "local" ? "Residual withdrawal updated locally." : "Residual withdrawal saved.");
     } catch (error) {
+      setChainProgress(null);
       setMessage(error instanceof Error ? error.message : "Residual withdrawal failed.");
     } finally {
       setPending(false);
@@ -554,6 +648,11 @@ function ResidualPanel({ market }: { market: Market }) {
 
   return (
     <section className="terminal-panel grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-center">
+      <TransactionProgressModal
+        state={chainProgress}
+        explorerCluster={runtimeConfig.explorerCluster}
+        onClose={() => setChainProgress(null)}
+      />
       <div>
         <h2 className="flex items-center gap-2 font-black"><WalletCards size={16} className="text-solBlue" /> Funds Economics</h2>
         <p className="mt-1 text-sm text-muted">
@@ -671,13 +770,22 @@ function MetadataPanel({ market, canEdit }: { market: Market; canEdit: boolean }
 
 function StatCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
-    <article className="terminal-panel p-4">
+    <article className="terminal-panel p-3 sm:p-4">
       <div className="mb-3 flex items-center justify-between text-muted">
         <span className="text-xs uppercase">{label}</span>
         <span className="text-solBlue">{icon}</span>
       </div>
-      <div className="text-2xl font-black">{value}</div>
+      <div className="truncate text-xl font-black sm:text-2xl">{value}</div>
     </article>
+  );
+}
+
+function MobileTradeStat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-md border border-line bg-black/20 px-2.5 py-2">
+      <div className="text-[11px] uppercase text-muted">{label}</div>
+      <div className={`mt-1 truncate text-sm font-black ${strong ? "text-white" : "text-slate-200"}`}>{value}</div>
+    </div>
   );
 }
 

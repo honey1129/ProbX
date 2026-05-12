@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Info, Loader2, Wallet2, X } from "lucide-react";
+import { TransactionProgressModal, type TransactionProgressState } from "@/components/chain/TransactionProgress";
 import { formatPercent, formatPrice, formatSol, probability, timeRemaining } from "@/lib/format";
 import { protocolFeeSol, quoteBuyShares, quoteSellShares } from "@/lib/anchorClient";
+import { explorerUrlForSignature } from "@/lib/explorer";
 import { getRuntimeConfig } from "@/lib/runtimeConfig";
+import { isIndexedOnchainMarket } from "@/lib/marketMode";
 import type { Market, Side } from "@/lib/types";
 import { useMarkets } from "@/components/market/MarketProvider";
 
@@ -31,9 +34,10 @@ type TradeReceipt = {
 export function TradePanel({ market }: { market: Market }) {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
-  const { buy, sell, positions, isLoading, error, backendEnabled, dataSource, waitForTradeConfirmation } = useMarkets();
+  const { buy, sell, positions, isLoading, error, backendEnabled, waitForTradeConfirmation } = useMarkets();
   const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
   const onchainEnabled = runtimeConfig.enableOnchain;
+  const usesOnchain = onchainEnabled && isIndexedOnchainMarket(market);
   const [tab, setTab] = useState<TradeTab>("TRADE");
   const [mode, setMode] = useState<TradeMode>("BUY");
   const [side, setSide] = useState<Side>("YES");
@@ -41,6 +45,7 @@ export function TradePanel({ market }: { market: Market }) {
   const [orderType, setOrderType] = useState("Market");
   const [slippage, setSlippage] = useState("0.5");
   const [status, setStatus] = useState<string | null>(null);
+  const [chainProgress, setChainProgress] = useState<TransactionProgressState | null>(null);
   const [receipt, setReceipt] = useState<TradeReceipt | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
@@ -49,11 +54,12 @@ export function TradePanel({ market }: { market: Market }) {
 
   useEffect(() => {
     setStatus(null);
+    setChainProgress(null);
     setReceipt(null);
   }, [market.id, mode, side]);
 
   useEffect(() => {
-    if (!onchainEnabled || !connected || !publicKey) {
+    if (!usesOnchain || !connected || !publicKey) {
       setWalletBalance(null);
       setBalanceError(null);
       setBalanceLoading(false);
@@ -82,7 +88,7 @@ export function TradePanel({ market }: { market: Market }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, connection, onchainEnabled, publicKey, isSubmitting]);
+  }, [connected, connection, usesOnchain, publicKey, isSubmitting]);
 
   const availableShares = positions
     .filter((position) => position.marketId === market.id && position.side === side && !position.resolved)
@@ -90,9 +96,9 @@ export function TradePanel({ market }: { market: Market }) {
   const reserveSol = 0.002;
   const walletSpendable = walletBalance === null ? null : Math.max(0, walletBalance - reserveSol);
   const localBuyLimit = 24.25;
-  const buyLimit = onchainEnabled && connected && walletSpendable !== null ? walletSpendable : localBuyLimit;
+  const buyLimit = usesOnchain && connected && walletSpendable !== null ? walletSpendable : localBuyLimit;
   const orderLimit = mode === "BUY" ? buyLimit : availableShares;
-  const hasFiniteLimit = mode === "SELL" || (mode === "BUY" && onchainEnabled && connected && walletSpendable !== null) || (!backendEnabled && !onchainEnabled);
+  const hasFiniteLimit = mode === "SELL" || (mode === "BUY" && usesOnchain && connected && walletSpendable !== null) || (!backendEnabled && !usesOnchain);
   const p = side === "YES" ? probability(market) : 1 - probability(market);
   const amountNumber = Number(amount || 0);
   const buyQuote = useMemo(() => quoteBuyShares(market, side, amountNumber), [amountNumber, market, side]);
@@ -130,31 +136,31 @@ export function TradePanel({ market }: { market: Market }) {
     if (market.endTime <= Math.floor(Date.now() / 1000)) return "This market is closed.";
     if (backendEnabled && isLoading) return "Waiting for the ProbX API.";
     if (backendEnabled && error) return error;
-    if (onchainEnabled && !connected) return "Connect a wallet to trade on-chain.";
-    if (mode === "BUY" && onchainEnabled && connected && balanceLoading) return "Loading wallet balance.";
-    if (mode === "BUY" && onchainEnabled && connected && balanceError) return balanceError;
+    if (usesOnchain && !connected) return "Connect a wallet to trade on-chain.";
+    if (mode === "BUY" && usesOnchain && connected && balanceLoading) return "Loading wallet balance.";
+    if (mode === "BUY" && usesOnchain && connected && balanceError) return balanceError;
     if (!Number.isFinite(amountNumber) || amountNumber <= 0) return "Enter a valid amount.";
     if (mode === "SELL" && availableShares <= 0) return `No ${side} shares available to sell.`;
     if (hasFiniteLimit && amountNumber > orderLimit + 1e-9) {
       return mode === "BUY" ? "Amount exceeds available SOL." : "Amount exceeds available shares.";
     }
     return null;
-  }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.endTime, market.outcome, market.resolved, mode, onchainEnabled, orderLimit, side]);
+  }, [amountNumber, availableShares, backendEnabled, balanceError, balanceLoading, connected, error, hasFiniteLimit, isLoading, market.endTime, market.outcome, market.resolved, mode, orderLimit, side, usesOnchain]);
 
   const percentUsed = hasFiniteLimit && orderLimit > 0 ? Math.max(0, Math.min(100, (amountNumber / orderLimit) * 100 || 0)) : 0;
   const successStatus = status ? status.includes("updated") || status.includes("API") || status.includes("Tx") || status.includes("saved") : false;
   const primaryButtonLabel = isSubmitting
-    ? connected && onchainEnabled
+    ? connected && usesOnchain
       ? "Signing..."
       : "Submitting..."
-    : connected && onchainEnabled
+    : connected && usesOnchain
       ? `${mode} ${side}`
       : backendEnabled
         ? `Record ${mode} ${side}`
         : `Preview ${mode} ${side}`;
   const balanceLabel =
     mode === "BUY"
-      ? onchainEnabled && connected
+      ? usesOnchain && connected
         ? balanceLoading
           ? "Wallet balance: loading"
           : walletBalance === null
@@ -181,6 +187,7 @@ export function TradePanel({ market }: { market: Market }) {
 
   async function submit() {
     setStatus(null);
+    setChainProgress(null);
     if (validationMessage) {
       setStatus(validationMessage);
       return;
@@ -211,6 +218,12 @@ export function TradePanel({ market }: { market: Market }) {
             ? "Trade saved to ProbX API"
             : `Tx sent: ${signature.slice(0, 12)}...`;
       if (signature !== "local" && signature !== "indexed") {
+        setChainProgress({
+          title: `${mode} ${side}`,
+          phase: "confirming",
+          signature,
+          message: "Transaction broadcasted. Waiting for confirmation and ProbX indexing."
+        });
         setStatus(`Tx sent: ${signature.slice(0, 12)}... waiting for indexer`);
         const confirmation = await waitForTradeConfirmation(signature, { marketId: market.id });
         receiptStatus = confirmation;
@@ -223,6 +236,19 @@ export function TradePanel({ market }: { market: Market }) {
         } else {
           nextStatus = `Tx indexed: ${signature.slice(0, 12)}...`;
         }
+        setChainProgress({
+          title: `${mode} ${side}`,
+          phase: confirmation === "confirmed" || confirmation === "indexed" ? "confirmed" : confirmation === "timeout" ? "timeout" : "confirming",
+          signature,
+          message:
+            confirmation === "confirmed" || confirmation === "indexed"
+              ? "Trade is confirmed and indexed by ProbX."
+              : confirmation === "sent"
+                ? "Trade was accepted and is waiting for indexer reconciliation."
+                : "Transaction was sent; indexing is still catching up."
+        });
+      } else {
+        setChainProgress(null);
       }
       setStatus(nextStatus);
       setReceipt({
@@ -232,6 +258,7 @@ export function TradePanel({ market }: { market: Market }) {
         explorerUrl: explorerUrlForSignature(signature, runtimeConfig.explorerCluster)
       });
     } catch (error) {
+      setChainProgress(null);
       setStatus(error instanceof Error ? error.message : "Trade failed");
     } finally {
       setIsSubmitting(false);
@@ -240,6 +267,11 @@ export function TradePanel({ market }: { market: Market }) {
 
   return (
     <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-2.5">
+      <TransactionProgressModal
+        state={chainProgress}
+        explorerCluster={runtimeConfig.explorerCluster}
+        onClose={() => setChainProgress(null)}
+      />
       <TradeReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} />
       <div className="mb-2 flex items-center border-b border-line pb-1.5 text-sm">
         <button
@@ -260,17 +292,17 @@ export function TradePanel({ market }: { market: Market }) {
         </button>
       </div>
 
-      <div className="grid min-h-0 flex-1 content-start">
+      <div className="grid min-h-0 flex-1 content-start overflow-y-auto">
         {tab === "TRADE" ? (
           <div className="grid content-start">
             <div className="mb-2 flex items-center justify-between rounded-lg border border-line bg-black/25 px-3 py-1.5 text-xs text-muted">
-            <span className="inline-flex items-center gap-1.5">
-              {validationMessage ? <AlertTriangle size={13} className="text-no" /> : <CheckCircle2 size={13} className="text-yes" />}
-              {dataSource === "api" ? "ProbX API" : "Local preview"}
-            </span>
-            <span className={onchainEnabled ? (connected ? "text-yes" : "text-no") : "text-muted"}>
-              {onchainEnabled ? (connected ? "Wallet connected" : "Wallet required") : "Off-chain indexing"}
-            </span>
+              <span className="inline-flex items-center gap-1.5">
+                {validationMessage ? <AlertTriangle size={13} className="text-no" /> : <CheckCircle2 size={13} className="text-yes" />}
+                {validationMessage ? "Review order" : "Ready to trade"}
+              </span>
+              <span className={onchainEnabled ? (connected ? "text-yes" : "text-no") : "text-muted"}>
+                {onchainEnabled ? (connected ? "Wallet connected" : "Wallet required") : "Trading enabled"}
+              </span>
             </div>
 
           <div className="mb-2 grid grid-cols-2 gap-2 rounded-lg border border-line bg-black/25 p-1">
@@ -590,10 +622,4 @@ function CodeRow({ label, value }: { label: string; value: string }) {
 function shortAddress(value: string) {
   if (value.length <= 18) return value;
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
-}
-
-function explorerUrlForSignature(signature: string, explorerCluster: string) {
-  if (signature === "local" || signature === "indexed" || signature === "simulated") return null;
-  const clusterQuery = explorerCluster === "mainnet-beta" ? "" : `?cluster=${explorerCluster}`;
-  return `https://explorer.solana.com/tx/${signature}${clusterQuery}`;
 }

@@ -18,7 +18,7 @@ const featuredOrder = ["fed-rates", "btc-100k", "trump-approval", "sol-etf", "nb
 const overviewTimeframes: ChartTimeframe[] = ["1H", "4H", "1D", "1W", "1M", "ALL"];
 const chartSides: Array<Side | "BOTH"> = ["BOTH", "YES", "NO"];
 export default function MarketListPage() {
-  const { markets, positions, isLoading, error, backendEnabled, dataSource, refresh } = useMarkets();
+  const { markets, positions, isLoading, error, backendEnabled, refresh } = useMarkets();
   const [category, setCategory] = useState<(typeof categories)[number]>("All");
   const [sort, setSort] = useState("Trending");
   const [selectedId, setSelectedId] = useState(markets[0]?.id);
@@ -145,9 +145,9 @@ export default function MarketListPage() {
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-2.5 overflow-y-auto xl:grid-cols-[minmax(300px,0.78fr)_minmax(520px,1.55fr)] 2xl:grid-cols-[clamp(340px,19vw,420px)_minmax(560px,1fr)_clamp(330px,18vw,390px)] 2xl:overflow-hidden">
-      <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
+      <aside className="terminal-panel flex min-h-[520px] flex-col overflow-hidden xl:h-full xl:min-h-0">
         <div className="border-b border-line px-3.5 pb-3 pt-3">
-          <div className="mb-3 flex items-center gap-6 text-sm">
+          <div className="mb-3 flex items-center gap-4 text-sm sm:gap-6">
             {["Markets", "Watchlist", "Trending"].map((item) => (
               <button
                 key={item}
@@ -166,7 +166,7 @@ export default function MarketListPage() {
               </button>
             ))}
           </div>
-          <div className="mb-2 grid grid-cols-6 gap-1.5">
+          <div className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
             {categories.map((item) => (
               <button
                 key={item}
@@ -192,22 +192,14 @@ export default function MarketListPage() {
               </button>
             ))}
           </div>
-          <div className={`mt-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs ${
-            error
-              ? "border-no/30 bg-no/10 text-no"
-              : dataSource === "api"
-                ? "border-yes/25 bg-yes/10 text-yes"
-                : "border-line bg-black/25 text-muted"
-          }`}>
-            <span className="min-w-0 truncate">
-              {error ? `API error: ${error}` : dataSource === "api" ? "Data source: ProbX API" : "Data source: local preview"}
-            </span>
-            {error ? (
+          {error ? (
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-no/30 bg-no/10 px-3 py-2 text-xs text-no">
+              <span className="min-w-0 truncate">Service unavailable: {error}</span>
               <button onClick={refresh} className="shrink-0 font-black text-slate-100 transition hover:text-white">
                 Retry
               </button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
         <div className="scroll-surface grid min-h-0 flex-1 content-start gap-1.5 overflow-y-auto p-2">
           {filtered.length ? (
@@ -216,7 +208,7 @@ export default function MarketListPage() {
                 key={market.id}
                 onMouseEnter={() => setSelectedId(market.id)}
                 onFocus={() => setSelectedId(market.id)}
-                className={selected?.id === market.id ? "rounded-lg ring-1 ring-solBlue/60 shadow-[0_0_24px_rgba(49,185,255,0.10)]" : ""}
+                className={selected?.id === market.id ? "min-w-0 rounded-lg ring-1 ring-solBlue/60 shadow-[0_0_24px_rgba(49,185,255,0.10)]" : "min-w-0"}
               >
                 <MarketCard market={market} />
               </div>
@@ -232,7 +224,7 @@ export default function MarketListPage() {
             </div>
           )}
         </div>
-        <div className="grid grid-cols-[1fr_auto] items-center border-t border-line px-4 py-2.5 text-sm">
+        <div className="grid grid-cols-1 gap-2 border-t border-line px-4 py-2.5 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
           <Link href="/create" className="inline-flex items-center gap-2 text-slate-300 transition hover:text-white">
             <Plus size={14} /> Create Market
           </Link>
@@ -245,12 +237,12 @@ export default function MarketListPage() {
         </div>
       </aside>
 
-      <section className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(230px,0.52fr)] gap-2.5 overflow-hidden">
+      <section className="grid min-h-[780px] grid-rows-[minmax(0,1fr)_minmax(230px,0.52fr)] gap-2.5 overflow-hidden xl:h-full xl:min-h-0">
         {selected ? (
           <article className="terminal-panel flex min-h-0 flex-col overflow-y-auto p-4">
-            <div className="mb-3 flex items-start justify-between gap-4">
+            <div className="mb-3 grid gap-3 md:flex md:items-start md:justify-between md:gap-4">
               <div className="min-w-0">
-                <div className="mb-2 flex items-center gap-2 text-xs text-muted">
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted">
                   <span className="rounded border border-solPurple/40 bg-solPurple/10 px-2 py-1 text-violet-200">{selected.category}</span>
                   <span className="font-black text-yes">{Math.round(yesPrice * 100)}% chance</span>
                   <span className={selected.change24h >= 0 ? "text-yes" : "text-no"}>
@@ -259,7 +251,7 @@ export default function MarketListPage() {
                   <span>Volume ${(selected.volume24h / 1_000_000).toFixed(2)}M</span>
                   <span>Open Interest ${((selected.yesPool + selected.noPool) / 1000).toFixed(2)}M</span>
                 </div>
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-start gap-2">
                   <h1 className="truncate text-[22px] font-black">{selected.question}</h1>
                   <button
                     onClick={() => toggleWatchlist(selected.id)}
@@ -324,8 +316,8 @@ export default function MarketListPage() {
               </div>
             </div>
             <MarketShareDialog market={selected} open={shareOpen} url={selectedUrl} onClose={() => setShareOpen(false)} />
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="flex gap-2">
+            <div className="mb-3 grid gap-3 md:flex md:items-center md:justify-between">
+              <div className="grid grid-cols-2 gap-2 sm:flex">
                 <button onClick={() => setChartSide("YES")} className="price-pill yes transition hover:brightness-125">
                   YES {formatPrice(yesPrice)}
                 </button>
@@ -333,19 +325,19 @@ export default function MarketListPage() {
                   NO {formatPrice(noPrice)}
                 </button>
               </div>
-              <div className="flex items-center gap-1 rounded-lg border border-line bg-black/25 p-1 text-xs">
+              <div className="grid grid-cols-4 items-center gap-1 rounded-lg border border-line bg-black/25 p-1 text-xs min-[420px]:grid-cols-7 sm:flex">
                 {overviewTimeframes.map((item) => (
                   <button
                     key={item}
                     onClick={() => setTimeframe(item)}
-                    className={`rounded-md px-2.5 py-1 font-black transition ${timeframe === item ? "bg-solPurple/20 text-white shadow-glow" : "text-muted hover:text-white"}`}
+                    className={`rounded-md px-2 py-1 font-black transition sm:px-2.5 ${timeframe === item ? "bg-solPurple/20 text-white shadow-glow" : "text-muted hover:text-white"}`}
                   >
                     {item}
                   </button>
                 ))}
                 <button
                   onClick={() => setChartSide(nextChartSide(chartSide))}
-                  className="ml-1 grid h-7 w-8 place-items-center rounded-md border border-solPurple/45 text-violet-200 transition hover:bg-solPurple/15"
+                  className="grid h-7 place-items-center rounded-md border border-solPurple/45 text-violet-200 transition hover:bg-solPurple/15 sm:ml-1 sm:w-8"
                   aria-label="Switch chart side"
                   title={`Chart: ${chartSide}`}
                 >
@@ -357,7 +349,7 @@ export default function MarketListPage() {
             <div className="mt-3 min-h-0 flex-1">
               <TradingViewKlineChart market={selected} compact side={chartSide} timeframe={timeframe} />
             </div>
-            <div className="mt-3 grid grid-cols-6 divide-x divide-line rounded-lg border border-line bg-black/20">
+            <div className="mt-3 grid grid-cols-2 divide-x-0 divide-y divide-line rounded-lg border border-line bg-black/20 sm:grid-cols-3 md:grid-cols-6 md:divide-x md:divide-y-0">
               <Metric label="Last Price" value={formatPrice(yesPrice)} strong />
               <Metric label="24h Change" value={`${selected.change24h >= 0 ? "+" : "-"}${Math.abs(selected.change24h * 100).toFixed(1)}%`} positive={selected.change24h >= 0} />
               <Metric label="High (24h)" value={formatPrice(Math.min(0.98, yesPrice + 0.035))} />
@@ -381,7 +373,7 @@ export default function MarketListPage() {
         </article>
       </section>
 
-      <aside className="h-full min-h-[620px] overflow-hidden xl:col-span-2 2xl:col-span-1 2xl:min-h-0">
+      <aside className="min-h-[560px] overflow-hidden xl:col-span-2 2xl:col-span-1 2xl:h-full 2xl:min-h-0">
         {selected ? <TradePanel market={selected} /> : null}
       </aside>
     </div>

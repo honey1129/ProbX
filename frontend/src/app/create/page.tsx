@@ -2,9 +2,11 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { CalendarClock, CirclePlus, Droplets, FileQuestion, ImagePlus, Loader2 } from "lucide-react";
+import { TransactionProgressModal, type TransactionProgressState } from "@/components/chain/TransactionProgress";
 import { MarketCard } from "@/components/market/MarketCard";
 import { MarketMediaPicker } from "@/components/market/MarketMediaPicker";
 import { useMarkets } from "@/components/market/MarketProvider";
+import { getRuntimeConfig } from "@/lib/runtimeConfig";
 import type { Market } from "@/lib/types";
 
 const categories: Market["category"][] = ["Crypto", "Politics", "Sports", "Tech", "Macro", "On-chain"];
@@ -12,12 +14,14 @@ const maxAvatarPayloadLength = 360_000;
 
 export default function CreateMarketPage() {
   const { createMarket, waitForActionConfirmation, backendEnabled, isLoading, error, refresh } = useMarkets();
+  const runtimeConfig = useMemo(() => getRuntimeConfig(), []);
   const [question, setQuestion] = useState("Will SOL close above $200 this month?");
   const [category, setCategory] = useState<Market["category"]>("Crypto");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [endTime, setEndTime] = useState(defaultDateTimeLocal());
   const [initialLiquidity, setInitialLiquidity] = useState("1");
   const [status, setStatus] = useState<string | null>(null);
+  const [chainProgress, setChainProgress] = useState<TransactionProgressState | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const preview = useMemo<Market>(() => {
@@ -51,6 +55,7 @@ export default function CreateMarketPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus(null);
+    setChainProgress(null);
 
     const trimmed = question.trim();
     const unixEndTime = Math.floor(new Date(endTime).getTime() / 1000);
@@ -75,8 +80,23 @@ export default function CreateMarketPage() {
         avatarUrl: avatarUrl.trim() || undefined
       });
       if (signature !== "local" && signature !== "indexed") {
+        setChainProgress({
+          title: "Create Market",
+          phase: "confirming",
+          signature,
+          message: "Transaction broadcasted. Waiting for Solana confirmation and ProbX indexing."
+        });
         setStatus(`Create transaction sent: ${signature.slice(0, 12)}... waiting for indexer.`);
         const confirmation = await waitForActionConfirmation(signature, { eventType: "MarketCreated" });
+        setChainProgress({
+          title: "Create Market",
+          phase: confirmation === "confirmed" ? "confirmed" : "timeout",
+          signature,
+          message:
+            confirmation === "confirmed"
+              ? "Market is confirmed on-chain and indexed by ProbX."
+              : "Transaction was sent; indexing is still catching up."
+        });
         setStatus(
           confirmation === "confirmed"
             ? `Market confirmed and indexed: ${signature.slice(0, 12)}...`
@@ -86,12 +106,14 @@ export default function CreateMarketPage() {
         );
         return;
       }
+      setChainProgress(null);
       setStatus(
         signature === "local"
           ? "Market created in local preview."
           : "Market saved to ProbX API."
       );
     } catch (error) {
+      setChainProgress(null);
       setStatus(error instanceof Error ? error.message : "Create market failed.");
     } finally {
       setIsSubmitting(false);
@@ -100,22 +122,24 @@ export default function CreateMarketPage() {
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_clamp(360px,29vw,470px)] xl:overflow-hidden">
-      <main className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-5">
-        <div className="mb-6 flex items-center justify-between border-b border-line pb-4">
+      <TransactionProgressModal
+        state={chainProgress}
+        explorerCluster={runtimeConfig.explorerCluster}
+        onClose={() => setChainProgress(null)}
+      />
+      <main className="terminal-panel flex min-h-[720px] flex-col overflow-hidden p-4 sm:p-5 xl:h-full xl:min-h-0">
+        <div className="mb-6 grid gap-3 border-b border-line pb-4 sm:flex sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-black">Create Market</h1>
+            <h1 className="text-2xl font-black sm:text-3xl">Create Market</h1>
             <p className="mt-1 text-sm text-muted">
-              {backendEnabled ? "Create a YES/NO market through the ProbX API." : "Create a YES/NO market in the local preview workspace."}
+              Create a YES/NO market with initial liquidity and an end time.
             </p>
           </div>
-          <span className="rounded-lg border border-solPurple/50 bg-solPurple/15 px-3 py-2 text-xs font-black text-violet-200 shadow-glow">
-            {backendEnabled ? "API listing" : "Local preview"}
-          </span>
         </div>
 
         {error ? (
           <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-no/30 bg-no/10 px-4 py-3 text-sm text-no">
-            <span className="min-w-0 truncate">ProbX API error: {error}</span>
+            <span className="min-w-0 truncate">Service unavailable: {error}</span>
             <button onClick={refresh} className="shrink-0 font-black text-slate-100 transition hover:text-white" type="button">
               Retry
             </button>
@@ -205,7 +229,7 @@ export default function CreateMarketPage() {
         </form>
       </main>
 
-      <aside className="h-full min-h-0">
+      <aside className="min-h-[360px] xl:h-full xl:min-h-0">
         <section className="terminal-panel h-full overflow-y-auto p-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-black">Market Preview</h2>

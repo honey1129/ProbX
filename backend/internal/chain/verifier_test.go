@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"probx/backend/internal/models"
 )
@@ -46,6 +47,28 @@ func TestVerifierAcceptsConfirmedCreateMarketTransaction(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected verification success, got %v", err)
+	}
+}
+
+func TestVerifierWaitsForConfirmedTransaction(t *testing.T) {
+	responses := []map[string]any{
+		{"result": nil},
+		{"result": successfulCreateMarketTransaction("sig_123", "creator_123", "program_123", "market_123", "Will SOL close above $250?", 1_893_456_000, 2_000_000_000)},
+	}
+	verifier := testVerifierSequence(t, responses)
+	verifier.wait = time.Second
+	verifier.interval = time.Millisecond
+
+	err := verifier.VerifyCreateMarket(context.Background(), models.CreateMarketRequest{
+		Signature:        "sig_123",
+		Creator:          "creator_123",
+		PublicKey:        "market_123",
+		Question:         "Will SOL close above $250?",
+		EndTime:          1_893_456_000,
+		InitialLiquidity: 2,
+	})
+	if err != nil {
+		t.Fatalf("expected verification success after polling, got %v", err)
 	}
 }
 
@@ -206,9 +229,17 @@ func TestVerifierRejectsRPCErrorAsUnavailable(t *testing.T) {
 
 func testVerifier(t *testing.T, response map[string]any) *Verifier {
 	t.Helper()
+	return testVerifierSequence(t, []map[string]any{response})
+}
+
+func testVerifierSequence(t *testing.T, responses []map[string]any) *Verifier {
+	t.Helper()
+	index := 0
 	return &Verifier{
 		endpoint:  "http://solana.invalid",
 		programID: "program_123",
+		wait:      20 * time.Second,
+		interval:  1500 * time.Millisecond,
 		client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			if r.Method != http.MethodPost {
 				t.Fatalf("expected POST, got %s", r.Method)
@@ -224,6 +255,11 @@ func testVerifier(t *testing.T, response map[string]any) *Verifier {
 			out := map[string]any{
 				"jsonrpc": "2.0",
 				"id":      payload.ID,
+			}
+			response := responses[len(responses)-1]
+			if index < len(responses) {
+				response = responses[index]
+				index++
 			}
 			for key, value := range response {
 				out[key] = value

@@ -144,6 +144,21 @@ export function getProgram(connection: web3.Connection, wallet: AnchorWalletLike
   return new Program(legacyIdl, getProgramId(), provider);
 }
 
+async function sendSignedTransaction(params: {
+  connection: web3.Connection;
+  wallet: AnchorWalletLike;
+  transaction: web3.Transaction;
+}) {
+  const { blockhash } = await params.connection.getLatestBlockhash("confirmed");
+  params.transaction.feePayer = params.wallet.publicKey;
+  params.transaction.recentBlockhash = blockhash;
+  const signed = await params.wallet.signTransaction(params.transaction);
+  return params.connection.sendRawTransaction(signed.serialize(), {
+    preflightCommitment: "confirmed",
+    maxRetries: 5
+  });
+}
+
 export function getPositionPda(market: PublicKey, owner: PublicKey) {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("position"), market.toBuffer(), owner.toBuffer()],
@@ -191,7 +206,7 @@ export async function buyShares(params: {
     .mul(new BN(10_000 - slippageBps))
     .div(new BN(10_000));
 
-  return program.methods
+  const transaction = await program.methods
     .buyShares(lamports, side, minSharesOut)
     .accounts({
       market,
@@ -200,7 +215,13 @@ export async function buyShares(params: {
       treasury,
       systemProgram: SystemProgram.programId
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function createMarket(params: {
@@ -217,7 +238,7 @@ export async function createMarket(params: {
     Math.round((params.initialLiquiditySol ?? 1) * web3.LAMPORTS_PER_SOL)
   );
 
-  return program.methods
+  const transaction = await program.methods
     .createMarket(params.question, new BN(params.endTime), initialLiquidity)
     .accounts({
       market,
@@ -225,7 +246,13 @@ export async function createMarket(params: {
       config,
       systemProgram: SystemProgram.programId
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function sellShares(params: {
@@ -252,7 +279,7 @@ export async function sellShares(params: {
     .mul(new BN(10_000 - slippageBps))
     .div(new BN(10_000));
 
-  return program.methods
+  const transaction = await program.methods
     .sellShares(shares, side, minLamportsOut)
     .accounts({
       market,
@@ -260,7 +287,13 @@ export async function sellShares(params: {
       owner,
       treasury
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function redeemWinnings(params: {
@@ -273,14 +306,20 @@ export async function redeemWinnings(params: {
   const market = new PublicKey(params.market.publicKey);
   const position = getPositionPda(market, owner);
 
-  return program.methods
+  const transaction = await program.methods
     .redeemWinnings()
     .accounts({
       market,
       position,
       owner
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function refundCancelled(params: {
@@ -293,14 +332,20 @@ export async function refundCancelled(params: {
   const market = new PublicKey(params.market.publicKey);
   const position = getPositionPda(market, owner);
 
-  return program.methods
+  const transaction = await program.methods
     .refundCancelled()
     .accounts({
       market,
       position,
       owner
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function resolveMarket(params: {
@@ -312,13 +357,19 @@ export async function resolveMarket(params: {
   const program = getProgram(params.connection, params.wallet);
   const market = new PublicKey(params.market.publicKey);
 
-  return program.methods
+  const transaction = await program.methods
     .resolveMarket(params.outcome)
     .accounts({
       market,
       resolver: params.wallet.publicKey
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function setMarketResolver(params: {
@@ -330,13 +381,19 @@ export async function setMarketResolver(params: {
   const program = getProgram(params.connection, params.wallet);
   const market = new PublicKey(params.market.publicKey);
 
-  return program.methods
+  const transaction = await program.methods
     .setResolver(new PublicKey(params.newResolver))
     .accounts({
       market,
       resolver: params.wallet.publicKey
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function cancelMarket(params: {
@@ -347,13 +404,19 @@ export async function cancelMarket(params: {
   const program = getProgram(params.connection, params.wallet);
   const market = new PublicKey(params.market.publicKey);
 
-  return program.methods
+  const transaction = await program.methods
     .cancelMarket()
     .accounts({
       market,
       resolver: params.wallet.publicKey
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export async function withdrawResidual(params: {
@@ -364,13 +427,19 @@ export async function withdrawResidual(params: {
   const program = getProgram(params.connection, params.wallet);
   const market = new PublicKey(params.market.publicKey);
 
-  return program.methods
+  const transaction = await program.methods
     .withdrawResidual()
     .accounts({
       market,
       creator: params.wallet.publicKey
     })
-    .rpc();
+    .transaction();
+
+  return sendSignedTransaction({
+    connection: params.connection,
+    wallet: params.wallet,
+    transaction
+  });
 }
 
 export function protocolFeeSol(market: Market, grossSol: number) {

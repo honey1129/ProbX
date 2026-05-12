@@ -39,6 +39,8 @@ type Verifier struct {
 	endpoint  string
 	programID string
 	client    *http.Client
+	wait      time.Duration
+	interval  time.Duration
 }
 
 func NewVerifier(endpoint string, programID string, timeout time.Duration) (*Verifier, error) {
@@ -57,6 +59,8 @@ func NewVerifier(endpoint string, programID string, timeout time.Duration) (*Ver
 		endpoint:  endpoint,
 		programID: programID,
 		client:    &http.Client{Timeout: timeout},
+		wait:      20 * time.Second,
+		interval:  1500 * time.Millisecond,
 	}, nil
 }
 
@@ -162,7 +166,7 @@ func (v *Verifier) verifyCommon(ctx context.Context, signature string, signer st
 		return nil, fmt.Errorf("%w: market public key is required", ErrVerificationFailed)
 	}
 
-	tx, err := v.fetchTransaction(ctx, signature)
+	tx, err := v.waitForTransaction(ctx, signature)
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +186,32 @@ func (v *Verifier) verifyCommon(ctx context.Context, signature string, signer st
 		return nil, fmt.Errorf("%w: transaction does not reference ProbX program", ErrVerificationFailed)
 	}
 	return tx, nil
+}
+
+func (v *Verifier) waitForTransaction(ctx context.Context, signature string) (*transactionResult, error) {
+	wait := v.wait
+	if wait <= 0 {
+		wait = 20 * time.Second
+	}
+	interval := v.interval
+	if interval <= 0 {
+		interval = 1500 * time.Millisecond
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		tx, err := v.fetchTransaction(ctx, signature)
+		if err != nil || tx != nil || time.Now().After(deadline) {
+			return tx, err
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("%w: Solana transaction confirmation timed out", ErrVerifierUnavailable)
+		case <-timer.C:
+		}
+	}
 }
 
 func (v *Verifier) fetchTransaction(ctx context.Context, signature string) (*transactionResult, error) {

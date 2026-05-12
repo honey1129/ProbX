@@ -80,7 +80,8 @@ export function TradingViewKlineChart({
     loadLightweightCharts()
       .then((lightweightCharts) => {
         if (disposed) return;
-        const width = Math.max(320, container.clientWidth);
+        const minChartWidth = compact ? 300 : 280;
+        const width = Math.max(minChartWidth, container.clientWidth);
         const height = Math.max(240, container.clientHeight);
 
         chart = lightweightCharts.createChart(container, {
@@ -139,7 +140,7 @@ export function TradingViewKlineChart({
         chart.timeScale().fitContent();
         resizeObserver = new ResizeObserver(([entry]) => {
           if (!chart || !entry) return;
-          chart.resize(Math.max(320, Math.floor(entry.contentRect.width)), Math.max(240, Math.floor(entry.contentRect.height)));
+          chart.resize(Math.max(minChartWidth, Math.floor(entry.contentRect.width)), Math.max(240, Math.floor(entry.contentRect.height)));
         });
         resizeObserver.observe(container);
       })
@@ -160,7 +161,7 @@ export function TradingViewKlineChart({
   }
 
   return (
-    <div className={compact ? "chart-card h-full min-h-[250px]" : "chart-card h-[420px]"}>
+    <div className={compact ? "chart-card h-full min-h-[250px]" : "chart-card h-[360px] sm:h-[420px]"}>
       <div ref={containerRef} className="absolute inset-0" />
       <div className="pointer-events-none absolute left-3 top-3 flex gap-2 text-xs">
         <span className={`inline-flex items-center gap-1 rounded border px-2 py-1 font-black ${primaryClass}`}>

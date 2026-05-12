@@ -69,7 +69,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-y-auto 2xl:overflow-hidden">
+    <div className="grid h-full min-h-0 gap-3 overflow-y-auto 2xl:grid-rows-[auto_1fr] 2xl:overflow-hidden">
       <section className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
         <AgentMetric icon={<Trophy size={18} />} label="Recorded Volume" value={formatUsd(totals.volume)} tone="yes" />
         <AgentMetric icon={<Zap size={18} />} label="Avg Confidence" value={formatPercent(totals.confidence, 0)} tone="purple" />
@@ -78,7 +78,7 @@ export default function AgentsPage() {
       </section>
 
       <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.35fr)] 2xl:grid-cols-[clamp(360px,21vw,430px)_minmax(0,1fr)_clamp(380px,24vw,480px)]">
-        <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden p-4">
+        <aside className="terminal-panel flex h-[460px] min-h-0 flex-col overflow-hidden p-4 xl:h-full">
           <div className="mb-4 flex items-center justify-between">
             <h1 className="text-xl font-black">Activity Feed</h1>
             <select
@@ -97,16 +97,11 @@ export default function AgentsPage() {
           </div>
         </aside>
 
-        <main className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
+        <main className="grid min-h-[680px] grid-rows-[auto_1fr] gap-3 overflow-hidden xl:h-full xl:min-h-0">
           <section className="terminal-panel overflow-hidden p-4">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-black">Activity Volume Curve</h2>
-                <p className="text-sm text-muted">Cumulative recorded activity by timestamp.</p>
-              </div>
-              <span className="rounded-lg border border-solPurple/40 bg-solPurple/15 px-3 py-2 text-xs font-black text-violet-200 shadow-glow">
-                {backendEnabled ? "API indexed" : "Local preview"}
-              </span>
+            <div className="mb-4">
+              <h2 className="text-xl font-black">Activity Volume Curve</h2>
+              <p className="text-sm text-muted">Cumulative recorded activity by timestamp.</p>
             </div>
             {volumeCurve.length ? (
               <PnLChart values={volumeCurve} />
@@ -120,7 +115,41 @@ export default function AgentsPage() {
               <h2 className="font-black">Agent Comparison</h2>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <table className="w-full border-collapse text-sm">
+              <div className="grid gap-2 p-2 md:hidden">
+                {!agentStats.length ? (
+                  <div className="rounded-lg bg-slate-950/35 px-4 py-10 text-center">
+                    <p className="font-bold text-slate-200">No agent rows yet</p>
+                    <p className="mt-1 text-sm text-muted">Agent comparison will populate from indexed activity.</p>
+                  </div>
+                ) : null}
+                {agentStats.map((agent) => (
+                  <button
+                    key={agent.name}
+                    onClick={() => setSelectedAgent(agent.name)}
+                    className={`rounded-lg border p-3 text-left transition ${
+                      selectedStats?.name === agent.name
+                        ? "border-solPurple/50 bg-solPurple/15 shadow-glow"
+                        : "border-line bg-slate-950/35"
+                    }`}
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-black text-white">{agent.name}</div>
+                        <div className="mt-1 text-xs text-muted">{agent.flow}</div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-xs uppercase text-muted">Volume</div>
+                        <div className="font-black text-yes">{formatUsd(agent.volume)}</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <MobileAgentStat label="Avg Conf." value={`${agent.avgConfidence}%`} />
+                      <MobileAgentStat label="Trades" value={agent.trades.toLocaleString()} />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <table className="hidden w-full border-collapse text-sm md:table">
                 <thead className="bg-slate-950/80 text-xs uppercase text-muted">
                   <tr>
                     <th className="px-4 py-3 text-left">Agent</th>
@@ -266,11 +295,20 @@ function AgentMetric({ icon, label, value, tone }: { icon: React.ReactNode; labe
   }[tone];
 
   return (
-    <article className="terminal-panel p-4">
+    <article className="terminal-panel p-3 sm:p-4">
       <div className={`mb-4 inline-flex rounded-lg border p-2 ${toneClass}`}>{icon}</div>
       <div className="text-xs uppercase text-muted">{label}</div>
-      <div className="mt-1 text-3xl font-black">{value}</div>
+      <div className="mt-1 truncate text-2xl font-black sm:text-3xl">{value}</div>
     </article>
+  );
+}
+
+function MobileAgentStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-line bg-black/20 px-2.5 py-2">
+      <div className="text-[11px] uppercase text-muted">{label}</div>
+      <div className="mt-1 truncate text-sm font-black text-slate-100">{value}</div>
+    </div>
   );
 }
 

@@ -161,7 +161,7 @@ export default function PortfolioPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_1fr] gap-3 overflow-hidden">
+    <div className="grid h-full min-h-0 gap-3 overflow-y-auto xl:grid-rows-[auto_1fr] xl:overflow-hidden">
       <section className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
         <SummaryCard icon={<WalletCards size={18} />} label="Total Balance" value={formatSol(totalBalance)} tone="blue" />
         <SummaryCard icon={<BadgeDollarSign size={18} />} label="Unrealized PnL" value={formatSignedUsd(unrealized)} tone={unrealized >= 0 ? "yes" : "no"} />
@@ -171,13 +171,13 @@ export default function PortfolioPage() {
 
       <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_clamp(360px,28vw,460px)]">
         <article className="terminal-panel flex min-h-0 flex-col overflow-hidden p-4">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 grid gap-3 md:flex md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-black">Portfolio</h1>
               <p className="text-sm text-muted">Open positions, claimable markets, and your indexed trade history.</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-lg border border-line bg-black/25 p-1">
+            <div className="grid gap-2 sm:flex sm:items-center">
+              <div className="grid grid-cols-2 rounded-lg border border-line bg-black/25 p-1 sm:flex">
                 {(["positions", "trades"] as const).map((item) => (
                   <button
                     key={item}
@@ -191,7 +191,7 @@ export default function PortfolioPage() {
                 ))}
               </div>
               {mainTab === "positions" ? (
-                <div className="flex rounded-lg border border-line bg-black/25 p-1">
+                <div className="grid grid-cols-3 rounded-lg border border-line bg-black/25 p-1 sm:flex">
                   {(["pnl", "size", "market"] as const).map((item) => (
                     <button
                       key={item}
@@ -218,7 +218,7 @@ export default function PortfolioPage() {
           </div>
           {error ? (
             <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-no/30 bg-no/10 px-3 py-2 text-xs text-no">
-              <span className="min-w-0 truncate">ProbX API error: {error}</span>
+              <span className="min-w-0 truncate">Service unavailable: {error}</span>
               <button onClick={refresh} className="shrink-0 font-black text-slate-100 transition hover:text-white">
                 Retry
               </button>
@@ -241,7 +241,7 @@ export default function PortfolioPage() {
           </div>
         </article>
 
-        <aside className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-3 overflow-hidden">
+        <aside className="grid h-full min-h-[560px] min-w-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-3 overflow-hidden xl:min-h-0">
           <section className="terminal-panel overflow-hidden p-4">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-black">Cumulative PnL</h2>
@@ -259,7 +259,7 @@ export default function PortfolioPage() {
               {enriched.map((position) => {
                 const market = markets.find((item) => item.id === position.marketId);
                 return (
-                  <article key={position.id} className="rounded-lg border border-line bg-black/25 p-3">
+                  <article key={position.id} className="min-w-0 rounded-lg border border-line bg-black/25 p-3">
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <span className="truncate text-sm font-bold">{market?.question ?? position.marketId}</span>
                       <b className={position.side === "YES" ? "text-yes" : "text-no"}>{position.side}</b>
@@ -285,10 +285,10 @@ function SummaryCard({ icon, label, value, tone }: { icon: React.ReactNode; labe
   }[tone];
 
   return (
-    <article className="terminal-panel p-4">
+    <article className="terminal-panel p-3 sm:p-4">
       <div className={`mb-4 inline-flex rounded-lg border p-2 ${toneClass}`}>{icon}</div>
       <div className="text-xs uppercase text-muted">{label}</div>
-      <div className="mt-1 text-3xl font-black">{value}</div>
+      <div className="mt-1 truncate text-2xl font-black sm:text-3xl">{value}</div>
     </article>
   );
 }
@@ -336,7 +336,44 @@ function PortfolioTradeHistory({
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-line">
-      <table className="w-full border-collapse text-sm">
+      <div className="grid gap-2 p-2 md:hidden">
+        {loading ? (
+          <div className="rounded-lg bg-slate-950/35 px-4 py-10 text-center text-muted">
+            <Loader2 size={18} className="mx-auto mb-2 animate-spin text-solBlue" />
+            Loading your trade history
+          </div>
+        ) : null}
+        {!loading && !trades.length ? (
+          <div className="rounded-lg bg-slate-950/35 px-4 py-10 text-center">
+            <ScrollText size={20} className="mx-auto mb-2 text-muted" />
+            <p className="font-bold text-slate-200">No trades yet</p>
+            <p className="mt-1 text-sm text-muted">Your completed buys and sells will appear here after the API records them.</p>
+          </div>
+        ) : null}
+        {trades.map((trade) => {
+          const market = markets.find((item) => item.id === trade.marketId);
+          return (
+            <article key={trade.id} className="rounded-lg border border-line bg-slate-950/35 p-3">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="line-clamp-2 text-sm font-black text-white">{market?.question ?? trade.marketId}</div>
+                  <div className="mt-1 truncate font-mono text-[11px] text-muted">{shortSignature(trade.signature)}</div>
+                </div>
+                <span className={trade.side === "YES" ? "shrink-0 font-black text-yes" : "shrink-0 font-black text-no"}>
+                  {trade.action} {trade.side}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <MobileTradeStat label="Amount" value={formatSol(trade.amountSol, 3)} strong />
+                <MobileTradeStat label="Price" value={formatPrice(trade.price)} />
+                <MobileTradeStat label="Status" value={trade.status} />
+                <MobileTradeStat label="Time" value={relativeTime(trade.createdAt)} />
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <table className="hidden w-full border-collapse text-sm md:table">
         <thead className="bg-slate-950/80 text-xs uppercase text-muted">
           <tr>
             <th className="px-4 py-3 text-left">Market</th>
@@ -402,6 +439,15 @@ function PortfolioTradeHistory({
           </button>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function MobileTradeStat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-md border border-line bg-black/20 px-2.5 py-2">
+      <div className="text-[11px] uppercase text-muted">{label}</div>
+      <div className={`mt-1 truncate text-sm font-black ${strong ? "text-white" : "text-slate-200"}`}>{value}</div>
     </div>
   );
 }

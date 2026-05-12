@@ -30,7 +30,7 @@ func main() {
 	switch cfg.TradeVerification {
 	case "", "off":
 	case "confirmed":
-		verifier, err := chain.NewVerifier(cfg.SolanaRPCURL, cfg.ProgramID, 6*time.Second)
+		verifier, err := chain.NewVerifier(cfg.SolanaRPCURL, cfg.ProgramID, 10*time.Second)
 		if err != nil {
 			log.Fatalf("configure trade verifier: %v", err)
 		}

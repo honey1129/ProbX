@@ -25,11 +25,28 @@ ProbX 是一个基于 Solana Anchor 的二元预测市场项目。仓库包含�
 4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 ```
 
+## 当前测试环境
+
+当前已上线的测试环境：
+
+```text
+Frontend: https://test.probx.site
+API:      https://test-api.probx.site
+Network:  Solana Testnet
+Program:  4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+```
+
+`test.probx.site` 会在运行时自动切到 testnet 配置，使用 `https://test-api.probx.site` 和 `https://api.testnet.solana.com`。页面顶部保留红色 testnet 全宽横幅，左上角 ProbX logo 旁边保留 `Testnet` 标识；API/indexer 这类调试状态不在页面上展示。
+
+测试环境已切成只允许真实链上交易：创建 market、Buy/Sell YES/NO、Claim/Refund、Resolve、Cancel、Set Resolver、Withdraw Residual 等触发钱包的动作都会发送 Solana testnet 交易。用户在钱包确认后，前端会立即弹出上链过程弹窗，显示交易 signature、Solana Explorer 链接、确认状态和 ProbX indexer 同步状态。
+
+使用测试站交易前，请确认钱包网络是 Solana Testnet，并准备 testnet SOL。
+
 ## 功能概览
 
 - Anchor 合约：创建市场、AMM 买卖份额、价格查询、结算市场、领取奖励。
 - Go 后端：提供 REST API，使用 MySQL 保存市场、概率历史、持仓、交易记录和 agent 活动。
-- Vite React 前端：市场列表、市场详情、交易面板、创建市场、持仓页、概率图表和 agent 活动流。
+- Vite React 前端：市场列表、市场详情、交易面板、创建市场、持仓页、概率图表、agent 活动流、移动端布局和链上交易进度弹窗。
 - Python agent：从链上或 API 拉取市场，基于动量、均值回归和外部信号生成交易决策，支持 dry-run、循环轮询和多 agent 模拟。
 
 ## 环境要求
@@ -148,13 +165,13 @@ NEXT_PUBLIC_GITHUB_URL=https://github.com/honey1129/ProbX
 
 `NEXT_PUBLIC_API_URL` 为空时，前端会进入本地预览模式。设置为 Go API 地址后，前端会通过 MySQL 索引读写市场、持仓和交易活动；API 加载、空数据和错误会在页面上明确展示。
 
-当访问域名匹配 `NEXT_PUBLIC_TESTNET_HOSTS`，例如 `test.probx.site`，前端会在运行时自动切到测试网模式：RPC 使用 `NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL`，API 使用 `NEXT_PUBLIC_TESTNET_API_URL`，Explorer 链接使用 Solana testnet，页面顶部会显示 Testnet 标识。测试网用户需要在钱包切换到 Solana Testnet，并通过 Solana Faucet 获取测试 SOL。
+当访问域名匹配 `NEXT_PUBLIC_TESTNET_HOSTS`，例如 `test.probx.site`，前端会在运行时自动切到测试网模式：RPC 使用 `NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL`，API 使用 `NEXT_PUBLIC_TESTNET_API_URL`，Explorer 链接使用 Solana testnet，页面顶部会显示红色 testnet 横幅，左上角 logo 旁显示 `Testnet` 标识。测试网用户需要在钱包切换到 Solana Testnet，并通过 Solana Faucet 获取测试 SOL。
 
 Vite 配置会继续读取现有的 `NEXT_PUBLIC_*` 变量，方便从旧前端平滑迁移；也支持对应的 `VITE_*` 别名。
 
 `NEXT_PUBLIC_X_URL`、`NEXT_PUBLIC_DISCORD_URL`、`NEXT_PUBLIC_TELEGRAM_URL`、`NEXT_PUBLIC_GITHUB_URL` 会渲染到顶部右侧和底部 ticker 右侧的社群图标入口。
 
-`NEXT_PUBLIC_PROBX_PROGRAM_ID` 必须和当前 RPC 网络上部署的 ProbX 程序一致。`NEXT_PUBLIC_ENABLE_ONCHAIN=false` 时，交易和创建市场走前端/API 的模拟或索引流程。需要连接钱包并发送链上交易时，先启动 localnet 并部署合约，然后将 `NEXT_PUBLIC_ENABLE_ONCHAIN` 改为 `true`。
+`NEXT_PUBLIC_PROBX_PROGRAM_ID` 必须和当前 RPC 网络上部署的 ProbX 程序一致。`NEXT_PUBLIC_ENABLE_ONCHAIN=false` 时，交易和创建市场走前端/API 的模拟或索引流程。需要连接钱包并发送链上交易时，先启动 localnet 并部署合约，然后将 `NEXT_PUBLIC_ENABLE_ONCHAIN` 改为 `true`。测试网环境通过 `NEXT_PUBLIC_TESTNET_ENABLE_ONCHAIN=true` 强制走真实链上交易，钱包确认后会显示交易进度弹窗和 Solana Explorer 链接。
 
 ## 链上开发
 
@@ -233,6 +250,22 @@ PROBX_INDEXER_EVENT_LIMIT=5000
 ```
 
 `PROBX_ENV_FILE=backend/.env.testnet backend/scripts/migrate.sh` 会读取这份文件并迁移测试网数据库；PM2 部署脚本会自动分别迁移主环境和测试网环境。
+
+测试站当前由 PM2 进程 `probx-frontend`、`probx-test-api` 和 `probx-test-indexer` 提供服务。常用检查命令：
+
+```bash
+curl -sSI https://test.probx.site
+curl -sS https://test-api.probx.site/api/status
+pm2 logs probx-test-api --lines 80
+pm2 logs probx-test-indexer --lines 120
+```
+
+DNS 需要指向 VPS：
+
+```text
+test.probx.site     A 185.214.135.24
+test-api.probx.site A 185.214.135.24
+```
 
 ## Go API
 

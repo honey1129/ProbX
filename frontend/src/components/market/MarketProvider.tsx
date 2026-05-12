@@ -23,6 +23,7 @@ import { cancelBackendMarket, createBackendMarket, fetchBootstrap, fetchIndexedE
 import { clamp, localActivity, localMarkets, localPositions } from "@/lib/localData";
 import { probability } from "@/lib/format";
 import { getRuntimeConfig } from "@/lib/runtimeConfig";
+import { isIndexedOnchainMarket, isPendingOnchainMarket } from "@/lib/marketMode";
 import type { AgentActivity, Market, Position, Side } from "@/lib/types";
 
 type MarketContextValue = {
@@ -188,6 +189,16 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
   const selectedMarket = useCallback((id: string) => markets.find((market) => market.id === id), [markets]);
   const refresh = useCallback(() => setReloadToken((token) => token + 1), []);
+  const canUseOnchainMarket = useCallback(
+    (market: Market) =>
+      onchainEnabled &&
+      wallet.connected &&
+      wallet.publicKey &&
+      wallet.signTransaction &&
+      wallet.signAllTransactions &&
+      isIndexedOnchainMarket(market),
+    [onchainEnabled, wallet]
+  );
 
   const buy = useCallback(
     async (marketId: string, side: Side, amountSol: number, options?: TradeOptions) => {
@@ -195,7 +206,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (!market) throw new Error("Market not found");
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await buySharesIx({
           connection,
           wallet: wallet as AnchorWalletLike,
@@ -204,6 +215,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           amountSol,
           slippageBps: options?.slippageBps
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -281,7 +294,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, wallet]
   );
 
   const sell = useCallback(
@@ -298,7 +311,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       }
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await sellSharesIx({
           connection,
           wallet: wallet as AnchorWalletLike,
@@ -307,6 +320,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
           sharesSol,
           slippageBps: options?.slippageBps
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -371,7 +386,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, positions, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, positions, wallet]
   );
 
   const redeem = useCallback(
@@ -388,12 +403,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       }
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await redeemWinningsIx({
           connection,
           wallet: wallet as AnchorWalletLike,
           market
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -440,7 +457,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, positions, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, positions, wallet]
   );
 
   const refund = useCallback(
@@ -452,12 +469,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (!market.resolved || market.outcome !== 2) throw new Error("Market is not cancelled.");
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await refundCancelledIx({
           connection,
           wallet: wallet as AnchorWalletLike,
           market
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -518,7 +537,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       );
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, positions, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, positions, wallet]
   );
 
   const resolve = useCallback(
@@ -529,13 +548,15 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (market.endTime > Math.floor(Date.now() / 1000)) throw new Error("Market has not ended yet.");
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await resolveMarketIx({
           connection,
           wallet: wallet as AnchorWalletLike,
           market,
           outcome
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -573,7 +594,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       setPositions((current) => current.map((position) => (position.marketId === marketId ? { ...position, resolved: true } : position)));
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, wallet]
   );
 
   const cancelMarket = useCallback(
@@ -583,12 +604,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (market.resolved) throw new Error("Market is already resolved");
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await cancelMarketIx({
           connection,
           wallet: wallet as AnchorWalletLike,
           market
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -625,7 +648,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       setPositions((current) => current.map((position) => (position.marketId === marketId ? { ...position, resolved: true } : position)));
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, wallet]
   );
 
   const setMarketResolver = useCallback(
@@ -637,13 +660,15 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (!trimmedResolver) throw new Error("New resolver is required.");
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await setMarketResolverIx({
           connection,
           wallet: wallet as AnchorWalletLike,
           market,
           newResolver: trimmedResolver
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -678,7 +703,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       );
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, wallet]
   );
 
   const withdrawResidual = useCallback(
@@ -689,12 +714,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       if (market.residualClaimed) throw new Error("Residual funds already withdrawn");
 
       let signature = backendEnabled ? "indexed" : "local";
-      if (onchainEnabled && wallet.connected && wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions) {
+      if (canUseOnchainMarket(market)) {
         signature = await withdrawResidualIx({
           connection,
           wallet: wallet as AnchorWalletLike,
           market
         });
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
@@ -731,7 +758,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       );
       return signature;
     },
-    [apiReady, backendEnabled, connection, error, markets, onchainEnabled, ownerId, wallet]
+    [apiReady, backendEnabled, canUseOnchainMarket, connection, error, markets, ownerId, wallet]
   );
 
   const addLocalMarket = useCallback((question: string, endTime: number, options?: CreateMarketOptions) => {
@@ -782,12 +809,36 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         });
         creator = creatorKey.toBase58();
         publicKey = getMarketPda(creatorKey, endTime).toBase58();
+        if (backendEnabled && apiReady) {
+          void createBackendMarket({
+            id: publicKey,
+            question,
+            endTime,
+            category: options?.category,
+            avatarUrl: options?.avatarUrl,
+            initialLiquidity: options?.initialLiquidity,
+            creator,
+            publicKey,
+            signature,
+            status: "sent"
+          })
+            .then((market) => {
+              setMarkets((current) => upsertById(current, normalizeMarket(market)));
+              setError(null);
+            })
+            .catch(() => {
+              // The indexer remains the source of truth for on-chain market creation.
+            });
+        }
+        setError(null);
+        return signature;
       }
 
       if (backendEnabled) {
         if (!apiReady) throw new Error(error ?? "ProbX API is not ready.");
         try {
           const market = await createBackendMarket({
+            id: publicKey,
             question,
             endTime,
             category: options?.category,
@@ -980,8 +1031,10 @@ function upsertById<T extends { id: string }>(items: T[], next: T) {
 }
 
 function normalizeMarket(market: Market): Market {
+  const preservePendingOnchainId = isPendingOnchainMarket(market);
   return {
     ...market,
+    id: preservePendingOnchainId ? market.publicKey : market.id,
     resolver: market.resolver || market.creator,
     treasury: market.treasury || market.creator,
     protocolFeeBps: market.protocolFeeBps ?? 100,

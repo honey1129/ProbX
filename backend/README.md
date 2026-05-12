@@ -10,6 +10,31 @@ Go backend for the ProbX frontend. It exposes a small REST API and stores query-
 
 The Solana program remains the source of truth for funds and settlement. MySQL is an index/cache layer for the product UI and agent workflows.
 
+## Testnet API
+
+Current test API:
+
+```text
+https://test-api.probx.site
+```
+
+It is paired with `https://test.probx.site` and Solana Testnet. In this environment `PROBX_TRADE_VERIFICATION=confirmed`, so create, trade, resolve, cancel, redeem/refund, resolver update, and residual withdrawal requests must reference a confirmed Solana transaction for the configured ProbX program.
+
+The test deployment usually runs as two PM2 processes:
+
+```text
+probx-test-api
+probx-test-indexer
+```
+
+Useful checks:
+
+```bash
+curl -sS https://test-api.probx.site/api/status
+pm2 logs probx-test-api --lines 80
+pm2 logs probx-test-indexer --lines 120
+```
+
 ## Configuration
 
 `cmd/server` and `cmd/indexer` automatically load `.env` from the current directory. When run from the repository root, they also try `backend/.env`. Existing shell environment variables win over values from `.env`.
@@ -31,6 +56,22 @@ PROBX_INDEXER_EVENT_LIMIT=5000
 ```
 
 `PROBX_TRADE_VERIFICATION=off` keeps the local demo flow available. Set it to `confirmed` for testnet/prod-like environments; in that mode create, trade, resolve, and redeem requests require a confirmed Solana signature, a non-local wallet, and a transaction that references `PROBX_PROGRAM_ID`.
+
+Example testnet `.env.testnet`:
+
+```bash
+PROBX_HTTP_ADDR=:8082
+PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx_test?parseTime=true&multiStatements=true
+PROBX_CORS_ORIGINS=https://test.probx.site
+PROBX_SOLANA_RPC_URL=https://api.testnet.solana.com
+PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+PROBX_TRADE_VERIFICATION=confirmed
+PROBX_MEDIA_DIR=data/media-test
+PROBX_PUBLIC_BASE_URL=https://test-api.probx.site
+PROBX_INDEXER_INTERVAL=15s
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
+```
 
 `PROBX_INDEXER_INTERVAL=0s` keeps `cmd/indexer` as a one-shot sync. Set it to a duration such as `15s` to run it as a long-lived worker. `PROBX_INDEXER_TIMEOUT` caps each cycle and `PROBX_INDEXER_EVENT_LIMIT` caps event signatures fetched per cycle.
 

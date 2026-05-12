@@ -750,7 +750,7 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 }
 
 func requestContext(r *http.Request) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(r.Context(), 8*time.Second)
+	return context.WithTimeout(r.Context(), 30*time.Second)
 }
 
 func readJSON(r *http.Request, dst any) error {

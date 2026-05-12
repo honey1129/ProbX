@@ -244,7 +244,7 @@ export function WalletConnect() {
       <button
         type="button"
         onClick={handleMainClick}
-        className="probx-wallet-button inline-flex items-center justify-center gap-2 px-4 text-white"
+        className="probx-wallet-button inline-flex items-center justify-center gap-2 px-3 text-white sm:px-4"
         aria-expanded={menuOpen}
       >
         {walletIcon ? (
@@ -252,7 +252,7 @@ export function WalletConnect() {
         ) : (
           <Wallet size={17} className="text-violet-100" />
         )}
-        <span>{label}</span>
+        <span className="hidden sm:inline">{label}</span>
         {connected ? <ChevronDown size={15} className={menuOpen ? "rotate-180 text-violet-100 transition" : "text-violet-100 transition"} /> : null}
       </button>
 

@@ -28,7 +28,7 @@ export function MarketCard({ market }: { market: Market }) {
   return (
     <Link
       href={`/markets/${market.id}`}
-      className="market-tile group grid min-w-0 gap-2 rounded-lg border border-line px-2.5 py-2 transition hover:border-solBlue/50 hover:bg-slate-900/70 hover:shadow-[0_0_26px_rgba(49,185,255,0.12)]"
+      className="market-tile group grid min-w-0 gap-2 rounded-lg border border-line px-2.5 py-2 transition hover:border-solBlue/50 hover:bg-slate-900/70"
     >
       <div className="relative z-[1] flex min-w-0 items-start gap-2 sm:gap-2.5">
         <MarketVisual market={market} />

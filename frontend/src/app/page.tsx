@@ -208,7 +208,7 @@ export default function MarketListPage() {
                 key={market.id}
                 onMouseEnter={() => setSelectedId(market.id)}
                 onFocus={() => setSelectedId(market.id)}
-                className={selected?.id === market.id ? "min-w-0 rounded-lg ring-1 ring-solBlue/60 shadow-[0_0_24px_rgba(49,185,255,0.10)]" : "min-w-0"}
+                className={selected?.id === market.id ? "min-w-0 rounded-lg ring-1 ring-solBlue/60" : "min-w-0"}
               >
                 <MarketCard market={market} />
               </div>

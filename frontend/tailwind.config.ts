@@ -18,9 +18,9 @@ const config: Config = {
         solBlue: "#31b9ff"
       },
       boxShadow: {
-        glow: "0 0 32px rgba(155, 92, 255, 0.22)",
-        yes: "0 0 30px rgba(25, 245, 140, 0.18)",
-        no: "0 0 30px rgba(255, 78, 92, 0.18)"
+        glow: "none",
+        yes: "none",
+        no: "none"
       },
       fontFamily: {
         sans: [

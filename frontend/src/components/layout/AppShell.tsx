@@ -93,7 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className={`${hasTestnetBanner ? "h-[calc(100dvh-164px)] md:h-[calc(100dvh-136px)]" : "h-[calc(100dvh-132px)] md:h-[calc(100dvh-104px)]"} w-full overflow-x-hidden overflow-y-scroll px-2.5 py-2.5 pb-[calc(76px+env(safe-area-inset-bottom))] md:pb-2.5 2xl:px-4`}>
         {children}
       </main>
-      <footer className="fixed bottom-2.5 left-2.5 right-2.5 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 shadow-[0_0_28px_rgba(49,185,255,0.10)] backdrop-blur-xl xl:block">
+      <footer className="fixed bottom-2.5 left-2.5 right-2.5 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 backdrop-blur-xl xl:block">
         <Ticker />
       </footer>
       <MobileNav pathname={pathname} />
@@ -146,7 +146,7 @@ function Ticker() {
   return (
     <div className="flex h-10 items-center overflow-hidden text-xs">
       <div className="flex h-full shrink-0 items-center gap-2 border-r border-line px-4 text-slate-300">
-        <span className="h-2 w-2 rounded-full bg-yes shadow-[0_0_12px_#19f58c]" />
+        <span className="h-2 w-2 rounded-full bg-yes" />
         Market Ticker
       </div>
       <div className="ticker-shell min-w-0 flex-1">

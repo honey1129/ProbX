@@ -170,7 +170,7 @@ export default function CreateMarketPage() {
               onChange={(event) => setQuestion(event.target.value)}
               rows={4}
               maxLength={180}
-              className="rounded-lg border border-line bg-black/35 p-4 text-lg font-bold outline-none transition placeholder:text-muted focus:border-solBlue/70 focus:shadow-[0_0_26px_rgba(49,185,255,0.12)]"
+              className="rounded-lg border border-line bg-black/35 p-4 text-lg font-bold outline-none transition placeholder:text-muted focus:border-solBlue/70"
               placeholder="Will ETH trade above $5,000 before July 1?"
             />
             <span className="text-right text-xs text-muted">{question.length}/180</span>
@@ -262,7 +262,7 @@ export default function CreateMarketPage() {
 function ChecklistItem({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2 text-sm font-bold text-slate-300">
-      <span className="h-2 w-2 rounded-full bg-yes shadow-[0_0_14px_#19f58c]" />
+      <span className="h-2 w-2 rounded-full bg-yes" />
       {label}
     </div>
   );

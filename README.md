@@ -2,7 +2,7 @@
 
 ProbX 是一个基于 Solana Anchor 的二元预测市场项目。仓库包含链上合约、Vite React 交易前端、Go REST API、MySQL 索引库，以及一个可 dry-run 或模拟运行的 Python 自动交易 agent。
 
-市场使用 YES/NO 恒定乘积 AMM 表达概率，支持创建市场、买卖 outcome shares、查询 YES 概率、到期结算和赢家领取奖励。Solana 程序负责资金和结算，MySQL 负责面向前端和 agent 的查询索引。
+市场使用 YES/NO 恒定乘积 AMM 表达概率，支持创建市场、买卖 outcome shares、查询 YES 概率、到期结算和赢家领取奖励。
 
 ## 项目组成
 
@@ -36,9 +36,9 @@ Network:  Solana Testnet
 Program:  4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
 ```
 
-`test.probx.site` 会在运行时自动切到 testnet 配置，使用 `https://test-api.probx.site` 和 `https://api.testnet.solana.com`。页面顶部保留红色 testnet 全宽横幅，左上角 ProbX logo 旁边保留 `Testnet` 标识；API/indexer 这类调试状态不在页面上展示。
+`test.probx.site` 会在运行时自动切到 testnet 配置，使用 `https://test-api.probx.site` 和 `https://api.testnet.solana.com`。
 
-测试环境已切成只允许真实链上交易：创建 market、Buy/Sell YES/NO、Claim/Refund、Resolve、Cancel、Set Resolver、Withdraw Residual 等触发钱包的动作都会发送 Solana testnet 交易。用户在钱包确认后，前端会立即弹出上链过程弹窗，显示交易 signature、Solana Explorer 链接、确认状态和 ProbX indexer 同步状态。
+测试环境已切成只允许真实链上交易：创建 market、Buy/Sell YES/NO、Claim/Refund、Resolve、Cancel、Set Resolver、Withdraw Residual 等触发钱包的动作都会发送 Solana testnet 交易。
 
 使用测试站交易前，请确认钱包网络是 Solana Testnet，并准备 testnet SOL。
 

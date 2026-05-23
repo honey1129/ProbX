@@ -1,5 +1,11 @@
 # ProbX Prediction Market
 
+Language: [中文](#中文) | [English](#english)
+
+<a id="中文"></a>
+
+## 中文
+
 ProbX 是一个基于 Solana Anchor 的二元预测市场项目。仓库包含链上合约、Vite React 交易前端、Go REST API、MySQL 索引库，以及一个可 dry-run 或模拟运行的 Python 自动交易 agent。
 
 市场使用 YES/NO 恒定乘积 AMM 表达概率，支持创建市场、买卖 outcome shares、查询 YES 概率、到期结算和赢家领取奖励。
@@ -588,3 +594,9 @@ npm run test:ts
 - `sell_shares` 和 `redeem_winnings` 会保留 Market 账户租金豁免余额，只支付可用 lamports。
 - `docker compose up -d mysql` 只启动 MySQL；Go API 和前端需要分别启动。
 - MySQL 初始化脚本只会在数据卷首次创建时自动执行。已有数据卷需要手动运行迁移，或自行重建本地开发数据库。
+
+<a id="english"></a>
+
+## English
+
+English documentation is coming soon. For now, please refer to the Chinese section above.

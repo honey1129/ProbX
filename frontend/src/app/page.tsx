@@ -145,7 +145,7 @@ export default function MarketListPage() {
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-2.5 overflow-y-auto xl:grid-cols-[minmax(300px,0.78fr)_minmax(520px,1.55fr)] 2xl:grid-cols-[clamp(340px,19vw,420px)_minmax(560px,1fr)_clamp(330px,18vw,390px)] 2xl:overflow-hidden">
-      <aside className="terminal-panel flex min-h-[520px] flex-col overflow-hidden xl:h-full xl:min-h-0">
+      <aside className="terminal-panel flex h-full min-h-0 flex-col overflow-hidden">
         <div className="border-b border-line px-3.5 pb-3 pt-3">
           <div className="mb-3 flex items-center gap-4 text-sm sm:gap-6">
             {["Markets", "Watchlist", "Trending"].map((item) => (
@@ -237,9 +237,9 @@ export default function MarketListPage() {
         </div>
       </aside>
 
-      <section className="grid min-h-[780px] grid-rows-[minmax(0,1fr)_minmax(230px,0.52fr)] gap-2.5 overflow-hidden xl:h-full xl:min-h-0">
+      <section className="hidden gap-2.5 xl:grid xl:h-full xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(230px,0.52fr)] xl:overflow-hidden">
         {selected ? (
-          <article className="terminal-panel flex min-h-0 flex-col overflow-y-auto p-4">
+          <article className="terminal-panel flex flex-col overflow-hidden p-4 xl:min-h-0 xl:overflow-y-auto">
             <div className="mb-3 grid gap-3 md:flex md:items-start md:justify-between md:gap-4">
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted">
@@ -346,7 +346,7 @@ export default function MarketListPage() {
               </div>
             </div>
             <ProbabilityBar probability={yesPrice} />
-            <div className="mt-3 min-h-0 flex-1">
+            <div className="mt-3 min-h-[250px] xl:min-h-0 xl:flex-1">
               <TradingViewKlineChart market={selected} compact side={chartSide} timeframe={timeframe} />
             </div>
             <div className="mt-3 grid grid-cols-2 divide-x-0 divide-y divide-line rounded-lg border border-line bg-black/20 sm:grid-cols-3 md:grid-cols-6 md:divide-x md:divide-y-0">
@@ -360,7 +360,7 @@ export default function MarketListPage() {
           </article>
         ) : null}
 
-        <article className="terminal-panel flex min-h-0 flex-col overflow-hidden p-3.5">
+        <article className="terminal-panel flex min-h-[260px] flex-col overflow-hidden p-3.5 xl:min-h-0">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-bold">Positions ({positions.length})</h2>
             <Link href="/portfolio" className="text-xs text-muted transition hover:text-solBlue">
@@ -373,7 +373,7 @@ export default function MarketListPage() {
         </article>
       </section>
 
-      <aside className="min-h-[560px] overflow-hidden xl:col-span-2 2xl:col-span-1 2xl:h-full 2xl:min-h-0">
+      <aside className="hidden min-h-[560px] overflow-hidden xl:col-span-2 xl:block 2xl:col-span-1 2xl:h-full 2xl:min-h-0">
         {selected ? <TradePanel market={selected} /> : null}
       </aside>
     </div>

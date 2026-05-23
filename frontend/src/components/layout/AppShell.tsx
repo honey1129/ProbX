@@ -90,7 +90,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className={`${hasTestnetBanner ? "h-[calc(100dvh-164px)] md:h-[calc(100dvh-136px)]" : "h-[calc(100dvh-132px)] md:h-[calc(100dvh-104px)]"} w-full overflow-x-hidden overflow-y-scroll px-2.5 py-2.5 pb-[calc(76px+env(safe-area-inset-bottom))] md:pb-2.5 2xl:px-4`}>
+      <main className={`${hasTestnetBanner ? "h-[calc(100dvh-92px)] xl:h-[calc(100dvh-136px)]" : "h-[calc(100dvh-60px)] xl:h-[calc(100dvh-104px)]"} w-full overflow-x-hidden overflow-y-scroll px-2.5 py-2.5 pb-[calc(76px+env(safe-area-inset-bottom))] md:pb-2.5 2xl:px-4`}>
         {children}
       </main>
       <footer className="fixed bottom-2.5 left-2.5 right-2.5 z-40 hidden overflow-hidden rounded-lg border border-solBlue/25 bg-slate-950/90 backdrop-blur-xl xl:block">

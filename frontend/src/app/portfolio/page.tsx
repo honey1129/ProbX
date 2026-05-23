@@ -161,7 +161,7 @@ export default function PortfolioPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 gap-3 overflow-y-auto xl:grid-rows-[auto_1fr] xl:overflow-hidden">
+    <div className="grid gap-3 xl:h-full xl:min-h-0 xl:grid-rows-[auto_1fr] xl:overflow-hidden">
       <section className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
         <SummaryCard icon={<WalletCards size={18} />} label="Total Balance" value={formatSol(totalBalance)} tone="blue" />
         <SummaryCard icon={<BadgeDollarSign size={18} />} label="Unrealized PnL" value={formatSignedUsd(unrealized)} tone={unrealized >= 0 ? "yes" : "no"} />
@@ -169,8 +169,8 @@ export default function PortfolioPage() {
         <SummaryCard icon={<ArrowDownUp size={18} />} label="Win Rate" value={formatPercent(winRate)} tone="purple" />
       </section>
 
-      <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_clamp(360px,28vw,460px)]">
-        <article className="terminal-panel flex min-h-0 flex-col overflow-hidden p-4">
+      <section className="grid grid-cols-1 gap-3 xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_clamp(360px,28vw,460px)]">
+        <article className="terminal-panel flex flex-col overflow-hidden p-4 xl:min-h-0">
           <div className="mb-4 grid gap-3 md:flex md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-black">Portfolio</h1>
@@ -224,7 +224,7 @@ export default function PortfolioPage() {
               </button>
             </div>
           ) : null}
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
             {mainTab === "positions" ? (
               <PositionTable positions={sorted} markets={markets} />
             ) : (
@@ -241,7 +241,7 @@ export default function PortfolioPage() {
           </div>
         </article>
 
-        <aside className="grid h-full min-h-[560px] min-w-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-3 overflow-hidden xl:min-h-0">
+        <aside className={`${enriched.length ? "grid" : "hidden xl:grid"} min-w-0 gap-3 xl:h-full xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:overflow-hidden`}>
           <section className="terminal-panel overflow-hidden p-4">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-black">Cumulative PnL</h2>
@@ -252,9 +252,9 @@ export default function PortfolioPage() {
             {pnlCurve.length ? <PnLChart values={pnlCurve} /> : <EmptyBlock title="No PnL curve yet" message="The curve will appear after positions are recorded." />}
           </section>
 
-          <section className="terminal-panel flex min-h-0 flex-col overflow-hidden p-4">
+          <section className="terminal-panel flex flex-col overflow-hidden p-4 xl:min-h-0">
             <h2 className="mb-4 font-black">Exposure</h2>
-            <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto">
+            <div className="grid content-start gap-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               {!enriched.length ? <EmptyBlock title="No exposure yet" message="Open positions will appear here after trades are recorded." /> : null}
               {enriched.map((position) => {
                 const market = markets.find((item) => item.id === position.marketId);
@@ -308,7 +308,7 @@ function PortfolioStatePanel({ icon, title, message, action }: { icon: React.Rea
 
 function EmptyBlock({ title, message }: { title: string; message: string }) {
   return (
-    <div className="grid h-72 place-items-center rounded-lg border border-line bg-black/25 p-6 text-center">
+    <div className="grid min-h-[160px] place-items-center rounded-lg border border-line bg-black/25 px-5 py-8 text-center md:min-h-72">
       <div>
         <p className="font-bold text-slate-200">{title}</p>
         <p className="mt-1 text-sm text-muted">{message}</p>

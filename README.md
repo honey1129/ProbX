@@ -599,4 +599,590 @@ npm run test:ts
 
 ## English
 
-English documentation is coming soon. For now, please refer to the Chinese section above.
+ProbX is a binary prediction market project built on Solana Anchor. This repository includes the on-chain program, a Vite React trading frontend, a Go REST API, a MySQL index store, and a Python trading agent that can run in dry-run or simulation mode.
+
+Markets use a YES/NO constant-product AMM to express probability. The project supports market creation, buying and selling outcome shares, querying the YES probability, settlement after expiry, and winner redemption.
+
+## Project Structure
+
+```text
+.
+├── programs/probx_prediction/   # Anchor prediction market program
+├── tests/                       # Anchor TypeScript tests
+├── idl/                         # Program IDL
+├── backend/                     # Go API, MySQL store, and migrations
+├── frontend/                    # Vite React trading frontend
+├── agent.py                     # Python trading agent
+├── config.yaml                  # Agent, RPC, and risk configuration
+├── scripts/run_agent.sh         # Agent runner
+└── docker-compose.yml           # Local MySQL
+```
+
+Default localnet program ID:
+
+```text
+4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+```
+
+## Current Test Environment
+
+The current test environment is:
+
+```text
+Frontend: https://test.probx.site
+API:      https://test-api.probx.site
+Network:  Solana Testnet
+Program:  4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+```
+
+`test.probx.site` switches to the testnet configuration at runtime and uses `https://test-api.probx.site` plus `https://api.testnet.solana.com`.
+
+The test environment only allows real on-chain transactions. Actions that trigger a wallet, including creating markets, Buy/Sell YES/NO, Claim/Refund, Resolve, Cancel, Set Resolver, and Withdraw Residual, send Solana testnet transactions.
+
+Before trading on the test site, make sure your wallet is set to Solana Testnet and has testnet SOL.
+
+## Features
+
+- Anchor program: market creation, AMM share trading, price queries, market settlement, and reward redemption.
+- Go backend: REST API backed by MySQL for markets, probability history, positions, trades, and agent activity.
+- Vite React frontend: market list, market detail, trading panel, market creation, portfolio page, probability charts, agent activity feed, mobile layout, and on-chain transaction progress modal.
+- Python agent: reads markets from chain or API, generates decisions from momentum, mean reversion, and external signals, and supports dry-run, polling loops, and multi-agent simulation.
+
+## Requirements
+
+- Rust and Solana CLI
+- Anchor CLI `0.31.x`
+- Node.js `18+`
+- Go `1.22+`
+- MySQL `8+`, or the Docker Compose service in this repo
+- Python `3.10+`
+- Solana keypair, default path `~/.config/solana/id.json`
+
+## Quick Start
+
+Install root contract test dependencies:
+
+```bash
+npm install
+```
+
+Install frontend dependencies:
+
+```bash
+(cd frontend && npm install)
+```
+
+Prepare the Python agent environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Start MySQL:
+
+```bash
+docker compose up -d mysql
+```
+
+When the database is created for the first time, the MySQL container automatically runs `backend/migrations/*.sql`, including schema creation and seed data. If MySQL is already installed on your server, you can skip Docker, create the database manually, and run the migration script from `backend/`.
+
+Start the Go API:
+
+```bash
+(cd backend && go run ./cmd/server)
+```
+
+The default address is `http://localhost:8080`.
+
+Start the frontend:
+
+```bash
+test -f frontend/.env.local || cp frontend/.env.example frontend/.env.local
+(cd frontend && npm run dev)
+```
+
+Open `http://localhost:3000`.
+
+## Environment Variables
+
+### Go API
+
+Backend defaults match `backend/.env.example`. `cmd/server` and `cmd/indexer` automatically read `.env` from the current directory; when launched from the repository root, they also try `backend/.env`. System environment variables have higher priority and can override `.env`.
+
+Initial setup:
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Then edit `backend/.env`:
+
+```bash
+PROBX_HTTP_ADDR=:8080
+PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true
+PROBX_CORS_ORIGINS=http://localhost:3000
+PROBX_SOLANA_RPC_URL=http://127.0.0.1:8899
+PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+PROBX_TRADE_VERIFICATION=off
+PROBX_MEDIA_DIR=data/media
+PROBX_PUBLIC_BASE_URL=http://localhost:8080
+PROBX_INDEXER_INTERVAL=0s
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
+```
+
+`PROBX_TRADE_VERIFICATION=off` is suitable for a local demo. For testnet or production-like environments, use `confirmed`. In that mode, market creation, trading, settlement, and redemption requests must include a confirmed Solana transaction signature, the real wallet identity, and a transaction that references `PROBX_PROGRAM_ID`.
+
+`PROBX_MEDIA_DIR` is the local storage directory for uploaded market images. `PROBX_PUBLIC_BASE_URL` is the public API base URL used to generate `/media/...` image URLs. In production, set it to the same API domain used by `NEXT_PUBLIC_API_URL`.
+
+`PROBX_INDEXER_INTERVAL=0s` makes `cmd/indexer` sync once and exit. Set it to a duration such as `15s` to run it as a long-lived worker. `PROBX_INDEXER_TIMEOUT` controls the timeout for one sync round, and `PROBX_INDEXER_EVENT_LIMIT` limits the number of event signatures fetched per round.
+
+### Frontend
+
+Frontend runtime configuration lives in `frontend/.env.local`:
+
+```bash
+NEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899
+NEXT_PUBLIC_SOLANA_CLUSTER=localnet
+NEXT_PUBLIC_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+NEXT_PUBLIC_ENABLE_ONCHAIN=false
+NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_TESTNET_HOSTS=test.probx.site
+NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL=https://api.testnet.solana.com
+NEXT_PUBLIC_TESTNET_API_URL=https://test-api.probx.site
+NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+NEXT_PUBLIC_TESTNET_ENABLE_ONCHAIN=true
+NEXT_PUBLIC_X_URL=
+NEXT_PUBLIC_DISCORD_URL=
+NEXT_PUBLIC_TELEGRAM_URL=
+NEXT_PUBLIC_GITHUB_URL=https://github.com/honey1129/ProbX
+```
+
+When `NEXT_PUBLIC_API_URL` is empty, the frontend enters local preview mode. When it points to the Go API, the frontend reads and writes markets, positions, and trade activity through the MySQL index. Loading, empty-data, and error states are shown in the UI.
+
+When the current host matches `NEXT_PUBLIC_TESTNET_HOSTS`, such as `test.probx.site`, the frontend automatically switches to testnet mode: RPC uses `NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL`, API uses `NEXT_PUBLIC_TESTNET_API_URL`, Solana Explorer links target testnet, a red testnet banner appears at the top, and a `Testnet` badge appears next to the logo. Testnet users need to switch their wallet to Solana Testnet and get test SOL from a Solana faucet.
+
+The Vite setup continues to read existing `NEXT_PUBLIC_*` variables for easier migration from older frontend setups. Matching `VITE_*` aliases are also supported.
+
+`NEXT_PUBLIC_X_URL`, `NEXT_PUBLIC_DISCORD_URL`, `NEXT_PUBLIC_TELEGRAM_URL`, and `NEXT_PUBLIC_GITHUB_URL` render social links in the top-right header and the bottom ticker.
+
+`NEXT_PUBLIC_PROBX_PROGRAM_ID` must match the deployed ProbX program on the current RPC network. When `NEXT_PUBLIC_ENABLE_ONCHAIN=false`, trading and market creation use frontend/API simulation or indexing flows. To connect a wallet and send on-chain transactions, start localnet, deploy the program, and set `NEXT_PUBLIC_ENABLE_ONCHAIN=true`. The testnet environment forces real on-chain transactions through `NEXT_PUBLIC_TESTNET_ENABLE_ONCHAIN=true`; after wallet confirmation, the UI shows a transaction progress modal and Solana Explorer link.
+
+## On-Chain Development
+
+Start a local validator:
+
+```bash
+solana-test-validator
+```
+
+Build the program:
+
+```bash
+anchor build
+```
+
+Deploy to localnet:
+
+```bash
+anchor deploy
+```
+
+Run the full test suite:
+
+```bash
+anchor test
+```
+
+Run only the TypeScript test script:
+
+```bash
+npm run test:ts
+```
+
+`Anchor.toml` is currently configured as:
+
+```toml
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+```
+
+If `anchor test` fails because `yarn` is missing, install yarn or change the test script in `Anchor.toml` to an equivalent npm command.
+
+## Testnet Deployment
+
+The repository includes a testnet program deployment script:
+
+```bash
+PROBX_TESTNET_TREASURY=<wallet public key that receives protocol fees> \
+PROBX_TESTNET_WALLET=~/.config/solana/id.json \
+bash deploy/deploy-testnet-program.sh
+```
+
+The script switches to Solana testnet, builds and deploys the Anchor program, then runs `npm run protocol:config` to initialize or update the protocol treasury and fee. The deploy wallet must have testnet SOL. When the script finishes, it prints:
+
+```text
+PROBX_PROGRAM_ID=<testnet program id>
+NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID=<testnet program id>
+```
+
+Put the same program ID into the VPS `backend/.env.testnet` and `frontend/.env.local`. The testnet backend should use a separate database, for example:
+
+```bash
+# backend/.env.testnet
+PROBX_HTTP_ADDR=:8082
+PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx_test?parseTime=true&multiStatements=true
+PROBX_CORS_ORIGINS=https://test.probx.site
+PROBX_SOLANA_RPC_URL=https://api.testnet.solana.com
+PROBX_PROGRAM_ID=<testnet program id>
+PROBX_TRADE_VERIFICATION=confirmed
+PROBX_MEDIA_DIR=data/media-test
+PROBX_PUBLIC_BASE_URL=https://test-api.probx.site
+PROBX_INDEXER_INTERVAL=15s
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
+```
+
+`PROBX_ENV_FILE=backend/.env.testnet backend/scripts/migrate.sh` reads this file and migrates the testnet database. The PM2 deployment script automatically migrates both the main environment and the testnet environment.
+
+The test site is currently served by PM2 processes `probx-frontend`, `probx-test-api`, and `probx-test-indexer`. Common checks:
+
+```bash
+curl -sSI https://test.probx.site
+curl -sS https://test-api.probx.site/api/status
+pm2 logs probx-test-api --lines 80
+pm2 logs probx-test-indexer --lines 120
+```
+
+DNS should point to the VPS:
+
+```text
+test.probx.site     A 185.214.135.24
+test-api.probx.site A 185.214.135.24
+```
+
+## Go API
+
+Common endpoints:
+
+```text
+GET  /health
+GET  /api/status
+GET  /api/bootstrap?owner=local
+GET  /api/markets
+POST /api/markets
+GET  /api/markets/{id}
+PATCH /api/markets/{id}/metadata
+GET  /api/positions?owner=local
+GET  /api/activity?marketId=fed-rates&limit=40
+GET  /api/trades?marketId=fed-rates&owner=local&limit=50
+GET  /api/indexed-events?signature=tx_sig&type=MarketCreated
+POST /api/trades
+```
+
+Create a market:
+
+```bash
+curl -X POST http://localhost:8080/api/markets \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "question": "Will SOL close above $250 this month?",
+    "category": "Crypto",
+    "endTime": 1893456000,
+    "initialLiquidity": 1000,
+    "creator": "local"
+  }'
+```
+
+Record a trade:
+
+```bash
+curl -X POST http://localhost:8080/api/trades \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "marketId": "fed-rates",
+    "owner": "local",
+    "side": "YES",
+    "amountSol": 1.25,
+    "signature": "indexed",
+    "status": "indexed"
+  }'
+```
+
+Update market metadata:
+
+```bash
+curl -X PATCH http://localhost:8080/api/markets/fed-rates/metadata \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "actor": "local",
+    "category": "Macro",
+    "avatarUrl": "https://probx.site/market.png"
+  }'
+```
+
+When `PROBX_TRADE_VERIFICATION=confirmed`, `actor` must be the market creator, and the request must include a wallet-signed `message` and base58 `signature`. The signed message format is:
+
+```text
+ProbX metadata update
+market=<market id>
+actor=<creator wallet>
+category=<category>
+avatarUrl=<avatar URL>
+```
+
+Query trade history:
+
+```bash
+curl 'http://localhost:8080/api/trades?marketId=fed-rates&limit=50'
+```
+
+Check whether a trade action has been indexed:
+
+```bash
+curl 'http://localhost:8080/api/indexed-events?signature=tx_sig&type=MarketCreated'
+```
+
+## On-Chain Indexer
+
+The indexer reads Anchor `Market` and `Position` accounts under `PROBX_PROGRAM_ID` from `PROBX_SOLANA_RPC_URL`, then replays ProbX program events into MySQL. Event replay is idempotent and updates market history, trades, activity, settlement, and redemption state.
+
+Run one sync on a VPS with an existing MySQL database:
+
+```bash
+cd /root/ProbX/backend
+go run ./cmd/indexer
+```
+
+Run as a long-lived worker:
+
+```bash
+PROBX_INDEXER_INTERVAL=15s go run ./cmd/indexer
+```
+
+The commands above read `backend/.env`, so `PROBX_DATABASE_DSN`, `PROBX_SOLANA_RPC_URL`, and `PROBX_PROGRAM_ID` can be stored there.
+
+If the API is already running on `:8081`, the indexer does not need an HTTP port and can run in parallel. `GET /api/status` returns the program-event cursor and indexer lag, which helps verify whether the worker is catching up with the chain.
+
+## PM2 Deployment
+
+The repository includes a PM2 deployment script and GitHub Actions workflow:
+
+```text
+deploy/pm2-deploy.sh
+deploy/pm2/ecosystem.config.cjs
+.github/workflows/deploy-vps.yml
+```
+
+Initial VPS preparation:
+
+```bash
+npm install -g pm2
+cd /root/ProbX
+git pull
+```
+
+Make sure these files exist only locally on the VPS and are not committed:
+
+```text
+/root/ProbX/backend/.env
+/root/ProbX/backend/.env.testnet
+/root/ProbX/frontend/.env.local
+```
+
+If the frontend runs on `3001`, the backend CORS and frontend API settings can look like this:
+
+```bash
+# backend/.env
+PROBX_HTTP_ADDR=:8081
+PROBX_DATABASE_DSN=probx:probx@tcp(127.0.0.1:3306)/probx?parseTime=true&multiStatements=true
+PROBX_CORS_ORIGINS=http://185.214.135.24:3001
+PROBX_SOLANA_RPC_URL=https://api.devnet.solana.com
+PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+PROBX_TRADE_VERIFICATION=confirmed
+PROBX_MEDIA_DIR=data/media
+PROBX_PUBLIC_BASE_URL=https://api.probx.site
+PROBX_INDEXER_TIMEOUT=30s
+PROBX_INDEXER_EVENT_LIMIT=5000
+```
+
+```bash
+# frontend/.env.local
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_CLUSTER=devnet
+NEXT_PUBLIC_API_URL=https://api.probx.site
+NEXT_PUBLIC_ENABLE_ONCHAIN=true
+NEXT_PUBLIC_TESTNET_HOSTS=test.probx.site
+NEXT_PUBLIC_TESTNET_SOLANA_RPC_URL=https://api.testnet.solana.com
+NEXT_PUBLIC_TESTNET_API_URL=https://test-api.probx.site
+NEXT_PUBLIC_TESTNET_PROBX_PROGRAM_ID=4xwQsrqnu5beRquRWeccSLHzBeGQ1SjZgMJ4LS4KvYL
+NEXT_PUBLIC_TESTNET_ENABLE_ONCHAIN=true
+```
+
+The testnet API/indexer uses `backend/.env.testnet`. Key differences:
+
+```bash
+PROBX_HTTP_ADDR=:8082
+PROBX_CORS_ORIGINS=https://test.probx.site
+PROBX_SOLANA_RPC_URL=https://api.testnet.solana.com
+PROBX_PROGRAM_ID=<ProbX program id deployed on testnet>
+PROBX_PUBLIC_BASE_URL=https://test-api.probx.site
+PROBX_TRADE_VERIFICATION=confirmed
+```
+
+Run a manual deployment:
+
+```bash
+cd /root/ProbX
+PROBX_FRONTEND_PORT=3001 \
+PROBX_EXPECTED_API_URL=https://api.probx.site \
+bash deploy/pm2-deploy.sh
+```
+
+The deployment script pulls and resets to the remote branch, builds the Go backend, applies MySQL migrations from `backend/migrations/`, installs and builds the Vite frontend, and starts or reloads `probx-api`, `probx-indexer`, `probx-test-api`, `probx-test-indexer`, and `probx-frontend` through PM2.
+
+`probx-indexer` is a long-lived PM2 worker and syncs on-chain markets, positions, and program events every `15s` by default. To change the interval:
+
+```bash
+PROBX_FRONTEND_PORT=3001 PROBX_PM2_INDEXER_INTERVAL=10s bash deploy/pm2-deploy.sh
+```
+
+Common PM2 checks:
+
+```bash
+pm2 list
+pm2 logs probx-api --lines 80
+pm2 logs probx-indexer --lines 120
+pm2 logs probx-test-api --lines 80
+pm2 logs probx-test-indexer --lines 120
+pm2 restart probx-indexer --update-env
+```
+
+The API `GET /api/status` endpoint returns the indexer cursor and lag, which can be used to confirm whether the worker is catching up with the chain.
+
+Enable PM2 startup on boot:
+
+```bash
+pm2 save
+pm2 startup
+```
+
+`pm2 startup` prints one command. Copy and run that command once.
+
+For GitHub auto-deploy, add these Secrets in repository Settings -> Secrets and variables -> Actions:
+
+```text
+VPS_HOST=185.214.135.24
+VPS_USER=root
+VPS_SSH_KEY=private key used to log in to the VPS
+VPS_SSH_PORT=22
+VPS_PROJECT_DIR=/root/ProbX
+```
+
+Optional Variables:
+
+```text
+PROBX_FRONTEND_PORT=3001
+PROBX_PM2_INDEXER_INTERVAL=15s
+PROBX_PM2_TESTNET_INDEXER_INTERVAL=15s
+PROBX_EXPECTED_API_URL=https://api.probx.site
+PROBX_EXPECTED_TESTNET_SOLANA_RPC_URL=https://api.testnet.solana.com
+PROBX_EXPECTED_TESTNET_API_URL=https://test-api.probx.site
+PROBX_EXPECTED_TESTNET_HOSTS=test.probx.site
+```
+
+After that, every push to `main` runs `go test ./...` and frontend `npm run typecheck` in GitHub Actions. If both pass, the workflow SSHs into the VPS and runs `deploy/pm2-deploy.sh`.
+
+Manually migrate an existing database:
+
+```bash
+cd /root/ProbX/backend
+set -a
+. ./.env
+set +a
+./scripts/migrate.sh
+```
+
+## Python Agent
+
+The agent configuration is in `config.yaml`. The default is `dry_run: true`, and trade logs are written to `data/trades.csv`.
+
+Run a multi-agent simulation:
+
+```bash
+./scripts/run_agent.sh simulate
+```
+
+Run one dry-run trading loop:
+
+```bash
+./scripts/run_agent.sh once
+```
+
+Run continuous polling:
+
+```bash
+./scripts/run_agent.sh loop
+```
+
+You can also pass arguments directly:
+
+```bash
+python3 agent.py --config config.yaml --simulate --agents 5 --steps 100
+python3 agent.py --config config.yaml --once --dry-run
+python3 agent.py --config config.yaml --loop
+```
+
+To make the agent fetch markets from the Go API, set `api_endpoint` in `config.yaml`, for example `http://localhost:8080/api/markets`. If `api_endpoint` is empty, the agent reads markets from Solana program accounts.
+
+## Contract Model
+
+### Market
+
+Stores the market question, creator, resolver, YES/NO AMM pools, total liquidity, issued shares, end time, settlement status, and settlement outcome.
+
+### Position
+
+Stores a user's YES/NO outcome shares for a specific market. After the market is settled, the winning side can redeem rewards according to held shares.
+
+### Instructions
+
+- `create_market(question, end_time, initial_liquidity)`: creates a future-expiring AMM market and injects initial SOL liquidity.
+- `buy_shares(amount, side, min_shares_out)`: buys YES or NO shares from the constant-product curve. `side = 1` means YES, and `side = 0` means NO.
+- `sell_shares(shares, side, min_lamports_out)`: sells held shares back to the AMM before the market ends.
+- `get_price()`: returns the YES probability, scaled as a `1_000_000_000` fixed-point value.
+- `resolve_market(outcome)`: lets the resolver settle the outcome after expiry.
+- `redeem_winnings()`: lets the winning side redeem rewards according to held shares.
+- `place_bet(amount, side)` and `claim_reward()`: compatibility aliases for older clients. New code should use `buy_shares` and `redeem_winnings`.
+
+## Check Commands
+
+```bash
+# Contract
+anchor build
+anchor test
+npm run test:ts
+
+# Go API
+(cd backend && go test ./...)
+
+# Frontend
+(cd frontend && npm run typecheck)
+(cd frontend && npm run build)
+
+# Agent
+./scripts/run_agent.sh simulate
+```
+
+## Notes
+
+- `end_time` must be a future Unix timestamp.
+- Market question text is limited to 280 bytes.
+- Markets cannot be settled before expiry, and settled markets cannot continue trading.
+- `sell_shares` and `redeem_winnings` preserve the Market account rent-exempt balance and only pay available lamports.
+- `docker compose up -d mysql` only starts MySQL. The Go API and frontend need to be started separately.
+- MySQL initialization scripts only run automatically when the data volume is created for the first time. Existing volumes require manual migrations or a rebuilt local development database.
